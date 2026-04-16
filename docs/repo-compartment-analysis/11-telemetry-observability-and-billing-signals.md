@@ -8,6 +8,19 @@ logs, activity monitors, and billing-related events.
 This compartment supports forensic debugging, operational confidence, and cost
 analysis.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 11 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -51,6 +64,24 @@ Out of scope:
 3. Inspect exporters (file/local/gcp).
 4. Inspect sanitization and data handling constraints.
 5. Verify with telemetry tests and local-development docs.
+
+## Search Commands
+
+```bash
+rg -n "telemetry/config|initializeTelemetry|TelemetrySDK|telemetry-utils" packages/core/src/telemetry
+rg -n "trace|startSpan|setAttribute|recordException" packages/core/src/telemetry
+rg -n "metrics|loggers|file-exporters|gcp-exporters" packages/core/src/telemetry
+rg -n "activity-detector|activity-monitor|billingEvents" packages/core/src/telemetry
+rg -n "sanitize" packages/core/src/telemetry
+rg --files packages/core/src/telemetry
+rg --files scripts -g "telemetry*"
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/telemetry/**/*.ts","scripts/telemetry*.js" -Pattern "initializeTelemetry|startSpan|metrics|billingEvents|activity-monitor"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -185,12 +216,27 @@ Do not:
 - Perf/memory instrumentation validation ->
   `14-testing-and-evaluation-architecture.md`
 
+### Boundary with 02 (Core Turn Engine)
+
+Compartment 02 produces the primary **usage metadata** at generation time.
+Compartment 11 owns everything after that: transport, sampling, sanitization,
+and exporters. If a claim is about where tokens are _captured_, cite 02; if it
+is about where they are _stored, exported, or sanitized_, cite 11.
+
+### Boundary with 15 (Build/CI)
+
+Compartment 11 owns **runtime instrumentation** and **local/cloud telemetry
+workflows**. Compartment 15 owns **how telemetry scripts/jobs are orchestrated
+in CI and release pipelines**. Script behavior is 11; CI trigger and gating
+is 15.
+
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Trace/metric/log architecture is mapped.
-2. Billing/activity signal pathways are documented.
-3. Sanitization guarantees and limits are clear.
-4. Operational telemetry workflows are validated.
-5. Observability gaps are prioritized.
+- [ ] Trace/metric/log architecture is mapped.
+- [ ] Billing/activity signal pathways are documented.
+- [ ] Sanitization guarantees and limits are clear.
+- [ ] Operational telemetry workflows are validated.
+- [ ] Observability gaps are prioritized.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 11 flipped to `done`.

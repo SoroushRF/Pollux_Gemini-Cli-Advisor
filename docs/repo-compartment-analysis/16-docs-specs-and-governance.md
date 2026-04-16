@@ -7,6 +7,19 @@ rules, security policy, roadmap direction, and governance automation.
 
 This compartment distinguishes implemented behavior from documented intent.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 16 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -52,6 +65,24 @@ Out of scope:
 3. Compare specs/plans against current code evidence.
 4. Inspect governance templates and CODEOWNERS.
 5. Identify doc generation/maintenance scripts and workflows.
+
+## Search Commands
+
+```bash
+rg --files docs
+rg -n "^# " README.md CONTRIBUTING.md SECURITY.md ROADMAP.md POLLUX_SPEC.md IMPLEMENTATION_PLAN.md POLLUX_FULL_FORENSIC_CONTEXT.md GEMINI.md
+rg --files .github
+rg -n "CODEOWNERS|ISSUE_TEMPLATE|pull_request_template" .github
+rg --files scripts -g "generate-*"
+rg -n "generate-settings-doc|generate-settings-schema|generate-keybindings-doc" scripts
+```
+
+PowerShell fallback:
+
+```powershell
+Get-ChildItem -Recurse docs, .github | Select-Object FullName
+Select-String -Path "README.md","CONTRIBUTING.md","SECURITY.md","ROADMAP.md","POLLUX_SPEC.md","IMPLEMENTATION_PLAN.md" -Pattern "^# "
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -178,10 +209,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Docs and governance surfaces are classified.
-2. Major spec claims are validated against code.
-3. Ownership and review routing are explicit.
-4. Drift risks are prioritized.
-5. Alignment procedure is documented and actionable.
+- [ ] Docs and governance surfaces are classified.
+- [ ] Major spec claims are validated against code.
+- [ ] Ownership and review routing are explicit.
+- [ ] Drift risks are prioritized.
+- [ ] Alignment procedure is documented and actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 16 flipped to `done`.

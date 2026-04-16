@@ -7,6 +7,19 @@ contracts across CLI text/json/stream-json modes and ACP protocol integrations.
 
 This compartment is critical for automation and integration reliability.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 12 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -47,6 +60,23 @@ Out of scope:
 3. Read ACP client/command handler and ACP command modules.
 4. Inspect tests and integration artifacts for output compatibility.
 5. Build a schema-level contract summary for each mode.
+
+## Search Commands
+
+```bash
+rg -n "json-formatter|stream-json-formatter|OutputFormatter" packages/core/src/output
+rg -n "OUTPUT_FORMAT|--output-format|text|json|stream-json" packages/cli/src
+rg -n "acpClient|commandHandler|ACP" packages/cli/src/acp
+rg --files packages/core/src/output
+rg --files packages/cli/src/acp
+rg --files -g "*output*.test.ts" packages integration-tests
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/output/**/*.ts","packages/cli/src/acp/**/*.ts","packages/cli/src/nonInteractiveCli.ts" -Pattern "json-formatter|stream-json|acpClient|OUTPUT_FORMAT"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -160,10 +190,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Output contracts for all modes are explicit.
-2. Event-to-output translation is evidence-backed.
-3. ACP adaptation behavior is mapped.
-4. Compatibility risks are documented.
-5. Contract-change verification checklist is complete.
+- [ ] Output contracts for all modes are explicit.
+- [ ] Event-to-output translation is evidence-backed.
+- [ ] ACP adaptation behavior is mapped.
+- [ ] Compatibility risks are documented.
+- [ ] Contract-change verification checklist is complete.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 12 flipped to `done`.

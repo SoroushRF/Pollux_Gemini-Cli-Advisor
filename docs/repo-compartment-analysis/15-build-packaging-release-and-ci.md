@@ -8,6 +8,19 @@ workflows validate, gate, and release those artifacts.
 This compartment provides operational and delivery context for all runtime
 changes.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/15-build-packaging-release-and-ci.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/15-build-packaging-release-and-ci.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 15 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -51,6 +64,24 @@ Out of scope:
 3. Map package build behavior and workspace builds.
 4. Inventory CI workflows by category.
 5. Inspect release script and workflow chain.
+
+## Search Commands
+
+```bash
+rg -n "\"scripts\"" package.json
+rg --files scripts
+rg --files .github/workflows
+rg -n "esbuild|build_package|build_sandbox|build_binary|build_vscode_companion" scripts esbuild.config.js
+rg --files bundle sea
+rg -n "releasing|version\\.js|publish" scripts scripts/releasing
+```
+
+PowerShell fallback:
+
+```powershell
+Get-Content package.json | Select-String "\"scripts\"" -Context 0,40
+Get-ChildItem -Recurse scripts, .github/workflows | Select-Object FullName
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -165,12 +196,27 @@ Do not:
 - Testing confidence sources -> `14-testing-and-evaluation-architecture.md`
 - Docs governance/release notes -> `16-docs-specs-and-governance.md`
 
+### Boundary with 11 (Telemetry)
+
+Compartment 15 owns **CI workflow orchestration** (when jobs run, what gates
+them, how artifacts are released). Compartment 11 owns **telemetry runtime
+behavior and scripts** (what is emitted, how it is sanitized, how operators
+inspect it). If a telemetry script is defective, that is 11. If a telemetry
+script fails to _run in CI_, that is 15.
+
+### Boundary with 14 (Testing)
+
+Compartment 15 documents **which test suites run in which workflows** and the
+gating rules. Compartment 14 documents **what the suites test and their
+baselines**. Do not duplicate fixture/baseline narratives here; cite 14 instead.
+
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Build and artifact pipelines are mapped end-to-end.
-2. CI workflow taxonomy and gates are explicit.
-3. Release automation chain is documented.
-4. Delivery risks are prioritized.
-5. Change-impact checklist is actionable.
+- [ ] Build and artifact pipelines are mapped end-to-end.
+- [ ] CI workflow taxonomy and gates are explicit.
+- [ ] Release automation chain is documented.
+- [ ] Delivery risks are prioritized.
+- [ ] Change-impact checklist is actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 15 flipped to `done`.

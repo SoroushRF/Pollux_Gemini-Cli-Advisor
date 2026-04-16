@@ -8,6 +8,19 @@ without rewriting core runtime internals.
 This includes skill loading, hook execution, custom command discovery, and
 extension management surfaces.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/05-extensibility-skills-hooks-commands.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/05-extensibility-skills-hooks-commands.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 05 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -48,6 +61,24 @@ Out of scope:
 3. Map slash command loader chain.
 4. Inspect extension manager for scope/hydration behavior.
 5. Validate with integration tests covering hooks and command conflicts.
+
+## Search Commands
+
+```bash
+rg -n "skillLoader|skillManager|SkillRegistry" packages/core/src/skills
+rg -n "hookSystem|hookRegistry|hookPlanner|hookRunner|hookTranslator" packages/core/src/hooks
+rg -n "CommandLoader|SlashCommandResolver|McpPromptLoader" packages/cli/src/services
+rg -n "extension-manager|extensionRegistryClient|loadExtensions" packages/cli/src/config
+rg --files packages/core/src/skills
+rg --files packages/core/src/hooks
+rg --files -g "*extension*.ts" packages/cli/src/config
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/skills/**/*.ts","packages/core/src/hooks/**/*.ts","packages/cli/src/services/**/*.ts" -Pattern "skillLoader|hookSystem|CommandLoader|extension-manager"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -173,10 +204,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. All extension points are enumerated and scoped.
-2. Hook lifecycle and command precedence are evidence-backed.
-3. Extension manager trust/scope behavior is documented.
-4. Test-backed guardrails are explicitly listed.
-5. Safe extension recipe is publish-ready.
+- [ ] All extension points are enumerated and scoped.
+- [ ] Hook lifecycle and command precedence are evidence-backed.
+- [ ] Extension manager trust/scope behavior is documented.
+- [ ] Test-backed guardrails are explicitly listed.
+- [ ] Safe extension recipe is publish-ready.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 05 flipped to `done`.

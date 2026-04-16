@@ -9,6 +9,19 @@ This compartment focuses on the presentation/orchestration layer in
 `packages/cli/src` and does not claim core model/tool behavior unless traced
 into core with citations.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/01-cli-runtime-surface.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/01-cli-runtime-surface.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md` (follow it exactly)
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 01 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -53,6 +66,26 @@ Out of scope (handoff):
 5. Trace cancellation and error propagation behavior.
 6. Identify where output formatting mode is selected.
 7. Verify claims using corresponding tests near each hook/service.
+
+## Search Commands
+
+Run these first. Prefer `rg` (ripgrep). PowerShell fallbacks below.
+
+```bash
+rg -n "interactiveCli|nonInteractiveCli|nonInteractiveCliAgentSession" packages/cli/src
+rg -n "useGeminiStream|useAgentStream" packages/cli/src/ui/hooks
+rg -n "SlashCommandResolver|CommandService" packages/cli/src/services
+rg -n "acpClient|commandHandler" packages/cli/src/acp
+rg -n "processTurn|submitQuery|runTurn" packages/cli/src
+rg --files packages/cli/src/commands
+rg --files packages/cli/src/acp/commands
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/cli/src/**/*.ts","packages/cli/src/**/*.tsx" -Pattern "useGeminiStream|useAgentStream|processTurn|acpClient"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -199,10 +232,13 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
+Mirror this checklist in the report's section 9.
 
-1. The end-to-end CLI call flow is mapped for all runtime modes.
-2. Tool continuation behavior is verified for interactive and headless paths.
-3. Command path and ACP path are both documented.
-4. Branch-specific risks are identified with citations.
-5. At least one representative event timeline is evidence-backed.
+- [ ] End-to-end CLI call flow is mapped for all runtime modes.
+- [ ] Tool continuation behavior is verified for interactive and headless paths.
+- [ ] Command path and ACP path are both documented.
+- [ ] Branch-specific risks are identified with citations.
+- [ ] At least one representative event timeline is evidence-backed.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 01 flipped to `done`.

@@ -8,6 +8,19 @@ precedence, storage paths, and final mapping into core runtime config.
 This compartment is critical for any feature that introduces new user-facing
 settings (including Pollux).
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 06 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -50,6 +63,24 @@ Out of scope:
 3. Trace mapping into core `Config` constructor/getters.
 4. Confirm storage path derivation for all settings layers.
 5. Verify precedence and invalid-value behavior with tests.
+
+## Search Commands
+
+```bash
+rg -n "settingsSchema|SETTINGS_SCHEMA|defineSetting" packages/cli/src/config
+rg -n "loadSettings|mergeSettings|settings-validation" packages/cli/src/config
+rg -n "class Config|createConfig|ConfigParameters" packages/cli/src/config packages/core/src/config
+rg -n "Storage|paths\\.ts|getGeminiDir" packages/core/src
+rg --files packages/cli/src/config
+rg --files packages/core/src/config
+rg -n "pollux" packages schemas
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/cli/src/config/**/*.ts","packages/core/src/config/**/*.ts" -Pattern "settingsSchema|loadSettings|class Config|Storage|paths"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -179,10 +210,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Source-of-truth schema and merge ownership are proven.
-2. Precedence behavior is documented and test-backed.
-3. CLI-to-core mapping is explicit.
-4. Storage/path behavior is confirmed.
-5. New-setting recipe and anti-patterns are documented.
+- [ ] Source-of-truth schema and merge ownership are proven.
+- [ ] Precedence behavior is documented and test-backed.
+- [ ] CLI-to-core mapping is explicit.
+- [ ] Storage/path behavior is confirmed.
+- [ ] New-setting recipe and anti-patterns are documented.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 06 flipped to `done`.

@@ -7,6 +7,19 @@ are validated across the repository.
 
 This compartment defines confidence mechanisms for code and architecture claims.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 14 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -48,6 +61,23 @@ Out of scope:
 3. Inspect eval categories and target behaviors.
 4. Inspect integration fixture model.
 5. Inspect memory/perf baseline workflows.
+
+## Search Commands
+
+```bash
+rg --files evals integration-tests memory-tests perf-tests packages/test-utils
+rg -n "\"scripts\"" package.json packages/*/package.json
+rg -n "describe|it\\(|test\\(" evals integration-tests memory-tests perf-tests
+rg -n "baseline|threshold|snapshot" memory-tests perf-tests packages/test-utils
+rg -n "test-helper|fixture|response" integration-tests
+```
+
+PowerShell fallback:
+
+```powershell
+Get-ChildItem -Recurse evals, integration-tests, memory-tests, perf-tests, packages/test-utils | Select-Object FullName
+Select-String -Path "package.json","packages/*/package.json" -Pattern "\"scripts\""
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -174,10 +204,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Test suite taxonomy and execution matrix are explicit.
-2. Fixture and baseline workflows are documented.
-3. Coverage-by-compartment matrix is complete.
-4. Reliability/flake handling guidance is included.
-5. Test gap backlog is actionable and prioritized.
+- [ ] Test suite taxonomy and execution matrix are explicit.
+- [ ] Fixture and baseline workflows are documented.
+- [ ] Coverage-by-compartment matrix is complete.
+- [ ] Reliability/flake handling guidance is included.
+- [ ] Test gap backlog is actionable and prioritized.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 14 flipped to `done`.

@@ -8,6 +8,19 @@ model/tool interactions, and turn completion behavior.
 This is the highest-value runtime compartment because nearly every product
 surface (CLI, SDK, A2A, VS Code integration) depends on this path.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/02-core-turn-engine.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/02-core-turn-engine.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 02 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -49,6 +62,24 @@ Out of scope (handoff):
 4. Track integration points to model router, loop detection, and services.
 5. Identify where token metadata is attached/recorded.
 6. Verify with `client.test.ts`, `turn.test.ts`, `geminiChat.test.ts`.
+
+## Search Commands
+
+```bash
+rg -n "class GeminiClient|processTurn|runTurn|submitQuery" packages/core/src/core
+rg -n "class Turn|Turn\.run|emit\(|ServerGeminiEventType" packages/core/src/core
+rg -n "ContentGenerator|generateContent|generateContentStream" packages/core/src/core
+rg -n "class GeminiChat|addHistory|compressHistory|usageMetadata" packages/core/src/core
+rg -n "baseLlmClient|retry|network" packages/core/src/core
+rg --files packages/core/src/core
+rg --files -g "*.test.ts" packages/core/src/core
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/core/**/*.ts" -Pattern "class GeminiClient|class Turn|processTurn|generateContentStream|usageMetadata"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -182,12 +213,28 @@ Do not:
 - Tool internals -> `04-tools-and-mcp-platform.md`
 - Telemetry details -> `11-telemetry-observability-and-billing-signals.md`
 
+### Boundary with 07 (Routing)
+
+Compartment 02 owns the **turn lifecycle** and **where** model selection is
+consumed. Compartment 07 owns **how** the model is selected (router, strategies,
+availability, fallback). If a claim is about "what happens when routing returns
+X", that belongs in 07; if it is about "where the selected model is applied to a
+turn", that belongs in 02. Cite the other compartment when crossing this line,
+do not duplicate.
+
+### Boundary with 11 (Telemetry)
+
+Compartment 02 cites where `usageMetadata` and turn-level spans are produced;
+compartment 11 owns the telemetry architecture that consumes, samples, and
+exports them. Token capture origin = 02. Exporter and sanitization = 11.
+
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Turn lifecycle is fully mapped from entry to completion.
-2. Event model and ordering are documented with evidence.
-3. Integrations to routing/tools/loop detection are explicit.
-4. Retry and failure semantics are verified in code/tests.
-5. Token usage path is documented with extension implications.
+- [ ] Turn lifecycle is fully mapped from entry to completion.
+- [ ] Event model and ordering are documented with evidence.
+- [ ] Integrations to routing/tools/loop detection are explicit.
+- [ ] Retry and failure semantics are verified in code/tests.
+- [ ] Token usage path is documented with extension implications.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 02 flipped to `done`.

@@ -8,6 +8,19 @@ and persisted to stay within token/quality constraints.
 This compartment governs answer quality under long sessions and large codebase
 inputs.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/08-context-memory-and-compression.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/08-context-memory-and-compression.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 08 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -51,6 +64,24 @@ Out of scope:
 3. Inspect tool output masking/distillation logic.
 4. Analyze memory service and memory tool behavior.
 5. Verify with context and memory tests.
+
+## Search Commands
+
+```bash
+rg -n "contextCompressionService|chatCompressionService|toolDistillationService|toolOutputMaskingService" packages/core/src/context
+rg -n "truncation|tokenLimits|MAX_TOKENS|compressHistory" packages/core/src
+rg -n "memoryService|memoryTool|MemoryContextManager" packages/core/src
+rg -n "sessionSummaryService|summarize" packages/core/src/services
+rg --files packages/core/src/context
+rg --files -g "*.test.ts" packages/core/src/context
+rg --files memory-tests
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/context/**/*.ts","packages/core/src/services/memoryService.ts" -Pattern "compressHistory|truncation|memoryService|toolDistillation"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -181,10 +212,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Context construction pipeline is fully mapped.
-2. Compression/truncation/masking logic is documented distinctly.
-3. Memory lifecycle and scope semantics are evidence-backed.
-4. Quality-risk matrix is published.
-5. Tuning and validation guidance is actionable.
+- [ ] Context construction pipeline is fully mapped.
+- [ ] Compression/truncation/masking logic is documented distinctly.
+- [ ] Memory lifecycle and scope semantics are evidence-backed.
+- [ ] Quality-risk matrix is published.
+- [ ] Tuning and validation guidance is actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 08 flipped to `done`.

@@ -7,6 +7,19 @@ allowed to do.
 
 This compartment is the security and compliance control plane for the runtime.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 09 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -48,6 +61,23 @@ Out of scope:
 3. Inspect trust-folder and workspace policy coupling.
 4. Inspect shell safety constraints and denial semantics.
 5. Validate with policy integration tests.
+
+## Search Commands
+
+```bash
+rg -n "policy-engine|PolicyEngine|evaluatePolicy|policyDecision" packages/core/src/policy
+rg -n "toml-loader|policyUpdater|persistence" packages/core/src/policy
+rg -n "trustedFolders|FolderTrust|isTrusted" packages/cli/src/config packages/core/src/services
+rg -n "shell-safety|integrity|denied|allowlist" packages/core/src/policy
+rg --files packages/core/src/policy
+rg --files -g "*policy*.test.ts" packages
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/policy/**/*.ts","packages/cli/src/config/trustedFolders.ts" -Pattern "PolicyEngine|evaluatePolicy|trustedFolders|shell-safety"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -170,10 +200,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Policy loading, evaluation, and enforcement pipeline is mapped.
-2. Trust-state behavior is explicit.
-3. Enforcement matrix is evidence-backed.
-4. Integrity controls are identified.
-5. Safety gaps and follow-up recommendations are documented.
+- [ ] Policy loading, evaluation, and enforcement pipeline is mapped.
+- [ ] Trust-state behavior is explicit.
+- [ ] Enforcement matrix is evidence-backed.
+- [ ] Integrity controls are identified.
+- [ ] Safety gaps and follow-up recommendations are documented.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 09 flipped to `done`.

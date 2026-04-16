@@ -8,6 +8,19 @@ the primary terminal UI.
 This compartment is product-facing and contract-heavy, with independent release
 and compatibility implications.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 13 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -47,6 +60,26 @@ Out of scope:
 3. Trace dependency on `@google/gemini-cli-core`.
 4. Inspect extension/server command and protocol layers.
 5. Verify with product-specific tests.
+
+## Search Commands
+
+```bash
+rg --files packages/sdk/src
+rg --files packages/vscode-ide-companion/src
+rg --files packages/a2a-server/src
+rg --files packages/devtools
+rg -n "export|createSession|GeminiSDK" packages/sdk/src
+rg -n "activate|registerCommand|ideServer" packages/vscode-ide-companion/src
+rg -n "http/server|http/app|agent|commands" packages/a2a-server/src
+rg -n "\"dependencies\"|\"peerDependencies\"" packages/*/package.json
+```
+
+PowerShell fallback:
+
+```powershell
+Get-ChildItem -Recurse packages/sdk/src, packages/vscode-ide-companion/src, packages/a2a-server/src, packages/devtools | Select-Object FullName
+Select-String -Path "packages/sdk/src/**/*.ts" -Pattern "export|createSession"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -173,10 +206,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. All integration products have independent architecture summaries.
-2. Public contracts are explicitly inventoried.
-3. Shared dependencies and coupling are mapped.
-4. Compatibility risks are ranked.
-5. Product hardening guidance is actionable.
+- [ ] All integration products have independent architecture summaries.
+- [ ] Public contracts are explicitly inventoried.
+- [ ] Shared dependencies and coupling are mapped.
+- [ ] Compatibility risks are ranked.
+- [ ] Product hardening guidance is actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 13 flipped to `done`.

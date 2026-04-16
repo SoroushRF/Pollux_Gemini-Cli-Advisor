@@ -7,6 +7,19 @@ including sandbox mode behavior across platforms.
 
 This compartment explains how the runtime safely executes high-impact actions.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/10-sandbox-shell-and-filesystem-substrate.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/10-sandbox-shell-and-filesystem-substrate.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 10 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -47,6 +60,23 @@ Out of scope:
 3. Trace shell execution service, including background behavior.
 4. Trace filesystem service abstraction boundaries.
 5. Validate with sandbox and shell integration tests.
+
+## Search Commands
+
+```bash
+rg -n "sandboxManager|sandboxManagerFactory|SANDBOX_MODE" packages/core/src/services packages/core/src/sandbox
+rg -n "shellExecutionService|shellBackgroundTools|spawn" packages/core/src
+rg -n "fileSystemService|sandboxedFileSystemService|readFile|writeFile" packages/core/src/services
+rg -n "executionLifecycleService|cancel|cleanup" packages/core/src/services
+rg --files packages/core/src/sandbox
+rg --files bundle -g "*.sb"
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/services/*.ts","packages/core/src/sandbox/**/*.ts" -Pattern "sandboxManager|shellExecutionService|fileSystemService|executionLifecycle"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -175,10 +205,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Sandbox architecture is mapped across modes and platforms.
-2. Shell/background and filesystem pathways are documented.
-3. Lifecycle and cleanup semantics are evidence-backed.
-4. Execution risk matrix is published.
-5. Troubleshooting guidance is actionable.
+- [ ] Sandbox architecture is mapped across modes and platforms.
+- [ ] Shell/background and filesystem pathways are documented.
+- [ ] Lifecycle and cleanup semantics are evidence-backed.
+- [ ] Execution risk matrix is published.
+- [ ] Troubleshooting guidance is actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 10 flipped to `done`.

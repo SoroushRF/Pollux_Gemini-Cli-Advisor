@@ -8,6 +8,22 @@ this decision space.
 
 This is the core compartment for cost/latency/accuracy trade-off analysis.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 07 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+- **Pollux note**: clearly separate scaffolded files from implemented runtime.
+  Anything under `packages/core/src/pollux` should be labeled `scaffold` /
+  `partial` / `runtime` explicitly in section 4 of the report.
+
 ## Boundary
 
 In scope:
@@ -53,6 +69,25 @@ Out of scope:
 4. Inspect loop detection thresholds and utility model usage.
 5. Verify Pollux directory contents and exports.
 6. Validate documentation claims against runtime code.
+
+## Search Commands
+
+```bash
+rg -n "modelRouterService|RoutingStrategy|selectModel|route\\(" packages/core/src/routing
+rg -n "availability|checkModelAvailability|fallback" packages/core/src/availability packages/core/src/routing
+rg -n "loopDetectionService|LoopDetection|utility" packages/core/src/services
+rg -n "DEFAULT_GEMINI_MODEL|modelId|MODELS" packages/core/src/config/models.ts packages/core/src/config/defaultModelConfigs.ts
+rg --files packages/core/src/pollux
+rg -n "pollux|Pollux" packages
+rg -n "processTurn|selectModel" packages/core/src/core/client.ts
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/routing/**/*.ts","packages/core/src/availability/**/*.ts","packages/core/src/services/loopDetectionService.ts" -Pattern "modelRouterService|RoutingStrategy|availability|LoopDetection"
+Get-ChildItem -Recurse packages/core/src/pollux | Select-Object FullName
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -183,12 +218,29 @@ Do not:
 - Benchmark harness implementation ->
   `14-testing-and-evaluation-architecture.md`
 
+### Boundary with 02 (Core Turn Engine)
+
+Compartment 07 owns **routing decisions, availability, loop detection, and the
+Pollux scaffold/runtime classification**. Compartment 02 owns the **turn
+lifecycle that consumes the selected model**. When a claim is about "how the
+model for this turn was chosen", it belongs here. When it is about "how the turn
+runs once a model is chosen", it belongs in 02.
+
+### Boundary with 14 (Testing / Benchmark)
+
+Benchmark **design, controls, and fairness guidance** live here
+(Pollux-specific). Benchmark **harness implementation, fixture management, and
+CI wiring** live in 14. If you are writing runner code or gating, cite 14; if
+you are reasoning about what to measure, this compartment.
+
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Routing and fallback flow is evidence-backed.
-2. Loop detection interactions are documented.
-3. Model registry and default behavior are verified.
-4. Pollux implementation status is accurately classified.
-5. Benchmark control guidance is explicit and actionable.
+- [ ] Routing and fallback flow is evidence-backed.
+- [ ] Loop detection interactions are documented.
+- [ ] Model registry and default behavior are verified.
+- [ ] Pollux implementation status is accurately classified (`scaffold` /
+      `partial` / `runtime`).
+- [ ] Benchmark control guidance is explicit and actionable.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 07 flipped to `done`.

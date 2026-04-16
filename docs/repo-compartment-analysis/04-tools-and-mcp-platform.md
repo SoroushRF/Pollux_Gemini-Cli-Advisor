@@ -8,6 +8,19 @@ with MCP servers.
 This compartment defines the capability surface that turns model output into
 real system actions.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/04-tools-and-mcp-platform.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/04-tools-and-mcp-platform.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 04 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -48,6 +61,24 @@ Out of scope:
 3. Trace one local tool call and one MCP tool call.
 4. Identify invocation context and confirmation policy interactions.
 5. Verify error handling contracts and test coverage.
+
+## Search Commands
+
+```bash
+rg -n "class ToolRegistry|registerTool|getTool|getDeclarations" packages/core/src/tools
+rg -n "class .*Tool|abstract class Base" packages/core/src/tools
+rg -n "McpClientManager|McpClient|mcp-tool|connectServer" packages/core/src/tools packages/core/src/mcp
+rg -n "shouldConfirmExecute|confirmation-policy|ToolConfirmation" packages/core/src/tools
+rg --files packages/core/src/tools
+rg --files packages/core/src/mcp
+rg --files -g "*.test.ts" packages/core/src/tools
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/tools/**/*.ts","packages/core/src/mcp/**/*.ts" -Pattern "ToolRegistry|registerTool|McpClient|shouldConfirmExecute"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -165,10 +196,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. Registration and declaration pipeline is fully mapped.
-2. Local and MCP tool execution paths are both documented.
-3. Safety/confirmation touchpoints are explicit.
-4. Error propagation is traced end-to-end.
-5. Extension guidance is concrete and test-backed.
+- [ ] Registration and declaration pipeline is fully mapped.
+- [ ] Local and MCP tool execution paths are both documented.
+- [ ] Safety/confirmation touchpoints are explicit.
+- [ ] Error propagation is traced end-to-end.
+- [ ] Extension guidance is concrete and test-backed.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 04 flipped to `done`.

@@ -9,6 +9,19 @@ branching.
 This compartment explains how the system moves beyond a single chat loop into
 specialized and delegated agent behavior.
 
+## Execution Contract
+
+- **Report (MD)**:
+  `docs/repo-compartment-analysis/reports/03-agent-runtime-and-modes.report.md`
+- **Report (JSON)**:
+  `docs/repo-compartment-analysis/reports/03-agent-runtime-and-modes.report.json`
+- **Runbook**: `AGENT_RUNBOOK.md`
+- **Template**: `_TEMPLATES/report-template.md`
+- **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
+- **Citation format**: `CITATION_STANDARD.md`
+- **Status tracker**: update row 03 in `INDEX.md` at start and end
+- **Readonly**: do not modify `packages/**` source. Reports only.
+
 ## Boundary
 
 In scope:
@@ -49,6 +62,23 @@ Out of scope:
 4. Trace local vs remote invocation modules.
 5. Inspect representative built-in agents.
 6. Verify with session and registry tests.
+
+## Search Commands
+
+```bash
+rg -n "agent-session|legacy-agent-session|event-translator" packages/core/src/agent
+rg -n "agentLoader|agent-scheduler|registry" packages/core/src/agents
+rg -n "local-invocation|remote-invocation|local-executor" packages/core/src/agents
+rg --files packages/core/src/agent
+rg --files packages/core/src/agents
+rg -n "useAgentStream|nonInteractiveCliAgentSession" packages/cli/src
+```
+
+PowerShell fallback:
+
+```powershell
+Select-String -Path "packages/core/src/agent/**/*.ts","packages/core/src/agents/**/*.ts" -Pattern "agent-session|legacy-agent-session|agent-scheduler|local-invocation|remote-invocation"
+```
 
 ## Step-by-Step Analysis Recipe
 
@@ -182,10 +212,11 @@ Do not:
 
 ## Definition of Done
 
-This compartment is complete when:
-
-1. All active agent session paths are mapped.
-2. Legacy/current differences are explicitly documented.
-3. Registry, loader, scheduler, and invocation paths are analyzed.
-4. Mode matrix is evidence-backed.
-5. Agent-specific risk surfaces are enumerated.
+- [ ] All active agent session paths are mapped.
+- [ ] Legacy/current differences are explicitly documented.
+- [ ] Registry, loader, scheduler, and invocation paths are analyzed.
+- [ ] Mode matrix is evidence-backed.
+- [ ] Agent-specific risk surfaces are enumerated.
+- [ ] Pre-flight path validation recorded in report section 0.
+- [ ] Evidence matrix populated in the JSON sidecar.
+- [ ] `INDEX.md` row 03 flipped to `done`.

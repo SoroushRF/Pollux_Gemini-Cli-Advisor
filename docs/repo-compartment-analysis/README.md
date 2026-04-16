@@ -19,9 +19,33 @@ mega-document because:
 - teams can review compartment files in parallel,
 - new contributors can onboard section-by-section.
 
+## Start Here
+
+If you are an AI agent (or new contributor) about to analyze a compartment:
+
+1. Read `AGENT_RUNBOOK.md` — the single executable contract.
+2. Read `CITATION_STANDARD.md` — required citation formats.
+3. Skim `GLOSSARY.md` — canonical term definitions.
+4. Read `POLLUX_PRIORITY.md` — recommended analysis order for Pollux.
+5. Open `INDEX.md` — claim your compartment there before starting.
+6. Follow the compartment's guideline file (01–16) step by step.
+7. Fill `_TEMPLATES/report-template.md` → save under `reports/`.
+8. Fill the JSON sidecar per `_TEMPLATES/report-sidecar-schema.json`.
+9. Flip status in `INDEX.md` to `done`.
+
+The capstone (after >= 12 compartments are done) follows
+`_TEMPLATES/cross-compartment-synthesis.md`.
+
+**No strict order is required**, but `POLLUX_PRIORITY.md` provides a four-tier
+ordering optimized for this project based on `POLLUX_SPEC.md` and
+`POLLUX_FULL_FORENSIC_CONTEXT.md`.
+
 ## Compartment Map
 
-Each file below is a deep recipe for one compartment.
+Each file below is a deep recipe for one compartment. Every guideline has an
+**Execution Contract** at the top pointing to the canonical report output path,
+and a **Search Commands** block at the start of the recipe for rg-first
+investigation.
 
 1. `01-cli-runtime-surface.md`
 2. `02-core-turn-engine.md`
@@ -39,6 +63,19 @@ Each file below is a deep recipe for one compartment.
 14. `14-testing-and-evaluation-architecture.md`
 15. `15-build-packaging-release-and-ci.md`
 16. `16-docs-specs-and-governance.md`
+
+## Supporting Files
+
+- `AGENT_RUNBOOK.md` — end-to-end execution recipe for one compartment.
+- `POLLUX_PRIORITY.md` — Pollux-optimized compartment ordering (four tiers).
+- `INDEX.md` — compartment status tracker; claim before you analyze.
+- `GLOSSARY.md` — canonical term definitions.
+- `CITATION_STANDARD.md` — citation formats (inline, block, negative).
+- `_TEMPLATES/report-template.md` — copy-paste Markdown report shell.
+- `_TEMPLATES/report-sidecar-schema.json` — JSON schema for sidecars.
+- `_TEMPLATES/evidence-matrix-template.md` — evidence-matrix scaffold.
+- `_TEMPLATES/cross-compartment-synthesis.md` — capstone recipe.
+- `reports/` — output folder (one Markdown + one JSON per compartment).
 
 ## Shared Analysis Workflow (Applies To Every Compartment)
 
@@ -131,10 +168,19 @@ Use this mini-template in every compartment report:
 ## How To Use This Folder
 
 - Start with this README.
-- Pick one compartment file.
-- Execute the recipe exactly.
-- Publish a compartment report with citations.
+- Read `AGENT_RUNBOOK.md`.
+- Claim a compartment row in `INDEX.md`.
+- Execute the compartment's recipe exactly.
+- Produce both artifacts in `reports/`: `NN-<slug>.report.md` and
+  `NN-<slug>.report.json`.
+- Flip `INDEX.md` to `done`.
 - Move to the next compartment.
-- Finish by writing a short cross-compartment synthesis.
+- Finish by executing `_TEMPLATES/cross-compartment-synthesis.md`.
 
 This gives a full technical picture while preserving clarity and traceability.
+
+## Parallel Execution
+
+Multiple agents may run different compartments simultaneously. `INDEX.md` is the
+single source of truth for claims — always claim before starting. Never edit
+another agent's in-progress row without recording a takeover in `Notes`.

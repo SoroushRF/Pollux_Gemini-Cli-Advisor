@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pollux.local/schemas/compartment-report-sidecar.json",
+  "title": "CompartmentReportSidecar",
+  "description": "Machine-readable sidecar for a compartment analysis report. Lives next to the Markdown report at reports/NN-<slug>.report.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "compartment",
+    "guidelineFile",
+    "owner",
+    "startedAt",
+    "repoCommit",
+    "preflight",
+    "evidence",
+    "openQuestions",
+    "definitionOfDone"
+  ],
+  "properties": {
+    "compartment": {
+      "type": "object",
+      "required": ["number", "slug", "title"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1, "maximum": 16 },
+        "slug": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "title": { "type": "string" }
+      }
+    },
+    "guidelineFile": {
+      "type": "string",
+      "description": "Path to the guideline file this report executes."
+    },
+    "owner": { "type": "string" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "finishedAt": { "type": ["string", "null"], "format": "date-time" },
+    "repoCommit": { "type": "string" },
+    "upstreamBaseCommit": { "type": ["string", "null"] },
+    "preflight": {
+      "type": "object",
+      "required": ["paths"],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "exists"],
+            "properties": {
+              "path": { "type": "string" },
+              "exists": { "type": "boolean" },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "description": "Evidence matrix. One entry per major claim.",
+      "items": {
+        "type": "object",
+        "required": ["claim", "primary", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "claim": { "type": "string" },
+          "primary": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string" },
+              "lines": {
+                "type": "string",
+                "pattern": "^\\d+-\\d+$",
+                "description": "Inclusive line range, e.g. '142-180'."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["ok", "stale_path", "missing"],
+                "default": "ok"
+              }
+            }
+          },
+          "supporting": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path", "kind"],
+              "properties": {
+                "path": { "type": "string" },
+                "lines": { "type": "string" },
+                "kind": {
+                  "type": "string",
+                  "enum": ["test", "config", "doc", "type", "other"]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["ok", "stale_path", "missing"],
+                  "default": "ok"
+                }
+              }
+            }
+          },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "notes": { "type": "string" }
+        }
+      }
+    },
+    "contradictions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description"],
+        "properties": {
+          "description": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "properties": {
+                "path": { "type": "string" },
+                "lines": { "type": "string" }
+              }
+            }
+          },
+          "resolution": {
+            "type": "string",
+            "enum": ["resolved", "unresolved", "deferred"]
+          },
+          "handoffCompartment": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "maximum": 16
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "severity"],
+        "properties": {
+          "description": { "type": "string" },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high", "critical"]
+          },
+          "mitigatingTest": { "type": ["string", "null"] },
+          "suggestedGuard": { "type": "string" }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "tests": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "observabilitySignals": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "gaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "openQuestions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "handoffs": {
+      "type": "object",
+      "properties": {
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 16 }
+        },
+        "affects": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 16 }
+        },
+        "escalatedTo": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 16 }
+        }
+      }
+    },
+    "definitionOfDone": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item", "done"],
+        "properties": {
+          "item": { "type": "string" },
+          "done": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}
