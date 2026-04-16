@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://pollux.local/schemas/compartment-report-sidecar.json",
   "title": "CompartmentReportSidecar",
-  "description": "Machine-readable sidecar for a compartment analysis report. Lives next to the Markdown report at reports/NN-<slug>.report.json.",
+  "description": "Machine-readable sidecar for a compartment analysis report. Lives next to the Markdown report at reports/NN-<slug>/report.json.",
   "type": "object",
   "additionalProperties": false,
   "required": [

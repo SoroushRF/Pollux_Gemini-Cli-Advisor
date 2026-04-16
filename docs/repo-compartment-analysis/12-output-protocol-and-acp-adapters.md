@@ -10,11 +10,12 @@ This compartment is critical for automation and integration reliability.
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters.report.md`
+  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters.report.json`
+  `docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T3** — `_TEMPLATES/report-template-lite.md` (200–300 md
+  lines, 0 code quotes, ≥4 verified truths). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 12 in `INDEX.md` at start and end

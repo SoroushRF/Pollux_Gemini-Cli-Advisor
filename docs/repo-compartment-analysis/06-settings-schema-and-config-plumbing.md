@@ -11,11 +11,12 @@ settings (including Pollux).
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing.report.md`
+  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing.report.json`
+  `docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T1** — `_TEMPLATES/report-template.md` (400–900 md
+  lines, 5–15 code quotes). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 06 in `INDEX.md` at start and end

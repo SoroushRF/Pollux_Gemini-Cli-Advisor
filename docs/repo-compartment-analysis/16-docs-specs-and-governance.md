@@ -10,11 +10,12 @@ This compartment distinguishes implemented behavior from documented intent.
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance.report.md`
+  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance.report.json`
+  `docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T3** — `_TEMPLATES/report-template-lite.md` (200–300 md
+  lines, 0 code quotes, ≥4 verified truths). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 16 in `INDEX.md` at start and end

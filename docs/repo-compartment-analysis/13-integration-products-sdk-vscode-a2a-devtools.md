@@ -11,11 +11,12 @@ and compatibility implications.
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools.report.md`
+  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools.report.json`
+  `docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T4** — `_TEMPLATES/report-template-lite.md` (150–250 md
+  lines, 0 code quotes, ≥3 verified truths). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 13 in `INDEX.md` at start and end

@@ -1,7 +1,7 @@
 # Cross-Compartment Synthesis Recipe
 
 The capstone activity after >= 12 of 16 compartment reports are `done`. The
-output is `reports/SYNTHESIS.report.md` plus `reports/SYNTHESIS.report.json`.
+output is `reports/SYNTHESIS/report.md` plus `reports/SYNTHESIS/report.json`.
 
 The synthesis does **not** repeat compartment content. It composes.
 
@@ -9,8 +9,9 @@ The synthesis does **not** repeat compartment content. It composes.
 
 ## Inputs
 
-- Every `reports/NN-<slug>.report.md`
-- Every `reports/NN-<slug>.report.json`
+- Every `reports/NN-<slug>/report.md`
+- Every `reports/NN-<slug>/report.json`
+- `reports/TIER1_SUMMARY.md` if present (pre-synthesis condensation of T1)
 - `INDEX.md`
 - `GLOSSARY.md`
 
@@ -24,7 +25,7 @@ The synthesis does **not** repeat compartment content. It composes.
 
 ### Step 1 — Load all sidecars
 
-Parse every `reports/NN-*.report.json`. Concatenate their `evidence`,
+Parse every `reports/NN-<slug>/report.json`. Concatenate their `evidence`,
 `contradictions`, `risks`, and `handoffs` arrays into four global lists tagged
 with compartment number.
 
@@ -82,8 +83,8 @@ Aggregate `openQuestions` from all sidecars. Cluster by theme. Propose owners
 
 Write:
 
-- `reports/SYNTHESIS.report.md` with the sections below.
-- `reports/SYNTHESIS.report.json` mirroring the structured data.
+- `reports/SYNTHESIS/report.md` with the sections below.
+- `reports/SYNTHESIS/report.json` mirroring the structured data.
 
 Update `INDEX.md` synthesis rows to `done`.
 
@@ -104,7 +105,7 @@ Update `INDEX.md` synthesis rows to `done`.
 ```
 
 Every section must cite compartment reports (e.g., "see
-`02-core-turn-engine.report.md` §4").
+`02-core-turn-engine/report.md` §4").
 
 ## SYNTHESIS sidecar structure
 

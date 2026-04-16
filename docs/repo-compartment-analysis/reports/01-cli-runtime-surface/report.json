@@ -1,0 +1,504 @@
+{
+  "$schema": "https://pollux.local/schemas/compartment-report-sidecar.json",
+  "compartment": {
+    "number": 1,
+    "slug": "cli-runtime-surface",
+    "title": "CLI Runtime Surface"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/01-cli-runtime-surface.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "b43e7661ddaa7bbcc2283350a5eace8d2d8bb424",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/cli/src/interactiveCli.tsx",
+        "exists": true,
+        "notes": "229 lines; Ink render() + providers"
+      },
+      {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "exists": true,
+        "notes": "483 lines; GeminiEventType loop"
+      },
+      {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+        "exists": true,
+        "notes": "569 lines; LegacyAgentSession-based loop"
+      },
+      {
+        "path": "packages/cli/src/ui/AppContainer.tsx",
+        "exists": true,
+        "notes": "2618 lines; stream-hook branch and submit arbitration"
+      },
+      {
+        "path": "packages/cli/src/ui/hooks/useGeminiStream.ts",
+        "exists": true,
+        "notes": "1962 lines; legacy interactive stream hook"
+      },
+      {
+        "path": "packages/cli/src/ui/hooks/useAgentStream.ts",
+        "exists": true,
+        "notes": "478 lines; AgentProtocol-based stream hook"
+      },
+      {
+        "path": "packages/cli/src/commands",
+        "exists": true,
+        "notes": "73 files; CLI-subcommand modules (distinct from slash commands)"
+      },
+      {
+        "path": "packages/cli/src/acp",
+        "exists": true,
+        "notes": "18 files; ACP agent surface"
+      },
+      {
+        "path": "packages/cli/src/acp/acpClient.ts",
+        "exists": true,
+        "notes": "1928 lines; GeminiAgent.prompt owns its own loop"
+      },
+      {
+        "path": "packages/cli/src/acp/commandHandler.ts",
+        "exists": true,
+        "notes": "121 lines; independent ACP command registry"
+      },
+      {
+        "path": "packages/cli/src/services/SlashCommandResolver.ts",
+        "exists": true,
+        "notes": "229 lines; conflict resolution"
+      },
+      {
+        "path": "packages/cli/src/services/CommandService.ts",
+        "exists": true,
+        "notes": "125 lines; loader aggregator"
+      },
+      {
+        "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+        "exists": true,
+        "notes": "Added by analyst; non-interactive slash handler"
+      },
+      {
+        "path": "packages/cli/src/gemini.tsx",
+        "exists": true,
+        "notes": "Added by analyst; top-level mode dispatcher"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "CLI has four distinct turn-driving code paths (ACP, interactive legacy useGeminiStream, interactive agent-session useAgentStream, non-interactive legacy, non-interactive agent-session).",
+      "primary": {
+        "path": "packages/cli/src/gemini.tsx",
+        "lines": "624-746",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/ui/AppContainer.tsx",
+          "lines": "1178-1216",
+          "kind": "other"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCli.ts",
+          "lines": "59-65",
+          "kind": "other"
+        },
+        {
+          "path": "packages/cli/src/ui/hooks/useAgentStream.test.tsx",
+          "lines": "35-206",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-1"
+    },
+    {
+      "claim": "Interactive continuation is a recursive React callback: handleCompletedTools calls submitQuery(responseParts, { isContinuation: true }, prompt_ids[0]).",
+      "primary": {
+        "path": "packages/cli/src/ui/hooks/useGeminiStream.ts",
+        "lines": "1822-2040",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/ui/hooks/useGeminiStream.test.tsx",
+          "lines": "609-810",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-2"
+    },
+    {
+      "claim": "Non-interactive legacy drives continuation with an imperative while(true) loop; currentMessages is rewritten with tool response parts each turn.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "lines": "297-525",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCli.test.ts",
+          "lines": "319-390",
+          "kind": "test"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCli.test.ts",
+          "lines": "627-637",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-3"
+    },
+    {
+      "claim": "OutputFormat.{TEXT,JSON,STREAM_JSON} selects three disjoint emission paths in non-interactive mode.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "lines": "101-524",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCli.test.ts",
+          "lines": "694-915",
+          "kind": "test"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.test.ts",
+          "lines": "748-1042",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-4"
+    },
+    {
+      "claim": "ACP bypasses Turn and GeminiClient.sendMessageStream; GeminiAgent.prompt calls chat.sendMessageStream directly and owns its own tool-call continuation loop.",
+      "primary": {
+        "path": "packages/cli/src/acp/acpClient.ts",
+        "lines": "692-934",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/acp/acpClient.test.ts",
+          "lines": "576-593",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-5"
+    },
+    {
+      "claim": "Non-interactive slash-command loaders omit SkillCommandLoader; interactive includes it.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+        "lines": "43-50",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/ui/hooks/slashCommandProcessor.ts",
+          "lines": "326-334",
+          "kind": "other"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCli.test.ts",
+          "lines": "1280-1325",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-6"
+    },
+    {
+      "claim": "ACP maintains a third, independent slash-command registry with Memory/Extensions/Init/Restore/About/Help commands; it does not use CommandService or SlashCommandResolver.",
+      "primary": {
+        "path": "packages/cli/src/acp/commandHandler.ts",
+        "lines": "16-138",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/acp/commandHandler.test.ts",
+          "lines": "10-11",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-7"
+    },
+    {
+      "claim": "Interactive cancellation is escape-key driven via useKeypress -> cancelOngoingRequest; non-interactive cancellation uses readline Ctrl+C detection with abortController.abort(); agent-session additionally calls session.abort() and rethrows FatalCancellationError.",
+      "primary": {
+        "path": "packages/cli/src/ui/hooks/useGeminiStream.ts",
+        "lines": "806-906",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCli.ts",
+          "lines": "117-187",
+          "kind": "other"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+          "lines": "299-305",
+          "kind": "other"
+        },
+        {
+          "path": "packages/cli/src/ui/hooks/useGeminiStream.test.tsx",
+          "lines": "1544-1838",
+          "kind": "test"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCli.test.ts",
+          "lines": "1045-1163",
+          "kind": "test"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.test.ts",
+          "lines": "1172-1333",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-8"
+    },
+    {
+      "claim": "No /pollux slash command or any pollux-related code exists in packages/cli/src (rg -i pollux -> 0 matches).",
+      "primary": { "path": "packages/cli/src", "status": "ok" },
+      "supporting": [],
+      "confidence": "high",
+      "notes": "VT-9 negative claim; search command: rg -i \"pollux\" packages/cli/src -> 0 matches."
+    },
+    {
+      "claim": "handleFinalSubmit arbitrates four branches: safe-concurrent slash during responding, model-steering hint injection, normal submitQuery with permissions check, and queued message while initializing.",
+      "primary": {
+        "path": "packages/cli/src/ui/AppContainer.tsx",
+        "lines": "1368-1444",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/ui/hooks/useGeminiStream.test.tsx",
+          "lines": "1951-2086",
+          "kind": "test"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "VT-10"
+    },
+    {
+      "claim": "useAgentStream has explicit parity TODOs for loop-detection confirmation, shell focus / background tasks, and plan-mode approval transitions.",
+      "primary": {
+        "path": "packages/cli/src/ui/hooks/useAgentStream.ts",
+        "lines": "82-136",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/ui/hooks/useAgentStream.test.tsx",
+          "lines": "35-206",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-11"
+    },
+    {
+      "claim": "Non-interactive agent-session reconstructs Fatal* error instances from AgentEvent._meta.errorName because typed error identity is lost across the protocol boundary.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+        "lines": "348-416",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.test.ts",
+          "lines": "1000-1084",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-12"
+    },
+    {
+      "claim": "SlashCommandResolver rules: skill+extensionName always prefixed; incoming BUILT_IN keeps name and displaces; non-built-in conflicts use source-derived prefix with ':' for skill/extension-file and '.' for user/workspace/MCP; numeric suffixes appended on re-collision.",
+      "primary": {
+        "path": "packages/cli/src/services/SlashCommandResolver.ts",
+        "lines": "40-204",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/services/SlashCommandResolver.test.ts",
+          "lines": "18-221",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "VT-13"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "POLLUX_SPEC.md claim 'packages/cli unchanged' contradicts Phase 7 (/pollux) and Risk 1 (stream hook crash). No /pollux code exists yet, but the spec requires it.",
+      "evidence": [
+        { "path": "docs/POLLUX_FULL_FORENSIC_CONTEXT.md" },
+        { "path": "packages/cli/src" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 16
+    },
+    {
+      "description": "Spec §3/§7 assume a single interceptor between GeminiClient and Turn, but CLI has four drivers hitting three different core entrypoints (GeminiChat via ACP, LegacyAgentSession via agent-session modes, GeminiClient via legacy modes).",
+      "evidence": [
+        { "path": "packages/cli/src/acp/acpClient.ts", "lines": "759-828" },
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+          "lines": "291-322"
+        },
+        { "path": "packages/cli/src/ui/AppContainer.tsx", "lines": "1178-1216" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 2
+    },
+    {
+      "description": "Non-interactive slash-command loaders silently drop SkillCommandLoader, so skill-provided commands are only available in interactive mode.",
+      "evidence": [
+        {
+          "path": "packages/cli/src/ui/hooks/slashCommandProcessor.ts",
+          "lines": "326-334"
+        },
+        {
+          "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+          "lines": "43-50"
+        }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 5
+    },
+    {
+      "description": "ACP handleCommand accepts and ignores a parts: Part[] argument (eslint-disable no-unused-vars), so non-text prompt parts can never influence command behavior.",
+      "evidence": [
+        { "path": "packages/cli/src/acp/acpClient.ts", "lines": "937-956" },
+        { "path": "packages/cli/src/acp/commandHandler.ts", "lines": "45-57" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 12
+    },
+    {
+      "description": "AppContainer.tsx conditionally calls useGeminiStream vs useAgentStream behind eslint-disable rules-of-hooks. Runtime toggle of getAgentSessionInteractiveEnabled() would corrupt hook state.",
+      "evidence": [
+        { "path": "packages/cli/src/ui/AppContainer.tsx", "lines": "1186-1216" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 6
+    }
+  ],
+  "risks": [
+    {
+      "description": "A Pollux interceptor placed only between GeminiClient and Turn will silently miss the ACP and agent-session drivers; benchmarks under those modes over-estimate Pollux's value-add.",
+      "severity": "high",
+      "mitigatingTest": null,
+      "suggestedGuard": "Tag every turn start with a driver identifier (interactive-legacy / interactive-agent / non-interactive-legacy / non-interactive-agent / acp) and require Pollux to emit one log per driver; missing tag = un-intercepted path."
+    },
+    {
+      "description": "processGeminiStreamEvents has an exhaustive switch over ServerGeminiEventType; adding any new event type without updating it crashes the interactive shell (Risk 1 stream splice corruption).",
+      "severity": "high",
+      "mitigatingTest": "packages/cli/src/ui/hooks/useGeminiStream.ts:1514-1518 relies on compile-time exhaustiveness only",
+      "suggestedGuard": "When introducing Pollux events, update both useGeminiStream processGeminiStreamEvents and nonInteractiveCli.ts non-interactive switch together."
+    },
+    {
+      "description": "AppContainer's conditional hook call (useAgentStream vs useGeminiStream) breaks if the flag toggles at runtime.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Treat getAgentSessionInteractiveEnabled() as mount-time-only; assert-and-fail on mid-session flag change."
+    },
+    {
+      "description": "handleCompletedTools continues with prompt_ids[0] unilaterally; telemetry mis-attributes continuation turns when a batch spans multiple prompts.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Assert all prompt_ids are equal or split the continuation per prompt_id."
+    },
+    {
+      "description": "ACP handleCommand reads commandText from the first contiguous text parts only; binary-prefixed prompts skip command interception silently.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Scan all text parts or reject non-text-first prompts when starting with '/' or '$' is plausible."
+    },
+    {
+      "description": "gemini.tsx creates sessionId before config.initialize() in non-interactive mode; a later init that mutates the id would cause stale session ids in JSON output.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Freeze the session id at construction; forbid mutation in initialize()."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/cli/src/ui/hooks/useGeminiStream.test.tsx",
+      "packages/cli/src/ui/hooks/useAgentStream.test.tsx",
+      "packages/cli/src/nonInteractiveCli.test.ts",
+      "packages/cli/src/nonInteractiveCliAgentSession.test.ts",
+      "packages/cli/src/acp/acpClient.test.ts",
+      "packages/cli/src/acp/commandHandler.test.ts",
+      "packages/cli/src/services/SlashCommandResolver.test.ts",
+      "packages/cli/src/services/CommandService.test.ts",
+      "packages/cli/src/ui/hooks/slashCommandProcessor.test.tsx",
+      "packages/cli/src/gemini.test.tsx"
+    ],
+    "observabilitySignals": [
+      "coreEvents.emitConsoleLog (ConsolePatcher)",
+      "coreEvents.emitFeedback (interactiveCli startup warnings)",
+      "logUserPrompt / UserPromptEvent (interactive + non-interactive)",
+      "StreamJsonFormatter events: INIT, MESSAGE, TOOL_USE, TOOL_RESULT, ERROR, RESULT",
+      "runInDevTraceSpan({ operation: GeminiCliOperation.UserPrompt | SystemPrompt, sessionId })",
+      "acp.sessionUpdate (agent_message_chunk, agent_thought_chunk, tool_call, etc.)"
+    ],
+    "gaps": [
+      "ACP command registry has only a single parser unit test.",
+      "No test asserts useGeminiStream and nonInteractiveCli handle the same event type (e.g. AgentExecutionBlocked) consistently.",
+      "No test exercises the model-steering hint injection branch in handleFinalSubmit.",
+      "No test exists for the non-interactive skill-loader divergence.",
+      "No test exercises the rules-of-hooks bypass in AppContainer."
+    ]
+  },
+  "openQuestions": [
+    "Is the absence of SkillCommandLoader in non-interactive mode intentional, or a regression?",
+    "Can config.getAgentSessionInteractiveEnabled() change mid-session via settings hot reload?",
+    "Should ACP's handleCommand support multimodal-prefixed command prompts?",
+    "Which of the four turn drivers should Pollux instrument first, and how is benchmark fairness preserved when drivers use different router integration points?",
+    "Should handleCompletedTools preserve per-tool prompt_id instead of collapsing to prompt_ids[0]?",
+    "Should the /pollux slash command live in BuiltinCommandLoader or a dedicated extension (and what about ACP and non-interactive parity)?"
+  ],
+  "handoffs": {
+    "dependsOn": [2, 4, 6],
+    "affects": [3, 5, 7, 11, 12],
+    "escalatedTo": [2, 5]
+  },
+  "definitionOfDone": [
+    {
+      "item": "End-to-end CLI call flow mapped for all runtime modes",
+      "done": true
+    },
+    {
+      "item": "Tool continuation behavior verified for interactive and headless paths",
+      "done": true
+    },
+    { "item": "Command path and ACP path documented", "done": true },
+    { "item": "Branch-specific risks identified with citations", "done": true },
+    {
+      "item": "At least one representative event timeline evidence-backed",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar", "done": true },
+    { "item": "INDEX.md row 01 flipped to done", "done": false }
+  ]
+}

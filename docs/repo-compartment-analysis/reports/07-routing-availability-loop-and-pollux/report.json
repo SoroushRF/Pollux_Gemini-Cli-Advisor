@@ -1,0 +1,589 @@
+{
+  "compartment": {
+    "number": 7,
+    "slug": "routing-availability-loop-and-pollux",
+    "title": "Routing, Availability, Loop Controls, and Pollux"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/07-routing-availability-loop-and-pollux.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "b43e7661ddaa7bbcc2283350a5eace8d2d8bb424",
+  "upstreamBaseCommit": "05f3b38c1b4f96ef722c588280cdbdc835d77b31",
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/core/src/routing",
+        "exists": true,
+        "notes": "19 files: service + 8 strategies + tests."
+      },
+      {
+        "path": "packages/core/src/routing/modelRouterService.ts",
+        "exists": true,
+        "notes": "136 lines; single-class service."
+      },
+      {
+        "path": "packages/core/src/routing/routingStrategy.ts",
+        "exists": true,
+        "notes": "82 lines; defines RoutingStrategy, TerminalStrategy, RoutingContext, RoutingDecision."
+      },
+      {
+        "path": "packages/core/src/routing/strategies",
+        "exists": true,
+        "notes": "8 concrete strategies + matching *.test.ts."
+      },
+      {
+        "path": "packages/core/src/availability",
+        "exists": true,
+        "notes": "10 files; service, policy catalog, helpers, error classification, tests."
+      },
+      {
+        "path": "packages/core/src/services/loopDetectionService.ts",
+        "exists": true,
+        "notes": "759 lines; heuristic + LLM double-check."
+      },
+      {
+        "path": "packages/core/src/config/models.ts",
+        "exists": true,
+        "notes": "464 lines; constants, alias resolvers, family predicates."
+      },
+      {
+        "path": "packages/core/src/config/defaultModelConfigs.ts",
+        "exists": true,
+        "notes": "627 lines; aliases + modelDefinitions + modelChains + modelIdResolutions."
+      },
+      {
+        "path": "packages/core/src/pollux/index.ts",
+        "exists": true,
+        "notes": "171 bytes; banner + `export {};` only."
+      },
+      {
+        "path": "packages/core/src/pollux/benchmark",
+        "exists": true,
+        "notes": "Empty directory (0 files)."
+      },
+      {
+        "path": "packages/core/src/fallback/handler.ts",
+        "exists": true,
+        "notes": "Analyst-added. Canonical handleFallback implementation (not under availability)."
+      },
+      {
+        "path": "packages/core/src/availability/fallbackIntegration.test.ts",
+        "exists": true,
+        "notes": "Analyst-added. Integration test for chain-slicing + fallback selection."
+      },
+      {
+        "path": "packages/core/src/routing/modelRouterService.test.ts",
+        "exists": true,
+        "notes": "Analyst-added. 5 tests of composition order + telemetry."
+      },
+      {
+        "path": "docs/cli/model-routing.md",
+        "exists": true,
+        "notes": "60 lines; documents only the availability-driven fallback and GEMINI_MODEL precedence."
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Routing entry point is GeminiClient.getModelRouterService().route(routingContext); invoked exactly once per prompt unless stickiness is cleared (new prompt_id or CoreEvent.ModelChanged).",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "709-725"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "899-903",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "121-131",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "1887-1961",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 1; confirmed with explicit tests for sticky / reset-on-new-prompt / reroute-on-ModelChanged."
+    },
+    {
+      "claim": "ModelRouterService composes a chain-of-responsibility: FallbackStrategy -> OverrideStrategy -> ApprovalModeStrategy -> [GemmaClassifierStrategy?] -> ClassifierStrategy -> NumericalClassifierStrategy -> DefaultStrategy (terminal).",
+      "primary": {
+        "path": "packages/core/src/routing/modelRouterService.ts",
+        "lines": "39-67"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/routing/strategies/compositeStrategy.ts",
+          "lines": "40-97",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/routing/modelRouterService.test.ts",
+          "lines": "39-198",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 2; composition order is explicitly asserted by a unit test and by a separate gemma-toggle test."
+    },
+    {
+      "claim": "Routing can emit up to one extra LLM call (role UTILITY_ROUTER) against the 'classifier' alias, which resolves to gemini-2.5-flash-lite, per prompt reaching ClassifierStrategy or NumericalClassifierStrategy.",
+      "primary": {
+        "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+        "lines": "160-168"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/routing/strategies/numericalClassifierStrategy.ts",
+          "lines": "135-143",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/defaultModelConfigs.ts",
+          "lines": "105-116",
+          "kind": "config"
+        },
+        {
+          "path": "packages/core/src/telemetry/llmRole.ts",
+          "lines": "7-19",
+          "kind": "type"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 3. Falsifies the 'zero extra API calls' claim in POLLUX_SPEC for baseline runs."
+    },
+    {
+      "claim": "On every turn, the sticky currentSequenceModel is re-resolved through applyModelSelection, so availability state can still mutate the final model id even when the router is not re-consulted.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "727-742"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/availability/policyHelpers.ts",
+          "lines": "254-291",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/availability/fallbackIntegration.test.ts",
+          "lines": "41-90",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 4."
+    },
+    {
+      "claim": "ModelAvailabilityService exposes a per-session health map with three logical states (healthy / sticky_retry / terminal); resetTurn() is called from sendMessageStream at the top of each user prompt.",
+      "primary": {
+        "path": "packages/core/src/availability/modelAvailabilityService.ts",
+        "lines": "41-137"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "892-894",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 5."
+    },
+    {
+      "claim": "Two independent fallback paths exist: FallbackStrategy (inside the router, pre-call) and handleFallback (outside the router, from retryWithBackoff post-failure). Both resolve through policyCatalog + ModelAvailabilityService.",
+      "primary": {
+        "path": "packages/core/src/routing/strategies/fallbackStrategy.ts",
+        "lines": "18-61"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/fallback/handler.ts",
+          "lines": "25-110",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/availability/policyCatalog.ts",
+          "lines": "58-77",
+          "kind": "config"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "1107-1112",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/fallback/handler.test.ts",
+          "lines": "83-410",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 6; handler.test.ts enumerates all FallbackIntent branches."
+    },
+    {
+      "claim": "LoopDetectionService is a two-tier system: heuristic (0 extra LLM calls) + LLM tier (0-2 calls, starts at turn 30, fires every llmCheckInterval in [5..15] turns).",
+      "primary": {
+        "path": "packages/core/src/services/loopDetectionService.ts",
+        "lines": "29-66"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/services/loopDetectionService.ts",
+          "lines": "186-311",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/services/loopDetectionService.ts",
+          "lines": "540-673",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/services/loopDetectionService.test.ts",
+          "lines": "854-1148",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 7."
+    },
+    {
+      "claim": "Loop-detection double-check uses the alias 'loop-detection-double-check' which is bound to gemini-3-pro-preview; gated by ModelAvailabilityService.snapshot(...).available.",
+      "primary": {
+        "path": "packages/core/src/services/loopDetectionService.ts",
+        "lines": "597-628"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/defaultModelConfigs.ts",
+          "lines": "197-202",
+          "kind": "config"
+        },
+        {
+          "path": "packages/core/src/services/loopDetectionService.test.ts",
+          "lines": "1069-1099",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 8; 'should only call Flash model if main model is unavailable' test asserts the gate."
+    },
+    {
+      "claim": "The VALID_GEMINI_MODELS set contains eight identifiers (gemini-2.5-{pro,flash,flash-lite} + five preview variants across Gemini 3 and 3.1). Aliases auto/pro/flash/flash-lite/auto-gemini-3/auto-gemini-2.5 all resolve into one of those eight contextually.",
+      "primary": {
+        "path": "packages/core/src/config/models.ts",
+        "lines": "53-82"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/models.ts",
+          "lines": "98-187",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/defaultModelConfigs.ts",
+          "lines": "262-363",
+          "kind": "config"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 9."
+    },
+    {
+      "claim": "The Pollux scaffold is a stub: packages/core/src/pollux/index.ts is 10 lines containing only a banner comment and `export {};`; the benchmark/ subdirectory is empty.",
+      "primary": {
+        "path": "packages/core/src/pollux/index.ts",
+        "lines": "1-10"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/pollux/benchmark",
+          "kind": "other",
+          "lines": "1-1"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 10. Negative search rg 'pollux|Pollux|POLLUX' packages returned a single match (the banner itself). Get-ChildItem packages/core/src/pollux -Recurse returned 2 entries: index.ts + empty dir."
+    },
+    {
+      "claim": "docs/cli/model-routing.md documents only the availability-driven fallback and GEMINI_MODEL precedence; it does not mention ClassifierStrategy, NumericalClassifierStrategy, or ApprovalModeStrategy, which are active by default.",
+      "primary": { "path": "docs/cli/model-routing.md", "lines": "43-60" },
+      "supporting": [
+        {
+          "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+          "kind": "other",
+          "lines": "128-205"
+        },
+        {
+          "path": "packages/core/src/routing/strategies/approvalModeStrategy.ts",
+          "kind": "other",
+          "lines": "28-92"
+        },
+        {
+          "path": "packages/core/src/routing/strategies/numericalClassifierStrategy.ts",
+          "kind": "other",
+          "lines": "96-204"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 11. Contradiction C-07.3."
+    },
+    {
+      "claim": "ModelRouterService.route silently falls back to config.getModel() on composite-strategy exception, without consulting availability; compensated only by the post-router applyModelSelection in processTurn.",
+      "primary": {
+        "path": "packages/core/src/routing/modelRouterService.ts",
+        "lines": "99-117"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "727-742",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/routing/modelRouterService.test.ts",
+          "lines": "197-215",
+          "kind": "test"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Truth 12. Test does not cover the DefaultStrategy-throws path; only covers generic exception logging + telemetry."
+    },
+    {
+      "claim": "Setting experimentalDynamicModelConfiguration=true rewires both the availability chain resolution (to modelChains) and the model-registry predicates (resolveModel, isGemini3Model, isAutoModel) to use modelDefinitions metadata.",
+      "primary": {
+        "path": "packages/core/src/availability/policyHelpers.ts",
+        "lines": "66-107"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/models.ts",
+          "lines": "106-126",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/models.ts",
+          "lines": "208-219",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/models.ts",
+          "lines": "325-340",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/models.ts",
+          "lines": "395-407",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/config/defaultModelConfigs.ts",
+          "lines": "262-510",
+          "kind": "config"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Truth 13."
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "POLLUX_SPEC 'single-model baseline' is false. Router + loop detection both emit silent UTILITY LLM calls; Conditions A/E in the benchmark cannot be reproduced without pinning override + disabling LLM loop checks.",
+      "evidence": [
+        {
+          "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+          "lines": "160-168"
+        },
+        {
+          "path": "packages/core/src/services/loopDetectionService.ts",
+          "lines": "540-635"
+        },
+        { "path": "POLLUX_SPEC.md", "lines": "10-14" },
+        { "path": "POLLUX_SPEC.md", "lines": "398-398" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 14
+    },
+    {
+      "description": "ModelRouterService exception fallback hardcodes config.getModel() without availability; safe today only because processTurn re-runs applyModelSelection. A future refactor removing that could allow a terminal-marked model to slip through.",
+      "evidence": [
+        {
+          "path": "packages/core/src/routing/modelRouterService.ts",
+          "lines": "99-117"
+        },
+        { "path": "packages/core/src/core/client.ts", "lines": "727-742" }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "docs/cli/model-routing.md incomplete: does not describe classifier, numerical classifier, or approval-mode strategies.",
+      "evidence": [
+        { "path": "docs/cli/model-routing.md", "lines": "43-60" },
+        {
+          "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+          "lines": "128-205"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 16
+    },
+    {
+      "description": "Pollux scaffold diverges from POLLUX_SPEC architecture diagram: no interceptor, advisor client, escalation detector, logger, or benchmark runner exists.",
+      "evidence": [
+        { "path": "packages/core/src/pollux/index.ts", "lines": "1-10" }
+      ],
+      "resolution": "deferred"
+    },
+    {
+      "description": "Spec's synthetic-tool advisor injection does not compose with the existing pre-turn routing decision (router is consulted per prompt, not per event). Spec is silent on which model the advisor call should use.",
+      "evidence": [
+        { "path": "packages/core/src/core/client.ts", "lines": "722-752" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 4
+    },
+    {
+      "description": "ClassifierStrategy and NumericalClassifierStrategy couple implicitly via inverse checks of getNumericalRoutingEnabled() + isGemini3Model(); breaking either check would cause double-routing or zero-routing.",
+      "evidence": [
+        {
+          "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+          "lines": "140-145"
+        },
+        {
+          "path": "packages/core/src/routing/strategies/numericalClassifierStrategy.ts",
+          "lines": "108-114"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "DefaultStrategy (terminal) does not consult availability; relies on FallbackStrategy running earlier. CompositeStrategy swallows non-terminal exceptions, so a throw in FallbackStrategy can reach DefaultStrategy with no availability check.",
+      "evidence": [
+        {
+          "path": "packages/core/src/routing/strategies/defaultStrategy.ts",
+          "lines": "20-42"
+        },
+        {
+          "path": "packages/core/src/routing/strategies/compositeStrategy.ts",
+          "lines": "60-76"
+        }
+      ],
+      "resolution": "unresolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "currentSequenceModel blocks re-routing during a prompt; mid-prompt availability changes are invisible to the router unless they flow through CoreEvent.ModelChanged.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/core/client.test.ts:1963-2010 (emitModelChanged path only)",
+      "suggestedGuard": "Document 'to reroute mid-prompt, emit CoreEvent.ModelChanged' as a runtime contract; add a test that marks a model terminal mid-turn and asserts no silent reroute."
+    },
+    {
+      "description": "LLM loop-detection double-check can silently cost a full gemini-3-pro-preview call with 20 turns of history at turn 30+. Uncapped input size; corrupts benchmark Condition A.",
+      "severity": "high",
+      "mitigatingTest": "packages/core/src/services/loopDetectionService.test.ts:1069-1099 (availability gate only)",
+      "suggestedGuard": "For benchmark builds: either cap queryLoopDetectionModel input tokens, or force config.getDisableLoopDetection() = true."
+    },
+    {
+      "description": "CompositeStrategy swallows non-terminal exceptions and only debug-logs. No telemetry event is emitted per-strategy failure; production regressions are invisible unless debug logging is enabled.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Emit a RoutingStrategyFailedEvent on per-strategy exception with strategy.name + error."
+    },
+    {
+      "description": "handleFallback calls resolvePolicyChain(config) without passing failedModel as preferredModel; after an earlier fallback has updated the active model, subsequent chain resolution can lose models above the degraded position.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/fallback/handler.test.ts:83-410 (covers intents, not multi-sequential fallback)",
+      "suggestedGuard": "Pass failedModel into resolvePolicyChain as preferredModel and add a multi-fallback integration test."
+    },
+    {
+      "description": "ApprovalModeStrategy bakes wall-clock latency into reasoning text; makes benchmark replay diffs noisy.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Strip latency fields from RoutingDecision.metadata.reasoning before logging in benchmark runs."
+    },
+    {
+      "description": "Pollux scaffold directory (empty export barrel) silently succeeds imports; future contributors may assume runtime capability that does not exist.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Either remove the scaffold until Phase 1 lands or export a POLLUX_IMPLEMENTATION_STATUS='scaffold' constant for programmatic checks."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/routing/modelRouterService.test.ts",
+      "packages/core/src/routing/strategies/compositeStrategy.test.ts",
+      "packages/core/src/routing/strategies/defaultStrategy.test.ts",
+      "packages/core/src/routing/strategies/fallbackStrategy.test.ts",
+      "packages/core/src/routing/strategies/overrideStrategy.test.ts",
+      "packages/core/src/routing/strategies/approvalModeStrategy.test.ts",
+      "packages/core/src/routing/strategies/classifierStrategy.test.ts",
+      "packages/core/src/routing/strategies/numericalClassifierStrategy.test.ts",
+      "packages/core/src/routing/strategies/gemmaClassifierStrategy.test.ts",
+      "packages/core/src/availability/modelAvailabilityService.test.ts",
+      "packages/core/src/availability/policyCatalog.test.ts",
+      "packages/core/src/availability/policyHelpers.test.ts",
+      "packages/core/src/availability/fallbackIntegration.test.ts",
+      "packages/core/src/fallback/handler.test.ts",
+      "packages/core/src/services/loopDetectionService.test.ts",
+      "packages/core/src/core/client.test.ts (Model Routing describe at :1841-2010+)"
+    ],
+    "observabilitySignals": [
+      "ModelRoutingEvent (routing/modelRouterService.ts:119-130)",
+      "LoopDetectedEvent (services/loopDetectionService.ts:233-240)",
+      "LlmLoopCheckEvent (services/loopDetectionService.ts:603-611, 650-658)",
+      "LoopDetectionDisabledEvent (services/loopDetectionService.ts:169-172)",
+      "coreEvents.emitFeedback('error', ...) on CompositeStrategy terminal failure (routing/strategies/compositeStrategy.ts:90-94)",
+      "LlmRole.UTILITY_ROUTER + UTILITY_LOOP_DETECTOR tagging (telemetry/llmRole.ts:7-19) flowing through LoggingContentGenerator",
+      "CoreEvent.ModelChanged (emitted by config.activateFallbackMode; consumed by GeminiClient at client.ts:121)"
+    ],
+    "gaps": [
+      "CompositeStrategy non-terminal exception path not tested (R-07.3).",
+      "Router exception fallback when DefaultStrategy itself throws not tested (C-07.2).",
+      "Mid-prompt full fallback integration (handleFallback -> activateFallbackMode -> emitModelChanged -> reroute) not tested end-to-end.",
+      "Loop-detection LLM call token-budget not capped or tested (R-07.2).",
+      "Numerical routing threshold resolution (getResolvedClassifierThreshold) only indirectly covered.",
+      "Pollux: 0 test coverage (scaffold only)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-07.1: With FallbackStrategy placed before OverrideStrategy, does an explicit user --model always win if the requested model is healthy? Short answer is yes (Fallback returns null when snapshot.available), but confirm there is no regression path.",
+    "OQ-07.2: When isGemini3Model is called with model='classifier' or with alias 'auto-gemini-3' vs 'auto-gemini-2.5', does it consistently gate the numerical strategy?",
+    "OQ-07.3: Does compositeStrategy.test.ts cover the per-strategy-exception path (non-terminal throws, terminal continues)? Not inspected in this pass.",
+    "OQ-07.4: When disableLoopDetection is flipped mid-session via disableForSession(), does processTurn still call addAndCheck per event (with early return) or does it short-circuit the call?",
+    "OQ-07.5: Does the 'classifier' model-config-key resolve differently under experimentalDynamicModelConfiguration=true? If so, router/loop-detector token accounting changes across the flag.",
+    "OQ-07.6: Is there a way to disable only the LLM loop-check tier (keep heuristic active) without disabling loop detection entirely? Today config.getDisableLoopDetection() is all-or-nothing."
+  ],
+  "handoffs": {
+    "dependsOn": [2],
+    "affects": [6, 11, 14, 16],
+    "escalatedTo": [6, 14, 16]
+  },
+  "definitionOfDone": [
+    { "item": "Routing and fallback flow is evidence-backed.", "done": true },
+    { "item": "Loop detection interactions are documented.", "done": true },
+    {
+      "item": "Model registry and default behavior are verified.",
+      "done": true
+    },
+    {
+      "item": "Pollux implementation status is accurately classified (scaffold).",
+      "done": true
+    },
+    {
+      "item": "Benchmark control guidance is explicit and actionable.",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 07 flipped to done.", "done": true }
+  ]
+}

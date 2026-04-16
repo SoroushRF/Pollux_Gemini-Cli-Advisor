@@ -1,0 +1,597 @@
+{
+  "compartment": {
+    "number": 6,
+    "slug": "settings-schema-and-config-plumbing",
+    "title": "Settings Schema and Config Plumbing"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/06-settings-schema-and-config-plumbing.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "b43e7661ddaa7bbcc2283350a5eace8d2d8bb424",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/cli/src/config/settingsSchema.ts",
+        "exists": true,
+        "notes": "3304 lines; canonical SETTINGS_SCHEMA and type inference"
+      },
+      {
+        "path": "packages/cli/src/config/settings.ts",
+        "exists": true,
+        "notes": "1102 lines; loader, merge, cache, migration"
+      },
+      {
+        "path": "packages/cli/src/config/settings-validation.ts",
+        "exists": true,
+        "notes": "333 lines; Zod builder from schema"
+      },
+      {
+        "path": "packages/cli/src/config/config.ts",
+        "exists": true,
+        "notes": "1024 lines; parseArguments + loadCliConfig"
+      },
+      {
+        "path": "packages/core/src/config/config.ts",
+        "exists": true,
+        "notes": "3331 lines; Config class + ConfigParameters"
+      },
+      {
+        "path": "packages/core/src/config/storage.ts",
+        "exists": true,
+        "notes": "420 lines; Storage path resolver"
+      },
+      {
+        "path": "packages/core/src/utils/paths.ts",
+        "exists": true,
+        "notes": "456 lines; GEMINI_DIR, homedir utilities"
+      },
+      {
+        "path": "schemas/settings.schema.json",
+        "exists": true,
+        "notes": "4026 lines; generated artefact for IDE autocompletion"
+      },
+      {
+        "path": "packages/cli/src/config/settingPaths.ts",
+        "exists": true,
+        "notes": "11 lines; abandoned partial dotted-path registry"
+      },
+      {
+        "path": "scripts/generate-settings-schema.ts",
+        "exists": true,
+        "notes": "Added by analyst; canonical JSON schema generator"
+      },
+      {
+        "path": "packages/cli/src/utils/deepMerge.ts",
+        "exists": true,
+        "notes": "Added by analyst; implements customDeepMerge + merge strategies"
+      },
+      {
+        "path": "packages/core/src/config/scoped-config.ts",
+        "exists": true,
+        "notes": "Added by analyst; scopes WorkspaceContext, not settings"
+      },
+      {
+        "path": "packages/core/src/pollux/index.ts",
+        "exists": true,
+        "notes": "Added by analyst; scaffold-only stub with export {}"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "packages/cli/src/config/settingsSchema.ts is the sole canonical source of truth for user-facing settings",
+      "primary": {
+        "path": "packages/cli/src/config/settingsSchema.ts",
+        "lines": "157-2769",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "3311-3313",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "scripts/generate-settings-schema.ts",
+          "lines": "11-28",
+          "kind": "config",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settingsSchema.test.ts",
+          "lines": "1-557",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Declared `as const satisfies SettingsSchema` and consumed by the generator."
+    },
+    {
+      "claim": "mergeSettings precedence is schemaDefaults < systemDefaults < user < safeWorkspace < system, with untrusted workspaces replaced by {}",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "247-273",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/utils/deepMerge.ts",
+          "lines": "83-96",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.test.ts",
+          "lines": "261-340",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.test.ts",
+          "lines": "342-444",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "File-based admin.* settings are ignored; only remote admin overrides populate the admin overlay",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "365-390",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "468-494",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "2651-2768",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "No direct negative test; behaviour is implicit in computeMergedSettings."
+    },
+    {
+      "claim": "Settings validation failures are warnings; only JSON parse and IO errors are fatal",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "691-702",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "778-786",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings-validation.test.ts",
+          "lines": "17-437",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings_validation_warning.test.ts",
+          "lines": "1-385",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Workspace settings are skipped when the workspace is the user's home directory",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "719-725",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/storage.ts",
+          "lines": "158-163",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.test.ts",
+          "lines": "1541-1600",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Settings file paths are derived only through Storage (core) and the system path helpers in CLI settings.ts",
+      "primary": {
+        "path": "packages/core/src/config/storage.ts",
+        "lines": "69-136",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "79-119",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/config/storage.test.ts",
+          "lines": "82-88",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/config/storage.test.ts",
+          "lines": "387-425",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "GEMINI_DIR constant ('.gemini') is defined in core paths.ts and consumed universally",
+      "primary": {
+        "path": "packages/core/src/utils/paths.ts",
+        "lines": "13-27",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/storage.ts",
+          "lines": "11-18",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Settings and MergedSettings types are compile-time inferred from typeof SETTINGS_SCHEMA",
+      "primary": {
+        "path": "packages/cli/src/config/settingsSchema.ts",
+        "lines": "3315-3349",
+        "status": "ok"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "CLI-to-core mapping occurs only in loadCliConfig; core does not read settings files",
+      "primary": {
+        "path": "packages/cli/src/config/config.ts",
+        "lines": "520-1026",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/config.ts",
+          "lines": "960-1393",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Verified by rg -n 'loadSettings|settings\\.json' packages/core/src returning no runtime hits."
+    },
+    {
+      "claim": "loadSettings is cached with a 10-second TTL; saveSettings clears the cache",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "622-649",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "1062-1088",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "customDeepMerge supports four strategies: REPLACE (default), CONCAT, UNION, SHALLOW_MERGE",
+      "primary": {
+        "path": "packages/cli/src/utils/deepMerge.ts",
+        "lines": "24-81",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "56-77",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "88-97",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.test.ts",
+          "lines": "1053-1092",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "schemas/settings.schema.json is generated from SETTINGS_SCHEMA via scripts/generate-settings-schema.ts",
+      "primary": {
+        "path": "scripts/generate-settings-schema.ts",
+        "lines": "55-78",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "7-10",
+          "kind": "doc",
+          "status": "ok"
+        },
+        {
+          "path": "package.json",
+          "lines": "31-33",
+          "kind": "config",
+          "status": "ok"
+        },
+        {
+          "path": "scripts/tests/generate-settings-schema.test.ts",
+          "lines": "22-43",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "migrateDeprecatedSettings runs on every load and emits warnings for read-only scopes instead of rewriting files",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "820-824",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "1036-1057",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "834-1060",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "medium",
+      "notes": "Read-only-warning branch has no targeted assertion in sampled tests."
+    },
+    {
+      "claim": "Workspace trust is resolved twice (pre-merge without workspace, then post-merge) to break the trust<->settings cycle",
+      "primary": {
+        "path": "packages/cli/src/config/settings.ts",
+        "lines": "752-771",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settings.ts",
+          "lines": "345-363",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/cli/src/config/settings.test.ts",
+          "lines": "446-520",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "No pollux settings block exists in the CLI schema or JSON schema; core pollux module is an export-only stub",
+      "primary": {
+        "path": "packages/core/src/pollux/index.ts",
+        "lines": "1-11",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "157-2769",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Verified by rg -n -i 'pollux' packages/cli/src/config schemas returning 0 matches."
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "POLLUX_SPEC.md implies core (config.ts) is the settings reader; in reality CLI owns the loader and core only consumes ConfigParameters.",
+      "evidence": [
+        { "path": "packages/core/src/config/config.ts", "lines": "960-1393" },
+        { "path": "packages/cli/src/config/settings.ts", "lines": "643-825" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 16
+    },
+    {
+      "description": "packages/cli/src/config/settingPaths.ts is effectively abandoned (only one constant) but still exported, suggesting an incomplete refactor.",
+      "evidence": [
+        { "path": "packages/cli/src/config/settingPaths.ts", "lines": "1-11" },
+        { "path": "packages/cli/src/config/config.ts", "lines": "536-1025" }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "BrowserAgentCustomConfig in core is manually duplicated from CLI schema agents.browser definition with only a doc comment to enforce drift.",
+      "evidence": [
+        { "path": "packages/core/src/config/config.ts", "lines": "340-372" },
+        {
+          "path": "packages/cli/src/config/settingsSchema.ts",
+          "lines": "1161-1290"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "admin.* settings declared in user/system files pass Zod validation but are silently dropped during admin overlay.",
+      "evidence": [
+        {
+          "path": "packages/cli/src/config/settings-validation.ts",
+          "lines": "144-149"
+        },
+        { "path": "packages/cli/src/config/settings.ts", "lines": "374-389" }
+      ],
+      "resolution": "deferred"
+    },
+    {
+      "description": "scoped-config.ts is named like settings scoping but actually scopes WorkspaceContext only.",
+      "evidence": [
+        {
+          "path": "packages/core/src/config/scoped-config.ts",
+          "lines": "1-40"
+        },
+        {
+          "path": "packages/core/src/config/scoped-config.test.ts",
+          "lines": "1-80"
+        }
+      ],
+      "resolution": "deferred"
+    },
+    {
+      "description": "SettingScope.Session is excluded from loadable scopes and reserved for extensions, but the contract is not cross-linked to compartment 05.",
+      "evidence": [
+        { "path": "packages/cli/src/config/settings.ts", "lines": "123-160" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 5
+    }
+  ],
+  "risks": [
+    {
+      "description": "Adding a new top-level settings block without regenerating schemas/settings.schema.json leaves IDE autocompletion out of sync.",
+      "severity": "medium",
+      "mitigatingTest": "scripts/tests/generate-settings-schema.test.ts:22-43",
+      "suggestedGuard": "Run `npm run schema:settings -- --check` as a required CI step."
+    },
+    {
+      "description": "Changing mergeStrategy on an existing array key silently rewrites merged results without any compile error.",
+      "severity": "high",
+      "mitigatingTest": "packages/cli/src/config/settings.test.ts:979-1092",
+      "suggestedGuard": "Add a schema-invariant test asserting every array-typed setting has an explicit mergeStrategy."
+    },
+    {
+      "description": "loadSettings cache hides mid-session cross-process edits for up to 10 seconds.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Invalidate the cache when the settings file mtime changes, or drop TTL for multi-process safety."
+    },
+    {
+      "description": "migrateExperimentalSettings mutates in-RAM state for read-only system scopes while leaving the file untouched, creating disk/RAM divergence.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Skip in-RAM migration for read-only scopes; only emit the warning."
+    },
+    {
+      "description": "ConfigParameters has ~150 optional fields with no cross-check that each is wired from settings or argv; silent default fallbacks are easy.",
+      "severity": "high",
+      "mitigatingTest": null,
+      "suggestedGuard": "Static test enumerating ConfigParameters keys and asserting each has a known source (argv/env/settings/explicit default)."
+    },
+    {
+      "description": "BrowserAgentCustomConfig core type can drift from the CLI schema; only a doc comment enforces consistency.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Generate the core type from the CLI schema via the existing generator."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/cli/src/config/settings.test.ts",
+      "packages/cli/src/config/settings-validation.test.ts",
+      "packages/cli/src/config/settings_validation_warning.test.ts",
+      "packages/cli/src/config/settings_repro.test.ts",
+      "packages/cli/src/config/settingsSchema.test.ts",
+      "packages/cli/src/config/settingPaths.test.ts",
+      "packages/core/src/config/storage.test.ts",
+      "packages/core/src/config/config.test.ts",
+      "packages/core/src/config/scoped-config.test.ts",
+      "packages/a2a-server/src/config/settings.test.ts",
+      "scripts/tests/generate-settings-schema.test.ts"
+    ],
+    "observabilitySignals": [
+      "coreEvents.emitSettingsChanged (packages/cli/src/config/settings.ts:354,465,493)",
+      "coreEvents.emitFeedback 'warning' for read-only deprecation (settings.ts:1052-1055)",
+      "coreEvents.emitFeedback 'error' for save failures (settings.ts:1081-1085, 1097-1102)",
+      "FatalConfigError thrown on severity=error (settings.ts:783)"
+    ],
+    "gaps": [
+      "No assertion for read-only deprecation warning path",
+      "No test for silent drop of file-based admin.* settings",
+      "No invariant test mapping every schema key to a ConfigParameters field",
+      "No cross-process cache-invalidation test",
+      "Generator drift check not wired as a CI gate (only a test)",
+      "No test for BrowserAgentCustomConfig <-> agents.browser shape parity"
+    ]
+  },
+  "openQuestions": [
+    "Is schemas/settings.schema.json generation enforced in CI or only a dev affordance?",
+    "Should SettingPaths become a full dotted-key registry or be deleted?",
+    "What is the intended contract for admin.* values appearing in user/system files?",
+    "Is Session scope ever persisted to disk, or purely in-memory for extensions?",
+    "Does migrateExperimentalSettings run only once per load, or can two migrations interact on the same keys?",
+    "Should an eventual pollux.* block start under experimental.* and graduate to top-level, mirroring plan/taskTracker?"
+  ],
+  "handoffs": {
+    "dependsOn": [2, 7],
+    "affects": [1, 4, 5, 9, 15, 16],
+    "escalatedTo": [5, 15, 16]
+  },
+  "definitionOfDone": [
+    {
+      "item": "Source-of-truth schema and merge ownership are proven",
+      "done": true
+    },
+    {
+      "item": "Precedence behavior is documented and test-backed",
+      "done": true
+    },
+    { "item": "CLI-to-core mapping is explicit", "done": true },
+    { "item": "Storage/path behavior is confirmed", "done": true },
+    {
+      "item": "New-setting recipe and anti-patterns are documented",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar", "done": true },
+    { "item": "INDEX.md row 06 flipped to done", "done": true }
+  ]
+}

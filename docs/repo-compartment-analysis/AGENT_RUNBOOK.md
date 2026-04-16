@@ -29,16 +29,34 @@ If you are synthesizing multiple compartments instead of analyzing one, see
 
 ## 2. Output contract (non-negotiable)
 
-Each compartment run produces exactly two artifacts:
+Each compartment run produces exactly two artifacts inside a per-compartment
+folder:
 
 1. A Markdown report at:
-   `docs/repo-compartment-analysis/reports/NN-<slug>.report.md` where
+   `docs/repo-compartment-analysis/reports/NN-<slug>/report.md` where
    `NN-<slug>` matches the guideline filename (e.g. `02-core-turn-engine`).
 2. A JSON sidecar at:
-   `docs/repo-compartment-analysis/reports/NN-<slug>.report.json` conforming to
+   `docs/repo-compartment-analysis/reports/NN-<slug>/report.json` conforming to
    `_TEMPLATES/report-sidecar-schema.json`.
 
 Both files must be present for the compartment to be marked `done`.
+
+### Template and size by tier
+
+Pick the template based on the compartment's tier in `POLLUX_PRIORITY.md`:
+
+| Tier | Template                             | Markdown lines | Sidecar lines | Truths min | Code quotes      |
+| ---- | ------------------------------------ | -------------- | ------------- | ---------- | ---------------- |
+| T1   | `_TEMPLATES/report-template.md`      | 400–900        | full          | 10         | 5–15 (strategic) |
+| T2   | `_TEMPLATES/report-template-lite.md` | 250–400        | 150–250       | 6          | 0–2              |
+| T3   | `_TEMPLATES/report-template-lite.md` | 200–300        | 100–180       | 4          | 0                |
+| T4   | `_TEMPLATES/report-template-lite.md` | 150–250        | 80–150        | 3          | 0                |
+
+Over-sizing is a defect, not extra value. If a lite-template report exceeds its
+ceiling, delete Evidence Matrix duplication, strip code quotes, drop test files
+from Section 3 (they belong in Section 6), and merge Risks + Open Questions into
+one section. If it still exceeds, the compartment needs to be split — escalate
+as a meta-finding in `INDEX.md` Notes.
 
 ## 3. Execution steps
 
@@ -92,18 +110,24 @@ Get-Content docs/repo-compartment-analysis/NN-<slug>.md |
 
 ### Step E — Fill the report
 
-1. Copy `_TEMPLATES/report-template.md` to `reports/NN-<slug>.report.md`.
-2. Fill every section. Sections must not be deleted; if not applicable, write
+1. Create `reports/NN-<slug>/` if it does not exist.
+2. Tier 1: copy `_TEMPLATES/report-template.md` to
+   `reports/NN-<slug>/report.md`. Tier 2/3/4: copy
+   `_TEMPLATES/report-template-lite.md` to the same path.
+3. Fill every section. Sections must not be deleted; if not applicable, write
    "N/A" with a one-sentence justification.
-3. Every major claim must carry at least one citation per
+4. Every major claim must carry at least one citation per
    `CITATION_STANDARD.md`.
+5. Respect the per-tier size ceiling in Section 2. If you are writing the tenth
+   code quote in a T2 report, stop — you are over-reading.
 
 ### Step F — Fill the JSON sidecar
 
-1. Copy `_TEMPLATES/report-sidecar-schema.json` mental shape into a new file at
-   `reports/NN-<slug>.report.json`.
+1. Create `reports/NN-<slug>/report.json` following
+   `_TEMPLATES/report-sidecar-schema.json`.
 2. Populate the evidence matrix as structured data (claims, citations,
-   confidence, test coverage).
+   confidence). For T2–T4, keep entries minimal: omit `notes` unless it carries
+   new information not in the Markdown, and never re-quote code.
 3. Validate the JSON parses (`Get-Content ... | ConvertFrom-Json`).
 
 ### Step G — Update the status tracker
@@ -151,7 +175,9 @@ The compartment is `done` only when all the following are true:
   both attempts in the report.
 - If you are blocked by a dependency on another compartment: set status to
   `blocked` in `INDEX.md` and list the blocking compartment.
-- If your report would exceed ~2000 lines: you are over-reading. Prune.
+- If your report would exceed the tier ceiling in Section 2: you are
+  over-reading. Prune quotes first, then collapse the Evidence Matrix into the
+  sidecar, then split the compartment if still over budget.
 
 ## 7. Commit convention (optional)
 

@@ -10,11 +10,12 @@ This compartment defines confidence mechanisms for code and architecture claims.
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture.report.md`
+  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture.report.json`
+  `docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T2** — `_TEMPLATES/report-template-lite.md` (250–400 md
+  lines, 0–2 code quotes, ≥6 verified truths). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 14 in `INDEX.md` at start and end

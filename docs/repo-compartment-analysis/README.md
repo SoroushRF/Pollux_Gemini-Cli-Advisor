@@ -29,9 +29,25 @@ If you are an AI agent (or new contributor) about to analyze a compartment:
 4. Read `POLLUX_PRIORITY.md` — recommended analysis order for Pollux.
 5. Open `INDEX.md` — claim your compartment there before starting.
 6. Follow the compartment's guideline file (01–16) step by step.
-7. Fill `_TEMPLATES/report-template.md` → save under `reports/`.
-8. Fill the JSON sidecar per `_TEMPLATES/report-sidecar-schema.json`.
+7. Pick the tier-appropriate template (see table below) and save it to
+   `reports/NN-<slug>/report.md`.
+8. Fill `reports/NN-<slug>/report.json` per
+   `_TEMPLATES/report-sidecar-schema.json`.
 9. Flip status in `INDEX.md` to `done`.
+
+### Templates and sizes by tier
+
+| Tier | Template                             | Markdown lines | Sidecar lines | Code quotes    |
+| ---- | ------------------------------------ | -------------- | ------------- | -------------- |
+| T1   | `_TEMPLATES/report-template.md`      | 400–900        | full          | 5–15 strategic |
+| T2   | `_TEMPLATES/report-template-lite.md` | 250–400        | 150–250       | 0–2            |
+| T3   | `_TEMPLATES/report-template-lite.md` | 200–300        | 100–180       | 0              |
+| T4   | `_TEMPLATES/report-template-lite.md` | 150–250        | 80–150        | 0              |
+
+The lite template drops the duplicated Evidence Matrix section, caps Key Files
+at 5–10 rows, merges Risks + Open Questions, and forbids appendices. JSON
+sidecars stay mandatory at every tier so the synthesis capstone can consume them
+programmatically.
 
 The capstone (after >= 12 compartments are done) follows
 `_TEMPLATES/cross-compartment-synthesis.md`.
@@ -71,11 +87,14 @@ investigation.
 - `INDEX.md` — compartment status tracker; claim before you analyze.
 - `GLOSSARY.md` — canonical term definitions.
 - `CITATION_STANDARD.md` — citation formats (inline, block, negative).
-- `_TEMPLATES/report-template.md` — copy-paste Markdown report shell.
+- `_TEMPLATES/report-template.md` — full Markdown shell for **Tier 1** reports.
+- `_TEMPLATES/report-template-lite.md` — lightweight shell for **Tier 2/3/4**.
 - `_TEMPLATES/report-sidecar-schema.json` — JSON schema for sidecars.
-- `_TEMPLATES/evidence-matrix-template.md` — evidence-matrix scaffold.
+- `_TEMPLATES/evidence-matrix-template.md` — evidence-matrix scaffold (T1 only).
 - `_TEMPLATES/cross-compartment-synthesis.md` — capstone recipe.
-- `reports/` — output folder (one Markdown + one JSON per compartment).
+- `reports/NN-<slug>/report.md` + `report.json` — output folder per compartment.
+- `reports/TIER1_SUMMARY.md` — consolidated Tier-1 synthesis, produced once all
+  five T1 compartments are `done`.
 
 ## Shared Analysis Workflow (Applies To Every Compartment)
 
@@ -171,8 +190,7 @@ Use this mini-template in every compartment report:
 - Read `AGENT_RUNBOOK.md`.
 - Claim a compartment row in `INDEX.md`.
 - Execute the compartment's recipe exactly.
-- Produce both artifacts in `reports/`: `NN-<slug>.report.md` and
-  `NN-<slug>.report.json`.
+- Produce both artifacts in `reports/NN-<slug>/`: `report.md` and `report.json`.
 - Flip `INDEX.md` to `done`.
 - Move to the next compartment.
 - Finish by executing `_TEMPLATES/cross-compartment-synthesis.md`.

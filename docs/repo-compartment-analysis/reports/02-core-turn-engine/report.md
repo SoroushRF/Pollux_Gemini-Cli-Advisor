@@ -717,7 +717,7 @@ Copied from `02-core-turn-engine.md` and ticked where satisfied.
       Truth 9 + C-02.2)
 - [x] Pre-flight path validation recorded in report section 0.
 - [x] Evidence matrix populated in the JSON sidecar. (see
-      `02-core-turn-engine.report.json`)
+      `reports/02-core-turn-engine/report.json`)
 - [x] `INDEX.md` row 02 flipped to `done`. (performed at commit time)
 
 Additional template DoD:
@@ -728,7 +728,7 @@ Additional template DoD:
 
 ## 10. Evidence Matrix (summary)
 
-The authoritative matrix lives in `reports/02-core-turn-engine.report.json`.
+The authoritative matrix lives in `reports/02-core-turn-engine/report.json`.
 Summary:
 
 | Claim                                                                                                                          | Primary                                                                                                           | Supporting                                                                                                                                      | Confidence |

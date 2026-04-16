@@ -10,11 +10,12 @@ This compartment is the security and compliance control plane for the runtime.
 ## Execution Contract
 
 - **Report (MD)**:
-  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine.report.md`
+  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine/report.md`
 - **Report (JSON)**:
-  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine.report.json`
+  `docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine/report.json`
 - **Runbook**: `AGENT_RUNBOOK.md`
-- **Template**: `_TEMPLATES/report-template.md`
+- **Tier / Template**: **T3** — `_TEMPLATES/report-template-lite.md` (200–300 md
+  lines, 0 code quotes, ≥4 verified truths). See `AGENT_RUNBOOK.md` §2.
 - **Sidecar schema**: `_TEMPLATES/report-sidecar-schema.json`
 - **Citation format**: `CITATION_STANDARD.md`
 - **Status tracker**: update row 09 in `INDEX.md` at start and end

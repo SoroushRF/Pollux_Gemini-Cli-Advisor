@@ -1,0 +1,551 @@
+{
+  "compartment": {
+    "number": 4,
+    "slug": "tools-and-mcp-platform",
+    "title": "Tools and MCP Platform"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/04-tools-and-mcp-platform.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "b43e7661ddaa7bbcc2283350a5eace8d2d8bb424",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/core/src/tools",
+        "exists": true,
+        "notes": "77 TS files (sources + tests)"
+      },
+      {
+        "path": "packages/core/src/tools/tool-registry.ts",
+        "exists": true,
+        "notes": "717 lines"
+      },
+      {
+        "path": "packages/core/src/tools/tools.ts",
+        "exists": true,
+        "notes": "1006 lines"
+      },
+      {
+        "path": "packages/core/src/tools/mcp-client-manager.ts",
+        "exists": true,
+        "notes": "669 lines"
+      },
+      {
+        "path": "packages/core/src/tools/mcp-client.ts",
+        "exists": true,
+        "notes": "2151 lines; above reading-budget guideline"
+      },
+      {
+        "path": "packages/core/src/tools/mcp-tool.ts",
+        "exists": true,
+        "notes": "555 lines"
+      },
+      {
+        "path": "packages/core/src/mcp",
+        "exists": true,
+        "notes": "OAuth providers, token storage, service-account impersonation"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Every declarative tool is a BaseDeclarativeTool that validates parameters against a JSON schema before returning a ToolInvocation.",
+      "primary": {
+        "path": "packages/core/src/tools/tools.ts",
+        "lines": "683-706",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tools.test.ts",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "ToolRegistry owns model-facing function declarations and injects a synthetic wait_for_previous parameter into every declaration.",
+      "primary": {
+        "path": "packages/core/src/tools/tool-registry.ts",
+        "lines": "635-689",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tools.ts",
+          "lines": "538-565",
+          "kind": "type",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Plan-mode gating and excluded-tools filtering occur at declaration time inside ToolRegistry, not inside tools.",
+      "primary": {
+        "path": "packages/core/src/tools/tool-registry.ts",
+        "lines": "599-625",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tool-registry.test.ts",
+          "lines": "742-900",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Config.createToolRegistry is the canonical registration site for built-ins; each tool class is gated by Config.getCoreTools().",
+      "primary": {
+        "path": "packages/core/src/config/config.ts",
+        "lines": "3481-3634",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/config/config.test.ts",
+          "lines": "1363-2140",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "DiscoveredToolInvocation runs as a spawned subprocess with 10MB stdout/stderr byte budgets and treats any non-empty stderr as failure.",
+      "primary": {
+        "path": "packages/core/src/tools/tool-registry.ts",
+        "lines": "408-467",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tool-registry.test.ts",
+          "lines": "876-1000",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/tool-registry.ts",
+          "lines": "141-157",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "MCP tool names are fully qualified as mcp_<server>_<tool>, sanitized to [a-zA-Z0-9_.:-], and truncated to 63 chars with a '...' middle marker.",
+      "primary": {
+        "path": "packages/core/src/tools/mcp-tool.ts",
+        "lines": "588-616",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/mcp-tool.test.ts",
+          "lines": "54-120",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "MCP server discovery obeys three independent gates: admin allow/block, user enablement, and folder trust.",
+      "primary": {
+        "path": "packages/core/src/tools/mcp-client-manager.ts",
+        "lines": "415-437",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/mcp-client-manager.test.ts",
+          "lines": "212-291",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Per-server tool filtering applies excludeTools before includeTools; allowlists intersect while blocklists union on config merge.",
+      "primary": {
+        "path": "packages/core/src/tools/mcp-client.ts",
+        "lines": "2344-2368",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/mcp-client-manager.ts",
+          "lines": "305-344",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "MCP tool invocations emit progress tokens and map SDK-transport failures into MCP-spec 'isError:true' responses rather than throwing.",
+      "primary": {
+        "path": "packages/core/src/tools/mcp-client.ts",
+        "lines": "1369-1425",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/mcp-tool.test.ts",
+          "lines": "274-340",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "BaseToolInvocation.shouldConfirmExecute short-circuits in AUTO_EDIT mode for edit/write tools via respectsAutoEdit=true.",
+      "primary": {
+        "path": "packages/core/src/tools/tools.ts",
+        "lines": "187-219",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/confirmation-policy.test.ts",
+          "lines": "199-231",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/edit.ts",
+          "lines": "457-466",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/write-file.ts",
+          "lines": "159-168",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Persistent tool-approval updates are owned by the scheduler's updatePolicy path; onConfirm callbacks no longer publish UPDATE_POLICY.",
+      "primary": {
+        "path": "packages/core/src/scheduler/scheduler.ts",
+        "lines": "669-678",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/confirmation-policy.test.ts",
+          "lines": "181-187",
+          "kind": "test",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/shell.ts",
+          "lines": "232-249",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/mcp-tool.ts",
+          "lines": "190-197",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Tool invocation errors normalize through ToolExecutor.execute, mapping thrown errors to ToolErrorType.UNHANDLED_EXCEPTION and ToolResult.error fields to their declared type.",
+      "primary": {
+        "path": "packages/core/src/scheduler/tool-executor.ts",
+        "lines": "146-194",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tool-error.ts",
+          "lines": "14-82",
+          "kind": "type",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Confirmation requests correlate via MessageBus IDs; a 30-second timeout resolves to ask_user and abort resolves to deny.",
+      "primary": {
+        "path": "packages/core/src/tools/tools.ts",
+        "lines": "278-371",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/base-tool-invocation.test.ts",
+          "lines": "39-95",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "MCP output content blocks (text/image/audio/resource/resource_link) are transformed into GenAI Part[] with inlineData for binary content; unknown blocks are dropped.",
+      "primary": {
+        "path": "packages/core/src/tools/mcp-tool.ts",
+        "lines": "450-582",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/mcp-tool.test.ts",
+          "lines": "444-582",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Legacy tool-name aliases are normalized at getTool lookup and expanded in excludeTools so policy targets both the old and new name.",
+      "primary": {
+        "path": "packages/core/src/tools/tool-names.ts",
+        "lines": "209-234",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/tool-registry.ts",
+          "lines": "777-795",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/tool-registry.ts",
+          "lines": "567-580",
+          "kind": "other",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/tools/tool-names.test.ts",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Two MCP discovery drivers with divergent lifecycles: McpClient.discoverInto (managed by McpClientManager) and exported connectAndDiscover both exist and both throw on empty discovery.",
+      "evidence": [
+        { "path": "packages/core/src/tools/mcp-client.ts", "lines": "224-250" },
+        {
+          "path": "packages/core/src/tools/mcp-client.ts",
+          "lines": "1176-1251"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "DiscoveredMCPToolInvocation.allowlist is a static per-process Set that parallels the persistent policy engine's approvals.",
+      "evidence": [
+        { "path": "packages/core/src/tools/mcp-tool.ts", "lines": "158-237" },
+        {
+          "path": "packages/core/src/scheduler/scheduler.ts",
+          "lines": "669-678"
+        }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 9
+    },
+    {
+      "description": "respectsAutoEdit=true is only set by EditTool and WriteFileTool invocations; other Kind.Edit tools (e.g. tracker tools) don't use the AUTO_EDIT fast-path. AUTO_EDIT scope is therefore narrower than ApprovalMode documentation implies.",
+      "evidence": [
+        { "path": "packages/core/src/tools/tools.ts", "lines": "165-175" },
+        {
+          "path": "packages/core/src/tools/trackerTools.ts",
+          "lines": "174-280"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "DiscoveredToolInvocation treats any non-empty stderr as a tool error, even with exit code 0.",
+      "evidence": [
+        {
+          "path": "packages/core/src/tools/tool-registry.ts",
+          "lines": "141-157"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "generateValidName truncation (first30 + '...' + last30) can collide distinct MCP tool names; registerTool silently overwrites the earlier entry.",
+      "evidence": [
+        { "path": "packages/core/src/tools/mcp-tool.ts", "lines": "605-614" },
+        {
+          "path": "packages/core/src/tools/tool-registry.ts",
+          "lines": "269-277"
+        }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "mcp-client.ts is 2151 lines, exceeding the 1500-line reading-budget guideline and concentrating OAuth/transport/discovery in one file.",
+      "evidence": [{ "path": "packages/core/src/tools/mcp-client.ts" }],
+      "resolution": "deferred"
+    },
+    {
+      "description": "DiscoveredMCPToolInvocation.allowlist uses dotted server.tool keys while policy updates flow with the underscore-separated mcp_server_tool convention.",
+      "evidence": [
+        { "path": "packages/core/src/tools/mcp-tool.ts", "lines": "202-214" },
+        { "path": "packages/core/src/tools/mcp-tool.ts", "lines": "178-187" }
+      ],
+      "resolution": "unresolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "Tool-discovery command output is parsed with minimal validation (three accepted shapes, no schema check), so malformed external discovery can register broken tools.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/tools/tool-registry.test.ts describe('discoverTools', …)",
+      "suggestedGuard": "Validate declarations with SchemaValidator and drop invalid entries with a diagnostic."
+    },
+    {
+      "description": "MCP name truncation can collide two distinct server+tool pairs; registerTool overwrites without error.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Append a short stable hash suffix to truncated names."
+    },
+    {
+      "description": "Confirmation-bus 30s timeout resolves to ask_user; a lost response or non-interactive driver can stall or mis-route.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/tools/base-tool-invocation.test.ts",
+      "suggestedGuard": "Make the timeout configurable and error out in non-interactive drivers."
+    },
+    {
+      "description": "DiscoveredToolInvocation treats any stderr as an error; valid external tools that log progress to stderr report as failed to the model.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Treat non-empty stderr as warnings when exit code is 0; surface stderr via data field."
+    },
+    {
+      "description": "Static in-memory MCP allowlist can drift from the persistent policy engine across long-running sessions.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Consolidate session-scoped MCP approvals under the policy engine."
+    },
+    {
+      "description": "Plan-mode wording is patched into declarations by string concatenation at declaration time; upstream base-description changes can read oddly.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/tools/tool-registry.test.ts describe('plan mode', …)",
+      "suggestedGuard": "Move plan-mode wording into tool definitions and select a variant instead of string patching."
+    },
+    {
+      "description": "MCP transport fallback (HTTP -> SSE -> OAuth) can emit confusing error text because only the last attempt's error is surfaced.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/tools/mcp-client.test.ts",
+      "suggestedGuard": "Aggregate per-transport attempts into a single error with breadcrumbs."
+    },
+    {
+      "description": "mcp-client.ts at 2151 lines increases review friction; changes to OAuth, transport, and discovery share a file and diff-review locality.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Split by concern (transport / discovery / OAuth)."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/tools/tools.test.ts",
+      "packages/core/src/tools/tool-registry.test.ts",
+      "packages/core/src/tools/tool-names.test.ts",
+      "packages/core/src/tools/mcp-client.test.ts",
+      "packages/core/src/tools/mcp-client-manager.test.ts",
+      "packages/core/src/tools/mcp-tool.test.ts",
+      "packages/core/src/tools/confirmation-policy.test.ts",
+      "packages/core/src/tools/base-tool-invocation.test.ts",
+      "packages/core/src/tools/message-bus-integration.test.ts",
+      "packages/core/src/tools/modifiable-tool.test.ts",
+      "packages/core/src/tools/read-file.test.ts",
+      "packages/core/src/tools/write-file.test.ts",
+      "packages/core/src/tools/edit.test.ts",
+      "packages/core/src/tools/ls.test.ts",
+      "packages/core/src/tools/glob.test.ts",
+      "packages/core/src/tools/grep.test.ts",
+      "packages/core/src/tools/ripGrep.test.ts",
+      "packages/core/src/tools/read-many-files.test.ts",
+      "packages/core/src/tools/shell.test.ts",
+      "packages/core/src/tools/shell_proactive.test.ts",
+      "packages/core/src/tools/shellBackgroundTools.test.ts",
+      "packages/core/src/tools/shellBackgroundTools.integration.test.ts",
+      "packages/core/src/tools/web-fetch.test.ts",
+      "packages/core/src/tools/web-search.test.ts",
+      "packages/core/src/tools/memoryTool.test.ts",
+      "packages/core/src/tools/write-todos.test.ts",
+      "packages/core/src/tools/ask-user.test.ts",
+      "packages/core/src/tools/activate-skill.test.ts",
+      "packages/core/src/tools/enter-plan-mode.test.ts",
+      "packages/core/src/tools/exit-plan-mode.test.ts",
+      "packages/core/src/tools/get-internal-docs.test.ts",
+      "packages/core/src/tools/topicTool.test.ts",
+      "packages/core/src/tools/trackerTools.test.ts",
+      "packages/core/src/tools/complete-task.test.ts",
+      "packages/core/src/tools/jit-context.test.ts",
+      "packages/core/src/tools/omissionPlaceholderDetector.test.ts",
+      "packages/core/src/tools/diff-utils.test.ts",
+      "packages/core/src/tools/diffOptions.test.ts",
+      "packages/core/src/tools/line-endings.test.ts",
+      "packages/core/src/tools/xcode-mcp-fix-transport.test.ts"
+    ],
+    "observabilitySignals": [
+      "coreEvents.emitFeedback('info'|'warning'|'error', …) in mcp-client-manager / mcp-client / tool-registry",
+      "coreEvents.emitMcpProgress({ serverName, callId, progressToken, progress, total, message })",
+      "debugLogger.warn/log/error for registration overrides, discovery outcomes, transport attempts",
+      "runInDevTraceSpan({ operation: GeminiCliOperation.ToolCall, … }) with GEN_AI_TOOL_NAME / GEN_AI_TOOL_CALL_ID attributes",
+      "ToolOutputTruncatedEvent emitted via logToolOutputTruncated when output exceeds char budgets"
+    ],
+    "gaps": [
+      "No test for discovered-tool malformed-JSON declarations.",
+      "No test for DiscoveredToolInvocation's 'stderr-on-success' path.",
+      "No test for generateValidName truncation collisions.",
+      "No test for confirmation-bus 30s timeout outcome.",
+      "No test for cross-session behavior of DiscoveredMCPToolInvocation.allowlist.",
+      "No integration test asserting ALL_BUILTIN_TOOL_NAMES matches Config.createToolRegistry's registered set."
+    ]
+  },
+  "openQuestions": [
+    "Why maintain a per-process MCP allowlist in mcp-tool.ts when the policy engine already persists approvals?",
+    "What is the intended behavior when tool-call-command is unset but tool-discovery-command returns DiscoveredTool entries?",
+    "Is the static allowlist in DiscoveredMCPToolInvocation intentionally un-cleared across tests?",
+    "Should generateValidName retain a deterministic hash suffix to avoid truncation collisions?",
+    "Is mcp-client.ts's exported connectAndDiscover public SDK surface or dead code relative to the manager lifecycle?",
+    "Should discovered-tool stderr-only output be a warning rather than an error?"
+  ],
+  "handoffs": {
+    "dependsOn": [2, 5, 6, 9],
+    "affects": [2, 9, 10, 11, 12],
+    "escalatedTo": [5, 6, 9]
+  },
+  "definitionOfDone": [
+    { "item": "Registration and declaration pipeline mapped", "done": true },
+    { "item": "Local and MCP tool execution paths documented", "done": true },
+    { "item": "Safety/confirmation touchpoints explicit", "done": true },
+    { "item": "Error propagation traced end-to-end", "done": true },
+    { "item": "Extension guidance concrete and test-backed", "done": true },
+    { "item": "Pre-flight path validation recorded", "done": true },
+    { "item": "Evidence matrix populated", "done": true },
+    { "item": "INDEX.md row 04 flipped to done", "done": true }
+  ]
+}

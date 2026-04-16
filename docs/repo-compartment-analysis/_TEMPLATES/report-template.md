@@ -1,11 +1,17 @@
 # Compartment Report: NN — <Compartment Title>
 
-> Copy this file to `docs/repo-compartment-analysis/reports/NN-<slug>.report.md`
+> **Tier 1 only.** For Tier 2/3/4 use `_TEMPLATES/report-template-lite.md`.
+>
+> Copy this file to `docs/repo-compartment-analysis/reports/NN-<slug>/report.md`
 > and fill in. Do not delete sections. If a section does not apply, write "N/A"
 > with a one-sentence justification.
 >
-> Companion JSON sidecar required at `reports/NN-<slug>.report.json` using the
+> Companion JSON sidecar required at
+> `docs/repo-compartment-analysis/reports/NN-<slug>/report.json` using the
 > schema in `_TEMPLATES/report-sidecar-schema.json`.
+>
+> Size ceiling: 400–900 md lines, 5–15 strategic code quotes. See
+> `AGENT_RUNBOOK.md` §2.
 
 ## Metadata
 

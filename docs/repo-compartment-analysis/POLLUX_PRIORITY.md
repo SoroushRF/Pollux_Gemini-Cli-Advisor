@@ -35,6 +35,51 @@ high-severity findings.
 
 ---
 
+## Tier also governs analysis depth
+
+Tier is not just execution order — it is also the **depth contract** for the
+report. A T4 compartment gets the same structural rigor as T1 (pre-flight,
+verified truths with citations, handoffs, DoD, populated JSON sidecar) but a
+much lighter narrative. Over-sizing a lower-tier report is a defect, not extra
+value.
+
+| Tier | Template                             | Markdown lines | Sidecar lines | Truths min | Code quotes |
+| ---- | ------------------------------------ | -------------- | ------------- | ---------- | ----------- |
+| T1   | `_TEMPLATES/report-template.md`      | 400–900        | full          | 10         | 5–15        |
+| T2   | `_TEMPLATES/report-template-lite.md` | 250–400        | 150–250       | 6          | 0–2         |
+| T3   | `_TEMPLATES/report-template-lite.md` | 200–300        | 100–180       | 4          | 0           |
+| T4   | `_TEMPLATES/report-template-lite.md` | 150–250        | 80–150        | 3          | 0           |
+
+What changes at lower tiers:
+
+- **Narrative** — collapse Runtime Flow Summary to 6–15 one-line steps, drop
+  prose in Scope and Boundary to two short paragraphs, merge Risks and Open
+  Questions into one section.
+- **Evidence** — drop the Markdown Evidence Matrix (Section 10) entirely; it is
+  reconstructed from the JSON sidecar by the capstone.
+- **Citations** — stay mandatory at every tier. Every verified truth still needs
+  at least one `path:lines` primary citation. Code quotes are capped at zero for
+  T3/T4 and at two strategic quotes for T2.
+- **Key Files** — 5–10 rows maximum; primary + decisive supporting files only.
+  Test files belong in Section 6, not Section 3.
+- **Appendices** — forbidden for T3/T4. Allowed only for T2 when absolutely
+  necessary; include in the line budget.
+
+What does not change:
+
+- The JSON sidecar is mandatory for every tier. The synthesis capstone
+  (`_TEMPLATES/cross-compartment-synthesis.md` Step 1) parses sidecars
+  programmatically; dropping them for lower tiers would break the capstone.
+- The Definition of Done checklist from each guideline file must still be ticked
+  through.
+- Handoffs must still be enumerated — even a T4 compartment produces dependency
+  signals for the synthesis.
+
+See `AGENT_RUNBOOK.md` §2 and `reports/README.md` for the same table and
+over-size handling procedure.
+
+---
+
 ## Tier 1 — Critical path (do first)
 
 These are the compartments Pollux **directly modifies or depends on**. Any wrong
