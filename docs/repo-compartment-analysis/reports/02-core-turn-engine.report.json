@@ -1,0 +1,651 @@
+{
+  "compartment": {
+    "number": 2,
+    "slug": "core-turn-engine",
+    "title": "Core Turn Engine"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/02-core-turn-engine.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "58c7bffacfb71bd297a6b71a7710bae159c9178f",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/core/src/core/client.ts",
+        "exists": true,
+        "notes": "1142 lines"
+      },
+      {
+        "path": "packages/core/src/core/turn.ts",
+        "exists": true,
+        "notes": "386 lines"
+      },
+      {
+        "path": "packages/core/src/core/contentGenerator.ts",
+        "exists": true,
+        "notes": "269 lines"
+      },
+      {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "exists": true,
+        "notes": "995 lines"
+      },
+      {
+        "path": "packages/core/src/core/baseLlmClient.ts",
+        "exists": true,
+        "notes": "364 lines"
+      },
+      {
+        "path": "packages/core/src/core/tokenLimits.ts",
+        "exists": true,
+        "notes": "29 lines"
+      },
+      {
+        "path": "packages/core/src/services/chatRecordingService.ts",
+        "exists": true,
+        "notes": "793 lines"
+      },
+      {
+        "path": "packages/core/src/core/client.test.ts",
+        "exists": true,
+        "notes": "3226 lines"
+      },
+      {
+        "path": "packages/core/src/core/turn.test.ts",
+        "exists": true,
+        "notes": "822 lines"
+      },
+      {
+        "path": "packages/core/src/core/geminiChat.test.ts",
+        "exists": true,
+        "notes": "2371 lines; not exhaustively read (OQ-02.4)"
+      },
+      {
+        "path": "packages/core/src/core/geminiChat_network_retry.test.ts",
+        "exists": true,
+        "notes": "459 lines"
+      },
+      {
+        "path": "packages/core/src/core/loggingContentGenerator.ts",
+        "exists": true,
+        "notes": "Analyst-added; critical for token flow"
+      },
+      {
+        "path": "packages/core/src/core/recordingContentGenerator.ts",
+        "exists": true,
+        "notes": "Analyst-added; not fully inspected (OQ-02.6)"
+      },
+      {
+        "path": "packages/core/src/telemetry/llmRole.ts",
+        "exists": true,
+        "notes": "Analyst-added; 19 lines; 11 enum values"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Turn entry is GeminiClient.sendMessageStream which invokes processTurn via yield* so inner events pass through.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "940-948",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "593-600",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "718-817",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "processTurn returns Turn but yields ServerGeminiStreamEvent; yield* merges them."
+    },
+    {
+      "claim": "Turn.run yields events in a deterministic per-chunk order: Retry? -> AgentExecution*? -> (Thought*, Content?, ToolCallRequest*, Citation?, Finished?), plus UserCancelled/InvalidStream/Error terminal fallbacks.",
+      "primary": {
+        "path": "packages/core/src/core/turn.ts",
+        "lines": "272-359",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/turn.test.ts",
+          "lines": "77-500",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Finished is gated on finishReason presence; Citation is only emitted when at least one citation exists and finishReason is present."
+    },
+    {
+      "claim": "Two continuation loops exist (invalid-stream retry + next-speaker continuation) and both are bounded by MAX_TURNS = 100.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "820-879",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "78-78",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "936-936",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "1310-1432",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Math.min(turns, MAX_TURNS) caps even user-supplied turns argument."
+    },
+    {
+      "claim": "Loop detection runs twice per turn (turnStarted before turn.run; addAndCheck on every yielded event). Recovery uses a synthetic system-text message injection via recursive sendMessageStream.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "1248-1281",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "690-707",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "759-772",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "1226-1270",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Establishes an existing synthetic-injection precedent that is simpler than synthetic-tool registration (see contradiction C-02.6)."
+    },
+    {
+      "claim": "Model routing is consumed inside processTurn after loop detection; result is sticky per prompt_id via currentSequenceModel.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "709-725",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "742-742",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "899-904",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "129-131",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "790-816",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Three reset triggers: prompt_id change, CoreEvent.ModelChanged, clearCurrentSequenceModel()."
+    },
+    {
+      "claim": "Token usage is captured at two layers: per-chunk in GeminiChat.processStreamResponse (via chatRecordingService.recordMessageTokens and lastPromptTokenCount), and per-LLM-call in LoggingContentGenerator telemetry events tagged by LlmRole.",
+      "primary": {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "lines": "915-921",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "355-444",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "526-597",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/services/chatRecordingService.ts",
+          "lines": "486-515",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "344-353",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Pollux SPEC §8 TurnLog duplicates this capture; see contradiction C-02.2."
+    },
+    {
+      "claim": "ContentGenerator chain is a decorator stack: concrete generator (GoogleGenAI.models | CodeAssistServer | FakeContentGenerator) always wrapped by LoggingContentGenerator, optionally wrapped outermost by RecordingContentGenerator.",
+      "primary": {
+        "path": "packages/core/src/core/contentGenerator.ts",
+        "lines": "165-303",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "149-157",
+          "kind": "type",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Recording wrap is at contentGenerator.ts:298-300 gated on config.recordResponses."
+    },
+    {
+      "claim": "Retries exist at three distinct layers: connection-phase retryWithBackoff in client.generateContent; mid-stream streamWithRetries in geminiChat (MID_STREAM_RETRY_OPTIONS.maxAttempts = 4); InvalidStream continuation in client.processTurn (one-shot 'System: Please continue.').",
+      "primary": {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "lines": "353-487",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/geminiChat.ts",
+          "lines": "89-93",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "820-845",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "1134-1147",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/geminiChat_network_retry.test.ts",
+          "lines": "143-491",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Mid-stream retry distinguishes connection-phase vs iteration-phase errors; only iteration-phase non-400 errors retry mid-stream."
+    },
+    {
+      "claim": "LlmRole tagging is carried end-to-end from Turn.run -> GeminiChat.sendMessageStream -> ContentGenerator.generateContent into telemetry events. The enum already includes MAIN, SUBAGENT, and 9 UTILITY_* roles including UTILITY_ROUTER and UTILITY_LOOP_DETECTOR.",
+      "primary": {
+        "path": "packages/core/src/telemetry/llmRole.ts",
+        "lines": "7-19",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/turn.ts",
+          "lines": "258-258",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/geminiChat.ts",
+          "lines": "304-309",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/contentGenerator.ts",
+          "lines": "36-46",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "355-393",
+          "kind": "type",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Pollux advisor slot: add UTILITY_ADVISOR to LlmRole; telemetry attribution then flows automatically."
+    },
+    {
+      "claim": "Hooks fire at four sites across the core turn. BeforeAgent and AfterAgent wrap the whole prompt outer loop in client.sendMessageStream. BeforeModel (implicit) and AfterModel fire per-chunk inside geminiChat.processStreamResponse. AfterModel may throw AgentExecutionStoppedError (terminal) or AgentExecutionBlockedError (non-terminal with optional syntheticResponse).",
+      "primary": {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "lines": "923-946",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/geminiChat.ts",
+          "lines": "218-236",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "906-934",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "951-1012",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/turn.ts",
+          "lines": "284-298",
+          "kind": "type",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "agent_execution_stopped causes Turn.run to return (terminal); agent_execution_blocked causes it to continue consuming."
+    },
+    {
+      "claim": "Compression has three outcomes (COMPRESSED, CONTENT_TRUNCATED, failure). Only COMPRESSED yields a ChatCompressed event from processTurn; CONTENT_TRUNCATED mutates history in place without emitting an event.",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "1174-1230",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/turn.ts",
+          "lines": "167-196",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "629-634",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "434-717",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "COMPRESSED rebuilds the chat via startChat(newHistory, resumedData) and preserves the conversation recording file path."
+    },
+    {
+      "claim": "No advisor_consultation synthetic tool or Pollux runtime integration exists in the fork. The packages/core/src/pollux namespace contains only a 171-byte index.ts and an empty benchmark/ directory.",
+      "primary": { "path": "packages/core/src/pollux", "status": "ok" },
+      "supporting": [
+        {
+          "path": "packages/core/src/pollux/index.ts",
+          "lines": "1-10",
+          "kind": "other",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Verified by: `rg -n \"advisor_consultation|AdvisorClient|PolluxInterceptor|EscalationDetector\" packages/core/src packages/cli/src` -> 0 matches."
+    },
+    {
+      "claim": "sessionTurnCount is session-scoped (per GeminiClient instance), not prompt-scoped; it survives across sendMessageStream invocations and drives MaxSessionTurns via config.getMaxSessionTurns().",
+      "primary": {
+        "path": "packages/core/src/core/client.ts",
+        "lines": "94-94",
+        "status": "ok"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/core/client.ts",
+          "lines": "604-611",
+          "kind": "type",
+          "status": "ok"
+        },
+        {
+          "path": "packages/core/src/core/client.test.ts",
+          "lines": "1384-1432",
+          "kind": "test",
+          "status": "ok"
+        }
+      ],
+      "confidence": "high",
+      "notes": "Distinct from MAX_TURNS (hard cap on continuation recursion)."
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "C-02.1 Stream pause/resume is not a turn-level primitive. Turn.run is an async generator; 'pausing' must happen at the caller seam, not inside Turn.run.",
+      "evidence": [
+        { "path": "packages/core/src/core/turn.ts", "lines": "253-404" },
+        { "path": "packages/core/src/core/client.ts", "lines": "758-783" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 7
+    },
+    {
+      "description": "C-02.2 Pollux logger proposal duplicates existing token capture in LoggingContentGenerator and ChatRecordingService.recordMessageTokens. A new logger would duplicate or diverge.",
+      "evidence": [
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "229-276"
+        },
+        {
+          "path": "packages/core/src/core/loggingContentGenerator.ts",
+          "lines": "526-597"
+        },
+        {
+          "path": "packages/core/src/services/chatRecordingService.ts",
+          "lines": "486-515"
+        },
+        { "path": "packages/core/src/telemetry/llmRole.ts", "lines": "7-19" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 11
+    },
+    {
+      "description": "C-02.3 'Single-model baseline' premise in spec is false. The core already invokes at least 7 distinct LlmRole utility models per normal turn (router, loop detector, next speaker, summarizer, compressor, edit corrector, autocomplete, fast-ack). Benchmark A/E conditions must hold these constant.",
+      "evidence": [
+        { "path": "packages/core/src/telemetry/llmRole.ts", "lines": "7-19" },
+        { "path": "packages/core/src/core/client.ts", "lines": "852-857" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 7
+    },
+    {
+      "description": "C-02.4 'Don't touch GeminiChat directly' advice in spec is too absolute. Loop detection is not inside GeminiChat; compression is a service (ChatCompressionService). The actual constraint is: don't mutate GeminiChat.history from outside the class.",
+      "evidence": [
+        { "path": "packages/core/src/core/client.ts", "lines": "96-96" },
+        { "path": "packages/core/src/core/client.ts", "lines": "1184-1192" },
+        { "path": "packages/core/src/core/geminiChat.ts", "lines": "249-265" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 8
+    },
+    {
+      "description": "C-02.5 Spec advisor client uses contentGenerator.generateContent directly, but the appropriate utility for JSON-shape output is BaseLlmClient.generateJson which already handles parsing, retries, and validation.",
+      "evidence": [
+        {
+          "path": "packages/core/src/core/baseLlmClient.ts",
+          "lines": "124-168"
+        },
+        { "path": "packages/core/src/core/client.ts", "lines": "852-857" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 7
+    },
+    {
+      "description": "C-02.6 Synthetic-tool injection is declared 'most natural', but existing synthetic-message injection precedents (_recoverFromLoop and next-speaker continuation) use plain recursive sendMessageStream with text and are simpler.",
+      "evidence": [
+        { "path": "packages/core/src/core/client.ts", "lines": "1248-1281" },
+        { "path": "packages/core/src/core/client.ts", "lines": "867-877" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 7
+    },
+    {
+      "description": "C-02.7 Heuristic 'turn count > 8' in spec fires long before session-level MaxSessionTurns and MAX_TURNS=100. Should be framed as an earlier advisory signal, not a cap.",
+      "evidence": [
+        { "path": "packages/core/src/core/client.ts", "lines": "78-78" },
+        { "path": "packages/core/src/core/client.ts", "lines": "604-611" },
+        { "path": "packages/core/src/core/client.ts", "lines": "936-936" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 7
+    },
+    {
+      "description": "C-02.8 Spec's phrase 'wire interceptor into client.ts at processTurn()' underspecifies whether the hook runs per-event or per-turn. The correct seam is between turn.run emission and the yield event at client.ts:773.",
+      "evidence": [
+        { "path": "packages/core/src/core/client.ts", "lines": "747-783" },
+        { "path": "packages/core/src/core/client.ts", "lines": "940-948" }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 7
+    }
+  ],
+  "risks": [
+    {
+      "description": "R-02.1 Event-ordering regressions on any edit to processTurn's for-await loop (17 yield sites, interleaved with loop detection and telemetry).",
+      "severity": "high",
+      "mitigatingTest": "packages/core/src/core/client.test.ts:1226-1270; packages/core/src/core/turn.test.ts:210-245",
+      "suggestedGuard": "Deterministic event-transcript snapshot test over a scripted mock stream covering retry + function call + loop-detected + finish."
+    },
+    {
+      "description": "R-02.2 currentSequenceModel stickiness inversion: three reset triggers (prompt_id change, CoreEvent.ModelChanged, clearCurrentSequenceModel). No test asserts all three.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Test asserting ModelInfo fires exactly once per prompt_id and CoreEvent.ModelChanged between prompts does not suppress it."
+    },
+    {
+      "description": "R-02.3 updateTelemetryTokenCount runs after every yielded event including Error/LoopDetected. On error paths, lastPromptTokenCount may be stale relative to the event, producing mis-attributed telemetry.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Unit test where stream throws mid-chunk and assert setLastPromptTokenCount is called with pre-throw value."
+    },
+    {
+      "description": "R-02.4 IDE context injection pushes a synthetic user message to history. Early return after injection (e.g., ContextWindowWillOverflow) leaves the injection in place for the next turn.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/core/client.test.ts:877-963",
+      "suggestedGuard": "Test for ContextWindowWillOverflow immediately after IDE-context injection; assert no double injection next turn."
+    },
+    {
+      "description": "R-02.5 AgentExecutionStoppedError path does not yield a syntheticResponse chunk even if the hook provides one; AgentExecutionBlockedError does. Asymmetry is undocumented.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Test exercising AgentExecutionStoppedError with syntheticResponse; codify the design."
+    },
+    {
+      "description": "R-02.6 Compression COMPRESSED path rebuilds GeminiChat via startChat(newHistory, resumedData); any in-flight telemetry span referencing the old chat is orphaned.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/core/client.test.ts:689-717",
+      "suggestedGuard": "Cross-compartment: compartment 11 should confirm span scoping."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/core/turn.test.ts",
+      "packages/core/src/core/client.test.ts",
+      "packages/core/src/core/geminiChat.test.ts",
+      "packages/core/src/core/geminiChat_network_retry.test.ts"
+    ],
+    "observabilitySignals": [
+      "uiTelemetryService.setLastPromptTokenCount (client.ts:245)",
+      "ApiRequestEvent / ApiResponseEvent / ApiErrorEvent (LoggingContentGenerator)",
+      "ChatRecordingService.recordMessage / recordThought / recordMessageTokens / recordToolCalls",
+      "runInDevTraceSpan spans with GEN_AI_USAGE_INPUT_TOKENS / GEN_AI_USAGE_OUTPUT_TOKENS attributes",
+      "ContentRetryEvent / ContentRetryFailureEvent / NetworkRetryAttemptEvent",
+      "coreEvents.emitRetryAttempt",
+      "NextSpeakerCheckEvent"
+    ],
+    "gaps": [
+      "_recoverFromLoop feedback text and boundedTurns counting are untested",
+      "currentSequenceModel sticky-reset across all three triggers is untested",
+      "updateTelemetryTokenCount behavior on error-path events is untested",
+      "IDE context double-injection across an aborted turn is untested",
+      "AgentExecutionStoppedError with syntheticResponse is untested",
+      "Boundary between session turn limit (config) and MAX_TURNS (hard cap) when both exceed is untested"
+    ]
+  },
+  "openQuestions": [
+    "OQ-02.1 Does CONTENT_TRUNCATED branch correctly trigger updateTelemetryTokenCount? setHistory doesn't itself update lastPromptTokenCount.",
+    "OQ-02.2 Can checkNextSpeaker stall or be rate-limited, blocking turn completion synchronously?",
+    "OQ-02.3 Continuation recursion passes the original signal (client.ts:836), not the linked one. Is there a dangling abort chain on multi-turn continuations?",
+    "OQ-02.4 geminiChat.test.ts (2371 lines) was not exhaustively read; specific gaps: ensureActiveLoopHasThoughtSignatures, BeforeModel hook handling, toolSelectionResult.toolConfig branch.",
+    "OQ-02.5 Turn does not expose synthetic ToolCallResponse injection. Pollux's 'advisor as synthetic tool' design requires that path; is the correct seam inside Turn.run or in processTurn's yield?",
+    "OQ-02.6 recordingContentGenerator.ts was not fully inspected. Does it preserve LlmRole in its recorded JSON?"
+  ],
+  "handoffs": {
+    "dependsOn": [],
+    "affects": [1, 4, 7, 11],
+    "escalatedTo": [7, 11, 3, 8]
+  },
+  "definitionOfDone": [
+    {
+      "item": "Turn lifecycle is fully mapped from entry to completion.",
+      "done": true
+    },
+    {
+      "item": "Event model and ordering are documented with evidence.",
+      "done": true
+    },
+    {
+      "item": "Integrations to routing/tools/loop detection are explicit.",
+      "done": true
+    },
+    {
+      "item": "Retry and failure semantics are verified in code/tests.",
+      "done": true
+    },
+    {
+      "item": "Token usage path is documented with extension implications.",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 02 flipped to done.", "done": true }
+  ]
+}
