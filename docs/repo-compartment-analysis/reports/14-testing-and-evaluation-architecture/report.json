@@ -1,0 +1,44 @@
+{
+  "compartment": "14-testing-and-evaluation-architecture",
+  "tier": "T2",
+  "evidenceMatrix": [
+    {
+      "id": "VT-14.1",
+      "claim": "The repository maintains four distinct test dimensions: functional unit/integration, behavioral evals, memory regression, and performance regression.",
+      "primaryCitation": "package.json:43-57",
+      "confidence": "high"
+    },
+    {
+      "id": "VT-14.2",
+      "claim": "Integration tests use a binary-under-test approach with mocked LLM responses stored in .responses files.",
+      "primaryCitation": "docs/integration-tests.md:61-65",
+      "supportingCitation": "integration-tests/browser-agent-localhost.form.responses:1",
+      "confidence": "high"
+    },
+    {
+      "id": "VT-14.3",
+      "claim": "Behavioral evals are split into ALWAYS_PASSES (CI blocking) and USUALLY_PASSES (nightly monitoring).",
+      "primaryCitation": "evals/README.md:98-103",
+      "confidence": "high"
+    },
+    {
+      "id": "VT-14.4",
+      "claim": "Memory tests force garbage collection and take V8 heap snapshots to compare against committed baselines with a 10% tolerance.",
+      "primaryCitation": "packages/test-utils/src/memory-test-harness.ts:252-253",
+      "confidence": "high"
+    },
+    {
+      "id": "VT-14.5",
+      "claim": "Performance tests measure wall-clock time, CPU usage, and event loop delay, comparing against baselines with a 15% tolerance.",
+      "primaryCitation": "packages/test-utils/src/perf-test-harness.ts:253-256",
+      "confidence": "high"
+    },
+    {
+      "id": "VT-14.6",
+      "claim": "The integration test suite runs against a sandbox matrix including none, docker, and podman.",
+      "primaryCitation": "package.json:51",
+      "supportingCitation": "docs/integration-tests.md:105",
+      "confidence": "high"
+    }
+  ]
+}

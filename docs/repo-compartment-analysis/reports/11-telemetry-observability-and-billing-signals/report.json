@@ -1,0 +1,49 @@
+{
+  "compartment": "11",
+  "tier": "T2",
+  "evidence_matrix": [
+    {
+      "claim_id": "VT-11.1",
+      "claim": "Telemetry configuration is resolved via a strict precedence of argv, environment variables, and then settings.json.",
+      "primary_citation": "packages/core/src/telemetry/config.ts:49-123",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.2",
+      "claim": "OpenTelemetry SDK initialization supports multiple exporter targets including direct GCP, OTLP HTTP/gRPC, file, and console.",
+      "primary_citation": "packages/core/src/telemetry/sdk.ts:268-333",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.3",
+      "claim": "Tracing uses runInDevTraceSpan which automatically truncates large input/output payloads to 10,000 characters.",
+      "primary_citation": "packages/core/src/telemetry/trace.ts:55-78",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.4",
+      "claim": "Hook names are always sanitized before being recorded in metrics to prevent leaking sensitive paths or arguments.",
+      "primary_citation": "packages/core/src/telemetry/metrics.ts:1572-1578",
+      "supporting_citation": "packages/core/src/telemetry/sanitize.ts:26-52",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.5",
+      "claim": "Billing events are strongly typed classes that serialize to both OpenTelemetry attributes and log bodies.",
+      "primary_citation": "packages/core/src/telemetry/billingEvents.ts:27-256",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.6",
+      "claim": "Activity monitoring buffers up to 100 recent events and triggers memory snapshots based on specific activity types.",
+      "primary_citation": "packages/core/src/telemetry/activity-monitor.ts:45-56",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-11.7",
+      "claim": "Telemetry initialization is deferred if CLI authentication is required but no credentials are provided yet.",
+      "primary_citation": "packages/core/src/telemetry/sdk.ts:194-212",
+      "confidence": "high"
+    }
+  ]
+}

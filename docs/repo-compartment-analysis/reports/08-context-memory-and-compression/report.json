@@ -1,0 +1,48 @@
+{
+  "compartment": "08-context-memory-and-compression",
+  "tier": "T2",
+  "evidence_matrix": [
+    {
+      "claim_id": "VT-08.1",
+      "claim": "ChatCompressionService uses a Reverse Token Budget of 50,000 tokens for function responses, truncating older large tool responses to 30 lines.",
+      "primary_citation": "packages/core/src/context/chatCompressionService.ts:135-235",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.2",
+      "claim": "ChatCompressionService performs a Probe verification step after generating a summary to ensure no critical constraints or details were lost.",
+      "primary_citation": "packages/core/src/context/chatCompressionService.ts:382-405",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.3",
+      "claim": "ContextCompressionService batches file read outputs to an LLM to decide routing levels (FULL, PARTIAL, SUMMARY, EXCLUDED) and caches decisions.",
+      "primary_citation": "packages/core/src/context/contextCompressionService.ts:224-232",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.4",
+      "claim": "ToolOutputMaskingService protects the newest 50,000 tool tokens and optionally the entire latest turn from being masked.",
+      "primary_citation": "packages/core/src/context/toolOutputMaskingService.ts:94-138",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.5",
+      "claim": "ToolOutputDistillationService exempts read_file and read_many_files from distillation.",
+      "primary_citation": "packages/core/src/context/toolDistillationService.ts:83-87",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.6",
+      "claim": "MemoryService runs a background SkillExtractionAgent on sessions that have been idle for at least 3 hours and have at least 10 user messages.",
+      "primary_citation": "packages/core/src/services/memoryService.ts:268-283",
+      "confidence": "high"
+    },
+    {
+      "claim_id": "VT-08.7",
+      "claim": "MemoryContextManager performs Just-In-Time (JIT) memory discovery by traversing upwards from an accessed path to find GEMINI.md files.",
+      "primary_citation": "packages/core/src/context/memoryContextManager.ts:141-172",
+      "confidence": "high"
+    }
+  ]
+}

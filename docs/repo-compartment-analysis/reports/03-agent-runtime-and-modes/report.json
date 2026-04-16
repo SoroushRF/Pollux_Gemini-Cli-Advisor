@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0",
+  "compartment": "03-agent-runtime-and-modes",
+  "evidenceMatrix": [
+    {
+      "id": "VT-03.1",
+      "claim": "The system supports two primary interactive stream modes: legacy Gemini stream and the new AgentProtocol-backed stream.",
+      "citations": ["packages/cli/src/ui/AppContainer.tsx:1180-1196"],
+      "confidence": "high"
+    },
+    {
+      "id": "VT-03.2",
+      "claim": "LegacyAgentSession adapts the existing Gemini client and scheduler loop to the AgentProtocol interface using an event translator.",
+      "citations": [
+        "packages/core/src/agent/legacy-agent-session.ts:8-10",
+        "packages/core/src/agent/legacy-agent-session.ts:214"
+      ],
+      "confidence": "high"
+    },
+    {
+      "id": "VT-03.3",
+      "claim": "AgentRegistry discovers and loads built-in, user-level, project-level, and extension-provided agents.",
+      "citations": ["packages/core/src/agents/registry.ts:117-263"],
+      "confidence": "high"
+    },
+    {
+      "id": "VT-03.4",
+      "claim": "LocalSubagentInvocation executes local agents using LocalAgentExecutor and bridges their streaming activity to the tool's output.",
+      "citations": ["packages/core/src/agents/local-invocation.ts:40-49"],
+      "confidence": "high"
+    },
+    {
+      "id": "VT-03.5",
+      "claim": "RemoteAgentInvocation bypasses the local executor loop and directly invokes remote A2A agents via A2AClientManager.",
+      "citations": ["packages/core/src/agents/remote-invocation.ts:35-40"],
+      "confidence": "high"
+    },
+    {
+      "id": "VT-03.6",
+      "claim": "Agent scheduling uses a subagent-specific context, including isolated ToolRegistry and PromptRegistry instances.",
+      "citations": ["packages/core/src/agents/agent-scheduler.ts:67-76"],
+      "confidence": "high"
+    }
+  ]
+}
