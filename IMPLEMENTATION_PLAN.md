@@ -72,34 +72,66 @@ Owner: 02, with 01/03/12 support
 
 ### G2: Advisor policy channel locked
 
+Scope: Phase 0 contract lock only. Implementation of the packaged rule ships in
+Phase 1 (tracked by ledger item D-01).
+
 Done criteria:
 
-- advisor_consultation has packaged default ALLOW rule behind Pollux flag.
-- Non-interactive default behavior cannot silently DENY advisor path.
-- ACP path does not trigger unexpected permission prompt for advisor
-  consultation.
+- advisor_consultation policy-decision path is contracted, including packaged
+  default ALLOW rule behavior, non-interactive fail-open semantics, and ACP-safe
+  behavior, in docs/core/pollux/P0-02_POLICY_CHANNEL_LOCK.md.
+- Acceptance test list exists and maps to TG-3 and TG-8.
 
 Owner: 09, with 04/12 support
 
+Implementation carry-over (Phase 1 entry criteria):
+
+- Land packaged default ALLOW rule for advisor_consultation behind
+  pollux.enabled (D-01).
+- Land AT-01..AT-05 acceptance tests before Phase 2 entry.
+
 ### G3: Settings pipeline locked
+
+Scope: Phase 0 contract lock only. Schema, loader, core mapping, and CI gate
+ship in Phase 1 (tracked as P1-03, P1-04, and ledger item D-02).
 
 Done criteria:
 
-- experimental.pollux.\* added to CLI schema and loader path.
-- Core ConfigParameters mapping implemented and tested.
-- CI gate added for schema generation check.
+- experimental.pollux.\* settings strategy, mapping contract, precedence, and
+  promotion path are contracted in docs/core/pollux/P0-03_SETTINGS_STRATEGY.md.
+- Schema-to-ConfigParameters invariant expectations are documented.
+- CI gate contract (CG-02) is captured in
+  docs/core/pollux/P0-04_CI_GATES_BRANCH_PROTECTIONS.md.
 
 Owner: 06, with 15 support
 
+Implementation carry-over (Phase 1 entry criteria):
+
+- Add experimental.pollux.\* to CLI SETTINGS_SCHEMA and loader (P1-03).
+- Map to core ConfigParameters with invariant tests (P1-04).
+- Wire schema:settings --check as a required CI job (D-02).
+
 ### G4: Benchmark fairness harness locked
+
+Scope: Phase 0 contract lock only. Harness scaffold and implementation ship in
+Phase 1/Phase 4 (tracked as P4-02).
 
 Done criteria:
 
-- Dedicated benchmark harness wraps TestRig.
-- Router and loop detector controls pinned per fairness contract.
-- Availability state reset and session isolation strategy documented.
+- Fairness pins FP-01..FP-06, harness contract, validity rules, and required
+  metadata are contracted in
+  docs/core/pollux/P0-05_BENCHMARK_FAIRNESS_HARNESS_CONTRACT.md.
+- Acceptance checks AC-01..AC-06 are defined and mapped to TG-1 (and TG-4 where
+  applicable).
 
 Owner: 14, with 07/10 support
+
+Implementation carry-over (Phase 1/4 entry criteria):
+
+- Provide harness scaffold at packages/test-utils/src/benchmark-harness.ts
+  exposing the P0-05 §3.2 configuration surface no later than Phase 4 entry.
+- CG-04 (fairness-pin smoke CI gate) is required from Phase 4 exit onward, not
+  before.
 
 ### G5: Governance/doc correction lock
 
@@ -454,6 +486,12 @@ Entry criteria:
 
 - Phase 0 exit criteria met.
 - Feature flag defaults defined.
+- G2 implementation carry-over scheduled: packaged default ALLOW rule (D-01)
+  assigned to a Phase 1 task window.
+- G3 implementation carry-over scheduled: P1-03 schema, P1-04 mapping, and
+  schema:settings --check CI job (D-02) assigned to a Phase 1 task window.
+- G4 implementation carry-over scheduled: harness scaffold is committed to Phase
+  1 or Phase 4 entry, whichever is earlier.
 
 Task breakdown:
 
