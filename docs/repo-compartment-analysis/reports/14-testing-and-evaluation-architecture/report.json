@@ -1,44 +1,195 @@
 {
-  "compartment": "14-testing-and-evaluation-architecture",
-  "tier": "T2",
-  "evidenceMatrix": [
+  "compartment": {
+    "number": 14,
+    "slug": "testing-and-evaluation-architecture",
+    "title": "Testing and Evaluation Architecture"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/14-testing-and-evaluation-architecture.md",
+  "owner": "gemini-3.1-pro",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "evals", "exists": true },
+      { "path": "integration-tests", "exists": true },
+      { "path": "memory-tests", "exists": true },
+      { "path": "perf-tests", "exists": true },
+      { "path": "packages/test-utils", "exists": true },
+      {
+        "path": "packages/test-utils/src/test-rig.ts",
+        "exists": true,
+        "notes": "real integration orchestrator (TestRig)"
+      },
+      {
+        "path": "integration-tests/test-helper.ts",
+        "exists": true,
+        "notes": "thin re-export of @google/gemini-cli-test-utils"
+      },
+      { "path": "docs/integration-tests.md", "exists": true }
+    ]
+  },
+  "evidence": [
     {
-      "id": "VT-14.1",
       "claim": "The repository maintains four distinct test dimensions: functional unit/integration, behavioral evals, memory regression, and performance regression.",
-      "primaryCitation": "package.json:43-57",
+      "primary": { "path": "package.json", "lines": "43-57" },
       "confidence": "high"
     },
     {
-      "id": "VT-14.2",
       "claim": "Integration tests use a binary-under-test approach with mocked LLM responses stored in .responses files.",
-      "primaryCitation": "docs/integration-tests.md:61-65",
-      "supportingCitation": "integration-tests/browser-agent-localhost.form.responses:1",
+      "primary": { "path": "docs/integration-tests.md", "lines": "61-65" },
+      "supporting": [
+        {
+          "path": "integration-tests/browser-agent-localhost.form.responses",
+          "lines": "1-1",
+          "kind": "other"
+        }
+      ],
       "confidence": "high"
     },
     {
-      "id": "VT-14.3",
+      "claim": "The integration harness TestRig lives in packages/test-utils/src/test-rig.ts and is re-exported to the integration-tests workspace by integration-tests/test-helper.ts; the helper adds only a skipFlaky flag.",
+      "primary": {
+        "path": "packages/test-utils/src/test-rig.ts",
+        "lines": "21-77"
+      },
+      "supporting": [
+        {
+          "path": "integration-tests/test-helper.ts",
+          "lines": "7-10",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
       "claim": "Behavioral evals are split into ALWAYS_PASSES (CI blocking) and USUALLY_PASSES (nightly monitoring).",
-      "primaryCitation": "evals/README.md:98-103",
+      "primary": { "path": "evals/README.md", "lines": "98-103" },
       "confidence": "high"
     },
     {
-      "id": "VT-14.4",
       "claim": "Memory tests force garbage collection and take V8 heap snapshots to compare against committed baselines with a 10% tolerance.",
-      "primaryCitation": "packages/test-utils/src/memory-test-harness.ts:252-253",
+      "primary": {
+        "path": "packages/test-utils/src/memory-test-harness.ts",
+        "lines": "252-253"
+      },
       "confidence": "high"
     },
     {
-      "id": "VT-14.5",
       "claim": "Performance tests measure wall-clock time, CPU usage, and event loop delay, comparing against baselines with a 15% tolerance.",
-      "primaryCitation": "packages/test-utils/src/perf-test-harness.ts:253-256",
+      "primary": {
+        "path": "packages/test-utils/src/perf-test-harness.ts",
+        "lines": "253-256"
+      },
       "confidence": "high"
     },
     {
-      "id": "VT-14.6",
       "claim": "The integration test suite runs against a sandbox matrix including none, docker, and podman.",
-      "primaryCitation": "package.json:51",
-      "supportingCitation": "docs/integration-tests.md:105",
+      "primary": { "path": "package.json", "lines": "51-51" },
+      "supporting": [
+        {
+          "path": "docs/integration-tests.md",
+          "lines": "105-105",
+          "kind": "doc"
+        }
+      ],
       "confidence": "high"
+    },
+    {
+      "claim": "No benchmark harness in the repo suppresses or isolates the in-core router or the loop detector for benchmark runs; integration tests inherit production routing behavior and the evals harness mocks responses but not router decisions or loop-check LLM calls.",
+      "primary": {
+        "path": "packages/test-utils/src/test-rig.ts",
+        "lines": "21-77"
+      },
+      "supporting": [
+        { "path": "evals/vitest.config.ts", "lines": "1-1", "kind": "config" }
+      ],
+      "confidence": "medium",
+      "notes": "Negative finding; absence verified by searching test-utils and evals for router/loop suppression knobs."
     }
+  ],
+  "contradictions": [
+    {
+      "description": "Pollux spec §9 claims 'zero extra API calls / zero latency' for baseline benchmark conditions. Forensic F-07 flags this as over-broad; the tier-1 compartment 07 verified truth VT-07.3 shows the router's ClassifierStrategy emits up to one extra UTILITY_ROUTER LLM call per prompt, and the loop detector emits 0–2 extra LLM calls starting at turn 30. No benchmark knob in this repo suppresses either source today.",
+      "evidence": [
+        {
+          "path": "packages/core/src/routing/strategies/classifierStrategy.ts",
+          "lines": "160-168"
+        },
+        {
+          "path": "packages/core/src/services/loopDetectionService.ts",
+          "lines": "29-66"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 7
+    }
+  ],
+  "risks": [
+    {
+      "description": "Stale fixtures in integration tests may mask regressions if the underlying LLM protocol changes.",
+      "severity": "medium",
+      "mitigatingTest": "integration-tests/api-resilience.test.ts:27",
+      "suggestedGuard": "periodic automated fixture regeneration"
+    },
+    {
+      "description": "Flaky USUALLY_PASSES evals might be ignored if not actively monitored in nightly runs.",
+      "severity": "low",
+      "mitigatingTest": "evals/README.md:190",
+      "suggestedGuard": "automated alerting on sustained eval degradation"
+    },
+    {
+      "description": "Pollux benchmark conditions A/E will report biased numbers unless the harness explicitly pins the router to a single strategy and disables the loop-detection LLM tier; without those controls, baseline runs pay the router/loop-detector overhead that Pollux runs do not (or vice versa).",
+      "severity": "high",
+      "mitigatingTest": null,
+      "suggestedGuard": "add a BenchmarkHarness in packages/test-utils that accepts an OverrideStrategy-only router and sets LoopDetectionService.llmCheckInterval = Infinity for the run"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "evals/test-helper.test.ts",
+      "integration-tests/file-system.test.ts",
+      "integration-tests/hooks-system.test.ts",
+      "memory-tests/memory-usage.test.ts",
+      "perf-tests/perf-usage.test.ts"
+    ],
+    "observabilitySignals": [
+      "Nightly eval pass rates",
+      "Memory baseline deltas",
+      "Perf baseline deltas"
+    ],
+    "gaps": [
+      "Protocol output and agent branching test gaps (OQ-14.1).",
+      "No benchmark harness suppresses router/loop-detector side effects (R-14.3, OQ-14.2)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-14.1: Are there specific test gaps for high-risk flows like protocol output and agent branching that lack coverage? Escalate to compartment 12.",
+    "OQ-14.2: Which component owns the benchmark harness router/loop suppression knobs — Config, ModelRouterService, or a new test-only shim? Escalate to compartment 07."
+  ],
+  "handoffs": {
+    "dependsOn": [1, 3, 4, 5, 7, 8, 10],
+    "affects": [15],
+    "escalatedTo": [7, 12, 16]
+  },
+  "definitionOfDone": [
+    {
+      "item": "Test suite taxonomy and execution matrix are explicit.",
+      "done": true
+    },
+    { "item": "Fixture and baseline workflows are documented.", "done": true },
+    { "item": "Coverage-by-compartment matrix is complete.", "done": true },
+    {
+      "item": "Reliability/flake handling guidance is included.",
+      "done": true
+    },
+    { "item": "Test gap backlog is actionable and prioritized.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 14 flipped to done.", "done": true }
   ]
 }

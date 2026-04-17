@@ -1,48 +1,225 @@
 {
-  "compartment": "08-context-memory-and-compression",
-  "tier": "T2",
-  "evidence_matrix": [
+  "compartment": {
+    "number": 8,
+    "slug": "context-memory-and-compression",
+    "title": "Context, Memory, and Compression"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/08-context-memory-and-compression.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/context", "exists": true },
+      {
+        "path": "packages/core/src/context/contextCompressionService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/context/chatCompressionService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/context/toolDistillationService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/context/toolOutputMaskingService.ts",
+        "exists": true
+      },
+      { "path": "packages/core/src/context/truncation.ts", "exists": true },
+      {
+        "path": "packages/core/src/services/sessionSummaryService.ts",
+        "exists": true,
+        "notes": "used via sessionSummaryUtils.ts"
+      },
+      {
+        "path": "packages/core/src/services/sessionSummaryUtils.ts",
+        "exists": true
+      },
+      { "path": "packages/core/src/services/memoryService.ts", "exists": true },
+      { "path": "packages/core/src/tools/memoryTool.ts", "exists": true },
+      {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "exists": true,
+        "notes": "compress(chat: GeminiChat, ...) anchor at 237-246"
+      }
+    ]
+  },
+  "evidence": [
     {
-      "claim_id": "VT-08.1",
       "claim": "ChatCompressionService uses a Reverse Token Budget of 50,000 tokens for function responses, truncating older large tool responses to 30 lines.",
-      "primary_citation": "packages/core/src/context/chatCompressionService.ts:135-235",
+      "primary": {
+        "path": "packages/core/src/context/chatCompressionService.ts",
+        "lines": "135-235"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.2",
+      "claim": "ChatCompressionService.compress receives a GeminiChat instance and calls chat.getHistory(true) directly; it is a structural exception to the spec's blanket 'don't touch GeminiChat directly' rule.",
+      "primary": {
+        "path": "packages/core/src/context/chatCompressionService.ts",
+        "lines": "237-247"
+      },
+      "confidence": "high"
+    },
+    {
       "claim": "ChatCompressionService performs a Probe verification step after generating a summary to ensure no critical constraints or details were lost.",
-      "primary_citation": "packages/core/src/context/chatCompressionService.ts:382-405",
+      "primary": {
+        "path": "packages/core/src/context/chatCompressionService.ts",
+        "lines": "382-405"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.3",
       "claim": "ContextCompressionService batches file read outputs to an LLM to decide routing levels (FULL, PARTIAL, SUMMARY, EXCLUDED) and caches decisions.",
-      "primary_citation": "packages/core/src/context/contextCompressionService.ts:224-232",
+      "primary": {
+        "path": "packages/core/src/context/contextCompressionService.ts",
+        "lines": "224-232"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.4",
       "claim": "ToolOutputMaskingService protects the newest 50,000 tool tokens and optionally the entire latest turn from being masked.",
-      "primary_citation": "packages/core/src/context/toolOutputMaskingService.ts:94-138",
+      "primary": {
+        "path": "packages/core/src/context/toolOutputMaskingService.ts",
+        "lines": "94-138"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.5",
       "claim": "ToolOutputDistillationService exempts read_file and read_many_files from distillation.",
-      "primary_citation": "packages/core/src/context/toolDistillationService.ts:83-87",
+      "primary": {
+        "path": "packages/core/src/context/toolDistillationService.ts",
+        "lines": "83-87"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.6",
       "claim": "MemoryService runs a background SkillExtractionAgent on sessions that have been idle for at least 3 hours and have at least 10 user messages.",
-      "primary_citation": "packages/core/src/services/memoryService.ts:268-283",
+      "primary": {
+        "path": "packages/core/src/services/memoryService.ts",
+        "lines": "268-283"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-08.7",
-      "claim": "MemoryContextManager performs Just-In-Time (JIT) memory discovery by traversing upwards from an accessed path to find GEMINI.md files.",
-      "primary_citation": "packages/core/src/context/memoryContextManager.ts:141-172",
+      "claim": "MemoryContextManager performs Just-In-Time memory discovery by traversing upwards from an accessed path to find GEMINI.md files.",
+      "primary": {
+        "path": "packages/core/src/context/memoryContextManager.ts",
+        "lines": "141-172"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "SessionSummaryService uses Gemini Flash-Lite with a sliding window of first-N + last-N messages (default MAX_MESSAGES=20, TIMEOUT=5s) to produce a 1-line session summary.",
+      "primary": {
+        "path": "packages/core/src/services/sessionSummaryService.ts",
+        "lines": "14-85"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/services/sessionSummaryUtils.ts",
+          "lines": "57-63",
+          "kind": "other"
+        }
+      ],
       "confidence": "high"
     }
+  ],
+  "contradictions": [
+    {
+      "description": "Pollux spec §14 'Don't touch GeminiChat directly' is too absolute. ChatCompressionService.compress is signed compress(chat: GeminiChat, ...) and already reads history via chat.getHistory(true); any Pollux advisor-context trimming path that overlaps this service has precedent for direct GeminiChat access. Maps to forensic F-09.",
+      "evidence": [
+        {
+          "path": "packages/core/src/context/chatCompressionService.ts",
+          "lines": "237-247"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 2
+    }
+  ],
+  "risks": [
+    {
+      "description": "Over-truncation. AgentHistoryProvider might break functionCall/functionResponse pairs if the truncation boundary falls between them.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/context/agentHistoryProvider.test.ts",
+      "suggestedGuard": "ensure adjustBoundaryForIntegrity handles all edge cases"
+    },
+    {
+      "description": "Stale summaries. ChatCompressionService might lose critical constraints in summaries if the Probe verification fails to catch omissions.",
+      "severity": "high",
+      "mitigatingTest": "packages/core/src/context/chatCompressionService.test.ts",
+      "suggestedGuard": "monitor compression failure rates"
+    },
+    {
+      "description": "Lost tool evidence. ToolOutputMaskingService masks older tool outputs, which might remove necessary context for long-running tasks.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/context/toolOutputMaskingService.test.ts",
+      "suggestedGuard": "ensure users can easily retrieve masked outputs"
+    },
+    {
+      "description": "Memory drift. MemoryService background skill extraction might duplicate existing skills or extract low-quality skills.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/services/memoryService.test.ts",
+      "suggestedGuard": "refine SkillExtractionAgent prompts and rely on buildExistingSkillsSummary"
+    },
+    {
+      "description": "Pollux advisor-context trimming (spec §12 Risk 3) could collide with ChatCompressionService.compress if both mutate history around the same turn.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "serialize Pollux trim + compression on a per-turn lock held inside ChatCompressionService"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/context/chatCompressionService.test.ts",
+      "packages/core/src/context/contextCompressionService.test.ts",
+      "packages/core/src/context/toolDistillationService.test.ts",
+      "packages/core/src/context/toolOutputMaskingService.test.ts",
+      "packages/core/src/services/memoryService.test.ts",
+      "packages/core/src/services/sessionSummaryUtils.test.ts",
+      "packages/core/src/tools/memoryTool.test.ts"
+    ],
+    "observabilitySignals": [
+      "ChatCompressionEvent",
+      "ToolOutputTruncatedEvent",
+      "ToolOutputMaskingEvent",
+      "CoreEvent.MemoryChanged"
+    ],
+    "gaps": [
+      "OQ-08.1 — handling of extremely large files in context compression routing.",
+      "R-08.5 — no test asserts Pollux trim + compression non-interference."
+    ]
+  },
+  "openQuestions": [
+    "OQ-08.1: How does the context compression routing model (chat-compression-2.5-flash-lite) handle extremely large files that exceed its own context window? Escalate to compartment 14."
+  ],
+  "handoffs": {
+    "dependsOn": [2, 4],
+    "affects": [14],
+    "escalatedTo": [2, 14]
+  },
+  "definitionOfDone": [
+    { "item": "Context construction pipeline is fully mapped.", "done": true },
+    {
+      "item": "Compression/truncation/masking logic is documented distinctly.",
+      "done": true
+    },
+    {
+      "item": "Memory lifecycle and scope semantics are evidence-backed.",
+      "done": true
+    },
+    { "item": "Quality-risk matrix is published.", "done": true },
+    { "item": "Tuning and validation guidance is actionable.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 08 flipped to done.", "done": true }
   ]
 }

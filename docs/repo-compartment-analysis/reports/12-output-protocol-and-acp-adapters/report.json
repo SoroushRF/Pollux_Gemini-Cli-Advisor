@@ -1,0 +1,228 @@
+{
+  "compartment": {
+    "number": 12,
+    "slug": "output-protocol-and-acp-adapters",
+    "title": "Output Protocol and ACP Adapters"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/12-output-protocol-and-acp-adapters.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/output/types.ts", "exists": true },
+      { "path": "packages/core/src/output/json-formatter.ts", "exists": true },
+      {
+        "path": "packages/core/src/output/stream-json-formatter.ts",
+        "exists": true
+      },
+      { "path": "packages/cli/src/nonInteractiveCli.ts", "exists": true },
+      {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+        "exists": true
+      },
+      { "path": "packages/cli/src/acp/acpClient.ts", "exists": true },
+      { "path": "packages/cli/src/acp/commandHandler.ts", "exists": true },
+      {
+        "path": "packages/cli/src/acp/commands/commandRegistry.ts",
+        "exists": true
+      },
+      { "path": "packages/cli/src/acp/acpErrors.ts", "exists": true },
+      { "path": "integration-tests/json-output.test.ts", "exists": true },
+      {
+        "path": "integration-tests/stdout-stderr-output.test.ts",
+        "exists": true
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "OutputFormat is a closed enum (text, json, stream-json) and the JSON stream taxonomy (init, message, tool_use, tool_result, error, result) is centralized in types.ts; no advisor/escalation event type exists.",
+      "primary": {
+        "path": "packages/core/src/output/types.ts",
+        "lines": "9-13"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/output/types.ts",
+          "lines": "28-116",
+          "kind": "type"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "JsonFormatter.format builds JsonOutput with optional session_id, ANSI-stripped response, stats, and error, then JSON.stringify(..., null, 2); formatError reuses the same path.",
+      "primary": {
+        "path": "packages/core/src/output/json-formatter.ts",
+        "lines": "12-52"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/output/json-formatter.test.ts",
+          "lines": "141-184",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "StreamJsonFormatter writes one minified JSON object plus newline per event; ordering is enforced by callers.",
+      "primary": {
+        "path": "packages/core/src/output/stream-json-formatter.ts",
+        "lines": "24-34"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/output/stream-json-formatter.test.ts",
+          "lines": "515-569",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Legacy and agent-session non-interactive drivers emit the same JSONL contract from two different upstream event unions (GeminiEventType vs AgentEvent).",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "lines": "317-370"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+          "lines": "418-591",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "ACP Session.prompt accepts / and $ as command prefixes and routes through the ACP-only CommandHandler registry (Memory, Extensions, Init, Restore, About, Help), not the interactive CommandService loader chain.",
+      "primary": {
+        "path": "packages/cli/src/acp/acpClient.ts",
+        "lines": "692-735"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/acp/commands/commandRegistry.ts",
+          "lines": "23-38",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Non-output agent events (session_update, custom, etc.) are explicitly ignored by the agent-session non-interactive driver.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+        "lines": "593-602"
+      },
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Spec implies a single non-interactive output path, but two parallel drivers (legacy and agent-session) translate distinct event unions to the same JSONL contract.",
+      "evidence": [
+        { "path": "packages/cli/src/nonInteractiveCli.ts", "lines": "59-65" },
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+          "lines": "290-313"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 3
+    },
+    {
+      "description": "ACP command surface uses a narrow ACP-only registry; CLI non-interactive uses BuiltinCommandLoader+McpPromptLoader+FileCommandLoader. /pollux reachability differs by transport.",
+      "evidence": [
+        { "path": "packages/cli/src/acp/commandHandler.ts", "lines": "23-31" },
+        {
+          "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+          "lines": "43-50"
+        }
+      ],
+      "resolution": "unresolved",
+      "handoffCompartment": 13
+    }
+  ],
+  "risks": [
+    {
+      "description": "Adding a Pollux advisor-escalation event requires coordinated change to JsonStreamEventType and both non-interactive drivers; absent that, escalations are dropped silently.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "assert each new event type round-trips through integration-tests/json-output.test.ts"
+    },
+    {
+      "description": "ACP tool/permission requests use connection.requestPermission, not the policy engine; a synthetic advisor tool may produce an unexpected permission prompt.",
+      "severity": "medium",
+      "mitigatingTest": "packages/cli/src/acp/acpClient.test.ts",
+      "suggestedGuard": "classify advisor as non-prompting in policy engine"
+    },
+    {
+      "description": "Agent-session non-interactive driver silently ignores unrecognized AgentEvent types; future Pollux events on 'custom' will be invisible.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "add switch-exhaustiveness check or unknown-event warning"
+    },
+    {
+      "description": "StreamJsonFormatter performs no sequencing; out-of-order callers can produce a malformed stream.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/output/stream-json-formatter.test.ts:515-569",
+      "suggestedGuard": "keep Pollux interceptor strictly upstream of formatter calls"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/output/json-formatter.test.ts",
+      "packages/core/src/output/stream-json-formatter.test.ts",
+      "packages/cli/src/acp/acpErrors.test.ts",
+      "packages/cli/src/acp/commandHandler.test.ts",
+      "packages/cli/src/acp/acpClient.test.ts",
+      "packages/cli/src/nonInteractiveCli.test.ts",
+      "integration-tests/json-output.test.ts",
+      "integration-tests/stdout-stderr-output.test.ts"
+    ],
+    "observabilitySignals": [
+      "JsonStreamEventType.init",
+      "JsonStreamEventType.message",
+      "JsonStreamEventType.tool_use",
+      "JsonStreamEventType.tool_result",
+      "JsonStreamEventType.error",
+      "JsonStreamEventType.result",
+      "ACP connection.sessionUpdate"
+    ],
+    "gaps": [
+      "No event-type for advisor/escalation in JsonStreamEventType (R-12.1, R-12.3).",
+      "No regression assertion that both non-interactive drivers emit identical JSONL for equivalent input (C-12.1).",
+      "ACP advisor permission flow not exercised (R-12.2)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-12.1: Should advisor_consultation invocations surface as tool_use/tool_result or a new event kind? Escalate to 02 and 04.",
+    "OQ-12.2: Does ACP need parallel /pollux registration, or only via prompt text? Escalate to 13."
+  ],
+  "handoffs": {
+    "dependsOn": [1, 2],
+    "affects": [4, 13],
+    "escalatedTo": [2, 13]
+  },
+  "definitionOfDone": [
+    { "item": "Output contracts for all modes are explicit.", "done": true },
+    { "item": "Event-to-output translation is evidence-backed.", "done": true },
+    { "item": "ACP adaptation behavior is mapped.", "done": true },
+    { "item": "Compatibility risks are documented.", "done": true },
+    {
+      "item": "Contract-change verification checklist is complete.",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 12 flipped to done.", "done": true }
+  ]
+}

@@ -1,0 +1,245 @@
+{
+  "compartment": {
+    "number": 10,
+    "slug": "sandbox-shell-and-filesystem-substrate",
+    "title": "Sandbox, Shell, and File System Substrate"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/10-sandbox-shell-and-filesystem-substrate.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      {
+        "path": "packages/core/src/services/sandboxManager.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/services/sandboxManagerFactory.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/services/shellExecutionService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/services/fileSystemService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/services/sandboxedFileSystemService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/services/executionLifecycleService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/linux/LinuxSandboxManager.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/macos/MacOsSandboxManager.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/windows/WindowsSandboxManager.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/windows/GeminiSandbox.cs",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/utils/commandSafety.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/sandbox/windows/commandSafety.ts",
+        "exists": true
+      },
+      { "path": "packages/core/src/tools/shell.ts", "exists": true },
+      {
+        "path": "packages/core/src/tools/shellBackgroundTools.ts",
+        "exists": true
+      },
+      {
+        "path": "bundle/sandbox-*.sb",
+        "exists": false,
+        "notes": "generated at bundle/release time; not tracked in source"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "The sandbox factory dispatches to a platform-specific manager only when sandbox.enabled; otherwise returns NoopSandboxManager, which still applies environment sanitization.",
+      "primary": {
+        "path": "packages/core/src/services/sandboxManagerFactory.ts",
+        "lines": "31-43"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/services/sandboxManager.ts",
+          "lines": "285-329",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "LocalSandboxManager is a placeholder that throws 'Tool sandboxing is not yet implemented.' and always reports commands as neither safe nor dangerous.",
+      "primary": {
+        "path": "packages/core/src/services/sandboxManager.ts",
+        "lines": "334-360"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "SandboxedFileSystemService routes every read/write through sandboxManager.prepareCommand with synthetic __read/__write programs and a per-op allowedPaths policy, then child_process.spawn.",
+      "primary": {
+        "path": "packages/core/src/services/sandboxedFileSystemService.ts",
+        "lines": "50-112"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/services/sandboxedFileSystemService.ts",
+          "lines": "114-183",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "ShellExecutionService is effectively a process-singleton via all-static state: active ptys, child processes, and a session-keyed backgroundProcessHistory; shellBackgroundTools reads from that map.",
+      "primary": {
+        "path": "packages/core/src/services/shellExecutionService.ts",
+        "lines": "254-262"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/tools/shellBackgroundTools.ts",
+          "lines": "45-55",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Governance and secret file protection is shared across platforms via GOVERNANCE_FILES + SECRET_FILES + findSecretFiles in sandboxManager.ts, reimported by every platform manager.",
+      "primary": {
+        "path": "packages/core/src/services/sandboxManager.ts",
+        "lines": "193-279"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/sandbox/linux/LinuxSandboxManager.ts",
+          "lines": "10-19",
+          "kind": "other"
+        },
+        {
+          "path": "packages/core/src/sandbox/windows/WindowsSandboxManager.ts",
+          "lines": "15-21",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Guideline lists bundle/sandbox-*.sb as a primary path but no .sb files are tracked in source; they are produced at bundle/release time.",
+      "evidence": [{ "path": "scripts/build_binary.js", "lines": "281-288" }],
+      "resolution": "resolved"
+    },
+    {
+      "description": "Windows has its own commandSafety.ts separate from the shared utils/commandSafety.ts; sandboxManager.ts imports both under aliases.",
+      "evidence": [
+        {
+          "path": "packages/core/src/sandbox/windows/commandSafety.ts",
+          "lines": "1-1"
+        },
+        {
+          "path": "packages/core/src/sandbox/utils/commandSafety.ts",
+          "lines": "1-1"
+        },
+        {
+          "path": "packages/core/src/services/sandboxManager.ts",
+          "lines": "10-17"
+        }
+      ],
+      "resolution": "resolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "Background-process history is static and session-keyed; benchmark iterations reusing a sessionId can leak background state across runs.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Benchmarks must use a fresh sessionId per iteration or call a reset helper."
+    },
+    {
+      "description": "LocalSandboxManager.prepareCommand throws lazily; an unsupported platform produces a turn-level error only when the first tool runs.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/services/sandboxManager*.test.ts",
+      "suggestedGuard": "Surface 'unsupported platform' at factory time, not at first prepareCommand."
+    },
+    {
+      "description": "SandboxedFileSystemService maps ENOENT by stderr substring matching; future sandbox wrappers with different stderr text will lose that signal.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "Add explicit exit-code mapping alongside substring detection."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/sandbox/linux/LinuxSandboxManager.test.ts",
+      "packages/core/src/sandbox/macos/MacOsSandboxManager.test.ts",
+      "packages/core/src/sandbox/windows/WindowsSandboxManager.test.ts",
+      "packages/core/src/sandbox/utils/{commandSafety,fsUtils,proactivePermissions,sandboxDenialUtils}.test.ts",
+      "packages/core/src/sandbox/windows/{commandSafety,windowsSandboxDenialUtils}.test.ts",
+      "packages/core/src/sandbox/{linux/bwrapArgsBuilder,macos/seatbeltArgsBuilder}.test.ts"
+    ],
+    "observabilitySignals": [
+      "debugLogger calls in sandboxedFileSystemService.ts / shellExecutionService.ts / platform sandbox managers",
+      "Per-pid background log files at Storage.getGlobalTempDir()/background-processes/background-<pid>.log",
+      "ExecutionMethod tag on every ExecutionResult"
+    ],
+    "gaps": [
+      "No integration test for cross-session backgroundProcessHistory isolation (R-10.1).",
+      "ENOENT substring heuristic in SandboxedFileSystemService not under test (R-10.3)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-10.1: Does any advisor-driven tool in Pollux plan to spawn shell commands directly, bypassing ShellExecutionService? Escalate to 04 and 07.",
+    "OQ-10.2: Should benchmark runs force sandbox.enabled=false for A/E fairness, and is NoopSandboxManager env sanitization acceptable for perf numbers? Escalate to 14."
+  ],
+  "handoffs": {
+    "dependsOn": [4, 9],
+    "affects": [14],
+    "escalatedTo": [4, 14]
+  },
+  "definitionOfDone": [
+    {
+      "item": "Sandbox architecture is mapped across modes and platforms.",
+      "done": true
+    },
+    {
+      "item": "Shell/background and filesystem pathways are documented.",
+      "done": true
+    },
+    {
+      "item": "Lifecycle and cleanup semantics are evidence-backed.",
+      "done": true
+    },
+    { "item": "Execution risk matrix is published.", "done": true },
+    { "item": "Troubleshooting guidance is actionable.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 10 flipped to done.", "done": true }
+  ]
+}

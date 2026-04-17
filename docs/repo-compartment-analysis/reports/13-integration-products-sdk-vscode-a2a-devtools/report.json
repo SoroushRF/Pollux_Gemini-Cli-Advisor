@@ -1,0 +1,207 @@
+{
+  "compartment": {
+    "number": 13,
+    "slug": "integration-products-sdk-vscode-a2a-devtools",
+    "title": "Integration Products (SDK, VS Code, A2A, DevTools)"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/13-integration-products-sdk-vscode-a2a-devtools.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/sdk/package.json", "exists": true },
+      { "path": "packages/sdk/README.md", "exists": true },
+      { "path": "packages/sdk/SDK_DESIGN.md", "exists": true },
+      { "path": "packages/sdk/src/index.ts", "exists": true },
+      { "path": "packages/sdk/src/agent.ts", "exists": true },
+      { "path": "packages/sdk/src/session.ts", "exists": true },
+      { "path": "packages/sdk/src/tool.ts", "exists": true },
+      { "path": "packages/sdk/src/skills.ts", "exists": true },
+      { "path": "packages/sdk/src/fs.ts", "exists": true },
+      { "path": "packages/sdk/src/shell.ts", "exists": true },
+      { "path": "packages/sdk/src/types.ts", "exists": true },
+      { "path": "packages/vscode-ide-companion/package.json", "exists": true },
+      {
+        "path": "packages/vscode-ide-companion/src/extension.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/vscode-ide-companion/src/ide-server.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/vscode-ide-companion/src/diff-manager.ts",
+        "exists": true
+      },
+      { "path": "packages/a2a-server/package.json", "exists": true },
+      { "path": "packages/a2a-server/src/http/server.ts", "exists": true },
+      { "path": "packages/a2a-server/src/http/app.ts", "exists": true },
+      { "path": "packages/a2a-server/src/agent/executor.ts", "exists": true },
+      {
+        "path": "packages/a2a-server/src/commands/command-registry.ts",
+        "exists": true
+      },
+      { "path": "packages/devtools/package.json", "exists": true },
+      { "path": "packages/devtools/src/index.ts", "exists": true },
+      { "path": "packages/devtools/src/types.ts", "exists": true },
+      {
+        "path": "packages/devtools/client/src",
+        "exists": false,
+        "notes": "no client/src dir; devtools ships pre-rendered client/index.html and inlined CLIENT_JS"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "All four products depend on @google/gemini-cli-core: SDK and A2A as workspace file:../core, VS Code via deep subpath import, DevTools via core runtime loader.",
+      "primary": { "path": "packages/sdk/package.json", "lines": "24-28" },
+      "supporting": [
+        {
+          "path": "packages/a2a-server/package.json",
+          "lines": "27-37",
+          "kind": "other"
+        },
+        {
+          "path": "packages/vscode-ide-companion/src/extension.ts",
+          "lines": "12-16",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "SDK is the only product that builds a core Config + GeminiClient in-process; VS Code and A2A proxy via MCP and the @a2a-js/sdk executor contract respectively.",
+      "primary": { "path": "packages/sdk/src/session.ts", "lines": "38-60" },
+      "supporting": [
+        {
+          "path": "packages/vscode-ide-companion/src/ide-server.ts",
+          "lines": "13-30",
+          "kind": "other"
+        },
+        {
+          "path": "packages/a2a-server/src/agent/executor.ts",
+          "lines": "1-1",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "A2A command registry is disjoint from CLI: only extensions, restore, init, memory are registered; a CLI /pollux command does not automatically surface in A2A.",
+      "primary": {
+        "path": "packages/a2a-server/src/commands/command-registry.ts",
+        "lines": "14-27"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "VS Code companion activates on onStartupFinished and publishes a stable contract of four commands, one custom language id, two keybindings, and one configuration property.",
+      "primary": {
+        "path": "packages/vscode-ide-companion/package.json",
+        "lines": "30-105"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "DevTools is loaded dynamically by the core runtime but externalized from the CLI bundle; the root bundle script orchestrates devtools build and bundle:browser-mcp core step before esbuild runs.",
+      "primary": { "path": "esbuild.config.js", "lines": "57-67" },
+      "supporting": [
+        { "path": "package.json", "lines": "42-42", "kind": "other" }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Guideline lists packages/devtools/client/src as primary; devtools actually ships a pre-rendered client/index.html and inlined CLIENT_JS.",
+      "evidence": [
+        { "path": "packages/devtools/package.json", "lines": "18-21" },
+        { "path": "packages/devtools/src/index.ts", "lines": "16-16" }
+      ],
+      "resolution": "resolved"
+    },
+    {
+      "description": "VS Code companion imports from @google/gemini-cli-core/src/ide/detect-ide.js (deep subpath, not package main); core refactors to src/ide/* can silently break the extension.",
+      "evidence": [
+        {
+          "path": "packages/vscode-ide-companion/src/extension.ts",
+          "lines": "12-16"
+        }
+      ],
+      "resolution": "unresolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "VS Code companion deep-imports core src/ide/*; no contract test pins the subpath, so a core ide/ refactor during Pollux work could break the extension without CI signal.",
+      "severity": "medium",
+      "mitigatingTest": "packages/vscode-ide-companion/src/extension.test.ts",
+      "suggestedGuard": "Add a typecheck-only smoke test that imports the deep subpaths used by the extension."
+    },
+    {
+      "description": "A2A's CoderAgentExecutor bypasses Turn/GeminiClient.sendMessageStream; Pollux integrated at GeminiClient level silently skips A2A sessions.",
+      "severity": "high",
+      "mitigatingTest": "packages/a2a-server/src/agent/executor.test.ts",
+      "suggestedGuard": "Pollux rollout must explicitly state 'A2A not covered in Phase 1' or add an A2A-specific interceptor."
+    },
+    {
+      "description": "DevTools is loaded dynamically from the externalized package; core/devtools version skew causes runtime import failures.",
+      "severity": "low",
+      "mitigatingTest": "sea/sea-launch.test.js",
+      "suggestedGuard": "Lockstep version bumps are enforced by scripts/version.js; document the coupling in release notes."
+    },
+    {
+      "description": "SDK resumeSession filters candidates by the first 8 chars of the session id without a collision warning when multiple match.",
+      "severity": "low",
+      "mitigatingTest": "packages/sdk/src/session.test.ts",
+      "suggestedGuard": "Log a warning when the candidate set exceeds 1 for a given prefix."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/sdk/src/{session,tool}.test.ts and {agent,tool,skills}.integration.test.ts",
+      "packages/vscode-ide-companion/src/{extension,ide-server,open-files-manager}.test.ts",
+      "packages/a2a-server/src/**/*.test.ts (13 files)",
+      "(devtools: no dedicated in-tree test suite)"
+    ],
+    "observabilitySignals": [
+      "vscode.OutputChannel logger from extension.ts",
+      "winston + debugLogger in A2A server",
+      "debugLogger warnings on duplicate A2A command registration",
+      "Marketplace version-check fetch in extension.ts"
+    ],
+    "gaps": [
+      "No contract test for VS Code companion deep core imports (R-13.1).",
+      "No DevTools-vs-core version-skew integration test (R-13.3).",
+      "No A2A test that asserts Pollux pathway is reachable or explicitly bypassed (R-13.2)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-13.1: Does Pollux rollout scope include A2A (CoderAgentExecutor) and SDK (GeminiCliSession)? Escalate to synthesis.",
+    "OQ-13.2: Should VS Code companion surface a marker when connected to a /pollux-enabled CLI? Escalate to 05."
+  ],
+  "handoffs": {
+    "dependsOn": [2, 4, 5, 12, 15],
+    "affects": [],
+    "escalatedTo": [5]
+  },
+  "definitionOfDone": [
+    {
+      "item": "All integration products have independent architecture summaries.",
+      "done": true
+    },
+    { "item": "Public contracts are explicitly inventoried.", "done": true },
+    { "item": "Shared dependencies and coupling are mapped.", "done": true },
+    { "item": "Compatibility risks are ranked.", "done": true },
+    { "item": "Product hardening guidance is actionable.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 13 flipped to done.", "done": true }
+  ]
+}

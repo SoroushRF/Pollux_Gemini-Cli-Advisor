@@ -8,22 +8,24 @@
 - **Owner**: composer-agent
 - **Started**: 2026-04-16
 - **Finished**: 2026-04-16
-- **Repo commit analyzed**: N/A
+- **Repo commit analyzed**: `c8127045c5832b0e66cb1efd04e0dd6800ce78e7`
 - **Upstream base commit**: null
 
 ## 0. Pre-flight
 
-| Path                                                     | Exists? | Notes (only if material) |
-| -------------------------------------------------------- | ------- | ------------------------ |
-| `packages/core/src/context`                              | yes     |                          |
-| `packages/core/src/context/contextCompressionService.ts` | yes     |                          |
-| `packages/core/src/context/chatCompressionService.ts`    | yes     |                          |
-| `packages/core/src/context/toolDistillationService.ts`   | yes     |                          |
-| `packages/core/src/context/toolOutputMaskingService.ts`  | yes     |                          |
-| `packages/core/src/context/truncation.ts`                | yes     |                          |
-| `packages/core/src/services/sessionSummaryService.ts`    | yes     |                          |
-| `packages/core/src/services/memoryService.ts`            | yes     |                          |
-| `packages/core/src/tools/memoryTool.ts`                  | yes     |                          |
+| Path                                                     | Exists? | Notes (only if material)                        |
+| -------------------------------------------------------- | ------- | ----------------------------------------------- |
+| `packages/core/src/context`                              | yes     |                                                 |
+| `packages/core/src/context/contextCompressionService.ts` | yes     |                                                 |
+| `packages/core/src/context/chatCompressionService.ts`    | yes     |                                                 |
+| `packages/core/src/context/toolDistillationService.ts`   | yes     |                                                 |
+| `packages/core/src/context/toolOutputMaskingService.ts`  | yes     |                                                 |
+| `packages/core/src/context/truncation.ts`                | yes     |                                                 |
+| `packages/core/src/services/sessionSummaryService.ts`    | yes     | used via `sessionSummaryUtils.ts`               |
+| `packages/core/src/services/sessionSummaryUtils.ts`      | yes     | orchestrator of the summary service             |
+| `packages/core/src/services/memoryService.ts`            | yes     |                                                 |
+| `packages/core/src/tools/memoryTool.ts`                  | yes     |                                                 |
+| `packages/core/src/core/geminiChat.ts`                   | yes     | `compress(chat: GeminiChat, ...)` at `:237-246` |
 
 ## 1. Scope and Boundary
 
@@ -31,27 +33,32 @@ In scope: context compression and chat compression, tool output distillation and
 masking, truncation policies and profiles, memory services and memory tool
 integration, and session summary behavior.
 
-Out of scope (handed off): policy persistence rules, telemetry exporter
-internals, full CLI presentation logic.
+Out of scope (handed off): policy persistence rules (09), telemetry exporter
+internals (11), full CLI presentation logic (01), benchmark validation of
+context compression routing model (14).
 
 ## 2. Runtime Flow Summary
 
 ### Chat Compression Flow
 
-1. Entry: `packages/core/src/context/chatCompressionService.ts:238-246` receives
-   a request to compress chat history.
+1. Entry: `packages/core/src/context/chatCompressionService.ts:237-246` —
+   `ChatCompressionService.compress(chat: GeminiChat, ...)` receives a
+   `GeminiChat` instance and calls `chat.getHistory(true)` directly at `:247`.
 2. Pre-compress Hook:
    `packages/core/src/context/chatCompressionService.ts:263-264` fires
-   `PreCompressTrigger`.
-3. Truncation: `packages/core/src/context/chatCompressionService.ts:287-290`
-   applies a "Reverse Token Budget" (50k tokens) to truncate older large tool
-   responses.
-4. Split: `packages/core/src/context/chatCompressionService.ts:321-324` splits
+   `PreCompressTrigger.Auto|Manual` through the hook system.
+3. Threshold gate: `packages/core/src/context/chatCompressionService.ts:269-283`
+   skips compression when `originalTokenCount < threshold * tokenLimit(model)`
+   unless forced.
+4. Truncation: `packages/core/src/context/chatCompressionService.ts:135-235`
+   applies a Reverse Token Budget (50k token function-response budget) to
+   truncate older large tool responses.
+5. Split: `packages/core/src/context/chatCompressionService.ts:321-324` splits
    history, keeping the most recent 30%.
-5. Summarization: `packages/core/src/context/chatCompressionService.ts:359-377`
+6. Summarization: `packages/core/src/context/chatCompressionService.ts:359-377`
    generates a `<state_snapshot>` using an LLM.
-6. Verification: `packages/core/src/context/chatCompressionService.ts:382-405`
-   performs a "Probe" verification to ensure no critical information was lost.
+7. Verification: `packages/core/src/context/chatCompressionService.ts:382-405`
+   performs a "Probe" step to ensure no critical information was lost.
 
 ### Tool Output Masking Flow
 
@@ -67,22 +74,35 @@ internals, full CLI presentation logic.
 
 1. Entry: `packages/core/src/services/memoryService.ts:504-510` starts the
    background memory service.
-2. Scan: `packages/core/src/services/memoryService.ts:289-326` finds sessions
-   idle for >3 hours with >10 user messages.
+2. Scan: `packages/core/src/services/memoryService.ts:268-283` — via
+   `shouldProcessConversation` — finds sessions idle for > 3 hours with > 10
+   user messages.
 3. Extract: `packages/core/src/services/memoryService.ts:589-612` runs
    `SkillExtractionAgent` to extract skills into `SKILL.md` files.
+
+### Session Summary Flow
+
+1. Entry: `packages/core/src/services/sessionSummaryUtils.ts:170` —
+   `generateSummary(config)` is the external callsite.
+2. Construct: `packages/core/src/services/sessionSummaryUtils.ts:57-63`
+   instantiates `SessionSummaryService(baseLlmClient)` and calls
+   `generateSummary({ messages, ... })`.
+3. Execute: `packages/core/src/services/sessionSummaryService.ts:47-85` runs a
+   Gemini Flash-Lite prompt with sliding window (first-N + last-N of
+   `DEFAULT_MAX_MESSAGES = 20`) and a 5s timeout.
 
 ## 3. Key Files and Citations
 
 | Path                                                     | Role               | Notes                                                                  |
 | -------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------- |
 | `packages/core/src/context/agentHistoryProvider.ts`      | primary entrypoint | Enforces message size limits and handles history truncation.           |
-| `packages/core/src/context/chatCompressionService.ts`    | state owner        | Implements token-limit compression and summarization.                  |
+| `packages/core/src/context/chatCompressionService.ts`    | state owner        | Implements token-limit compression; accepts a `GeminiChat` argument.   |
 | `packages/core/src/context/contextCompressionService.ts` | state owner        | Compresses file reads via LLM routing (FULL/PARTIAL/SUMMARY/EXCLUDED). |
 | `packages/core/src/context/toolDistillationService.ts`   | state owner        | Distills oversized tool outputs structurally.                          |
 | `packages/core/src/context/toolOutputMaskingService.ts`  | state owner        | Masks bulky tool outputs using Hybrid Backward Scanned FIFO.           |
 | `packages/core/src/services/memoryService.ts`            | state owner        | Background skill extraction from idle sessions.                        |
-| `packages/core/src/context/memoryContextManager.ts`      | state owner        | Loads and caches GEMINI.md memory files.                               |
+| `packages/core/src/services/sessionSummaryService.ts`    | state owner        | 1-line Gemini Flash-Lite summary of a session.                         |
+| `packages/core/src/context/memoryContextManager.ts`      | state owner        | Loads and caches `GEMINI.md` memory files.                             |
 
 ## 4. Verified Truths and Contradictions
 
@@ -93,38 +113,57 @@ internals, full CLI presentation logic.
   lines.
   - Primary: `packages/core/src/context/chatCompressionService.ts:135-235`
   - Confidence: high
-- **VT-08.2** — `ChatCompressionService` performs a "Probe" verification step
+- **VT-08.2** — `ChatCompressionService.compress` receives a `GeminiChat`
+  instance and calls `chat.getHistory(true)` directly; it is a structural
+  exception to the spec's blanket "don't touch `GeminiChat` directly" rule.
+  - Primary: `packages/core/src/context/chatCompressionService.ts:237-247`
+  - Confidence: high
+- **VT-08.3** — `ChatCompressionService` performs a "Probe" verification step
   after generating a summary to ensure no critical constraints or details were
   lost.
   - Primary: `packages/core/src/context/chatCompressionService.ts:382-405`
   - Confidence: high
-- **VT-08.3** — `ContextCompressionService` batches file read outputs to an LLM
+- **VT-08.4** — `ContextCompressionService` batches file read outputs to an LLM
   to decide routing levels (FULL, PARTIAL, SUMMARY, EXCLUDED) and caches
   decisions.
   - Primary: `packages/core/src/context/contextCompressionService.ts:224-232`
   - Confidence: high
-- **VT-08.4** — `ToolOutputMaskingService` protects the newest 50,000 tool
+- **VT-08.5** — `ToolOutputMaskingService` protects the newest 50,000 tool
   tokens and optionally the entire latest turn from being masked.
   - Primary: `packages/core/src/context/toolOutputMaskingService.ts:94-138`
   - Confidence: high
-- **VT-08.5** — `ToolOutputDistillationService` exempts `read_file` and
+- **VT-08.6** — `ToolOutputDistillationService` exempts `read_file` and
   `read_many_files` from distillation.
   - Primary: `packages/core/src/context/toolDistillationService.ts:83-87`
   - Confidence: high
-- **VT-08.6** — `MemoryService` runs a background `SkillExtractionAgent` on
+- **VT-08.7** — `MemoryService` runs a background `SkillExtractionAgent` on
   sessions that have been idle for at least 3 hours and have at least 10 user
   messages.
   - Primary: `packages/core/src/services/memoryService.ts:268-283`
   - Confidence: high
-- **VT-08.7** — `MemoryContextManager` performs Just-In-Time (JIT) memory
+- **VT-08.8** — `MemoryContextManager` performs Just-In-Time (JIT) memory
   discovery by traversing upwards from an accessed path to find `GEMINI.md`
   files.
   - Primary: `packages/core/src/context/memoryContextManager.ts:141-172`
   - Confidence: high
+- **VT-08.9** — `SessionSummaryService` uses Gemini Flash-Lite with a sliding
+  window of first-N + last-N messages (default `MAX_MESSAGES = 20`,
+  `TIMEOUT = 5s`) to produce a 1-line session summary.
+  - Primary: `packages/core/src/services/sessionSummaryService.ts:14-85`
+  - Supporting: `packages/core/src/services/sessionSummaryUtils.ts:57-63`
+    (other)
+  - Confidence: high
 
 **Contradictions or ambiguities**
 
-- None found.
+- **C-08.1** — Pollux spec §14 "Don't touch `GeminiChat` directly" is too
+  absolute. `ChatCompressionService.compress` is signed
+  `compress(chat: GeminiChat, ...)` and already reads history via
+  `chat.getHistory(true)`; any Pollux advisor-context trimming path that
+  overlaps this service has precedent for direct `GeminiChat` access. Evidence:
+  `packages/core/src/context/chatCompressionService.ts:237-247`. Resolution:
+  deferred (escalate to compartment 02 for Pollux touch-`GeminiChat` policy;
+  maps to forensic F-09).
 
 ## 5. Risks and Open Questions
 
@@ -139,17 +178,22 @@ internals, full CLI presentation logic.
   constraints in summaries if the "Probe" verification fails to catch omissions.
   Severity: high. Mitigating test:
   `packages/core/src/context/chatCompressionService.test.ts`. Suggested guard:
-  Monitor compression failure rates.
+  monitor compression failure rates.
 - **R-08.3** — Lost tool evidence. `ToolOutputMaskingService` masks older tool
   outputs, which might remove necessary context for long-running tasks.
   Severity: medium. Mitigating test:
   `packages/core/src/context/toolOutputMaskingService.test.ts`. Suggested guard:
-  Ensure users can easily retrieve masked outputs.
+  ensure users can easily retrieve masked outputs.
 - **R-08.4** — Memory drift. `MemoryService` background skill extraction might
   duplicate existing skills or extract low-quality skills. Severity: medium.
   Mitigating test: `packages/core/src/services/memoryService.test.ts`. Suggested
-  guard: Refine `SkillExtractionAgent` prompts and rely on
+  guard: refine `SkillExtractionAgent` prompts and rely on
   `buildExistingSkillsSummary`.
+- **R-08.5** — Pollux advisor-context trimming (spec §12 Risk 3) could collide
+  with `ChatCompressionService.compress` if both mutate history around the same
+  turn. Severity: medium. Mitigating test: `no test`. Suggested guard: serialize
+  Pollux trim + compression on a per-turn lock held inside
+  `ChatCompressionService`.
 
 **Open questions**
 
@@ -160,27 +204,30 @@ internals, full CLI presentation logic.
 ## 6. Test and Observability Coverage
 
 - **Tests**:
-  - `packages/core/src/context/chatCompressionService.test.ts` (Validates
+  - `packages/core/src/context/chatCompressionService.test.ts` (validates
     token-limit compression and summarization)
-  - `packages/core/src/context/contextCompressionService.test.ts` (Validates
+  - `packages/core/src/context/contextCompressionService.test.ts` (validates
     file read compression routing)
-  - `packages/core/src/context/toolDistillationService.test.ts` (Validates
+  - `packages/core/src/context/toolDistillationService.test.ts` (validates
     structural truncation of oversized outputs)
-  - `packages/core/src/context/toolOutputMaskingService.test.ts` (Validates
+  - `packages/core/src/context/toolOutputMaskingService.test.ts` (validates
     masking of bulky tool outputs)
-  - `packages/core/src/services/memoryService.test.ts` (Validates background
+  - `packages/core/src/services/memoryService.test.ts` (validates background
     skill extraction)
-  - `packages/core/src/tools/memoryTool.test.ts` (Validates explicit memory
+  - `packages/core/src/services/sessionSummaryUtils.test.ts` (validates summary
+    orchestration and service instantiation)
+  - `packages/core/src/tools/memoryTool.test.ts` (validates explicit memory
     saving)
 
 - **Observability signals**:
-  - `ChatCompressionEvent` (Logs token counts before/after chat compression)
-  - `ToolOutputTruncatedEvent` (Logs when a tool output is distilled/truncated)
-  - `ToolOutputMaskingEvent` (Logs tokens saved by masking tool outputs)
-  - `CoreEvent.MemoryChanged` (Fired when memory files are reloaded)
+  - `ChatCompressionEvent` (logs token counts before/after chat compression)
+  - `ToolOutputTruncatedEvent` (logs when a tool output is distilled/truncated)
+  - `ToolOutputMaskingEvent` (logs tokens saved by masking tool outputs)
+  - `CoreEvent.MemoryChanged` (fired when memory files are reloaded)
 
 - **Coverage gaps**:
-  - `OQ-08.1` (Handling of extremely large files in context compression routing)
+  - OQ-08.1 (handling of extremely large files in context compression routing)
+  - R-08.5 (no test asserts Pollux trim + compression non-interference)
 
 ## 7. Definition of Done
 
@@ -196,6 +243,6 @@ internals, full CLI presentation logic.
 ## 8. Handoffs
 
 - **Depends on**: 02, 04
-- **Affects**: 11, 14
-- **Escalated to**: 14 — Verify large file handling in context compression
-  routing.
+- **Affects**: 14
+- **Escalated to**: 02 — Pollux `GeminiChat`-access policy (C-08.1, R-08.5); 14
+  — verify large file handling in context compression routing (OQ-08.1).

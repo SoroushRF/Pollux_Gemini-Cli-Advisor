@@ -1,49 +1,210 @@
 {
-  "compartment": "11",
-  "tier": "T2",
-  "evidence_matrix": [
+  "compartment": {
+    "number": 11,
+    "slug": "telemetry-observability-and-billing-signals",
+    "title": "Telemetry, Observability, and Billing Signals"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/11-telemetry-observability-and-billing-signals.md",
+  "owner": "gemini-3.1-pro",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/telemetry", "exists": true },
+      { "path": "packages/core/src/telemetry/trace.ts", "exists": true },
+      { "path": "packages/core/src/telemetry/metrics.ts", "exists": true },
+      { "path": "packages/core/src/telemetry/loggers.ts", "exists": true },
+      {
+        "path": "packages/core/src/telemetry/billingEvents.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/telemetry/activity-monitor.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/telemetry/activity-detector.ts",
+        "exists": true,
+        "notes": "session idle/active state for memory monitoring gate"
+      },
+      {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "exists": true,
+        "notes": "per-chunk token capture at 915-921"
+      },
+      {
+        "path": "packages/core/src/services/chatRecordingService.ts",
+        "exists": true,
+        "notes": "persistent token sink: recordMessageTokens at 486-515"
+      },
+      { "path": "scripts/telemetry.js", "exists": true },
+      { "path": "scripts/telemetry_gcp.js", "exists": true },
+      { "path": "docs/local-development.md", "exists": true }
+    ]
+  },
+  "evidence": [
     {
-      "claim_id": "VT-11.1",
       "claim": "Telemetry configuration is resolved via a strict precedence of argv, environment variables, and then settings.json.",
-      "primary_citation": "packages/core/src/telemetry/config.ts:49-123",
+      "primary": {
+        "path": "packages/core/src/telemetry/config.ts",
+        "lines": "49-123"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.2",
       "claim": "OpenTelemetry SDK initialization supports multiple exporter targets including direct GCP, OTLP HTTP/gRPC, file, and console.",
-      "primary_citation": "packages/core/src/telemetry/sdk.ts:268-333",
+      "primary": {
+        "path": "packages/core/src/telemetry/sdk.ts",
+        "lines": "268-333"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.3",
       "claim": "Tracing uses runInDevTraceSpan which automatically truncates large input/output payloads to 10,000 characters.",
-      "primary_citation": "packages/core/src/telemetry/trace.ts:55-78",
+      "primary": {
+        "path": "packages/core/src/telemetry/trace.ts",
+        "lines": "55-78"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.4",
       "claim": "Hook names are always sanitized before being recorded in metrics to prevent leaking sensitive paths or arguments.",
-      "primary_citation": "packages/core/src/telemetry/metrics.ts:1572-1578",
-      "supporting_citation": "packages/core/src/telemetry/sanitize.ts:26-52",
+      "primary": {
+        "path": "packages/core/src/telemetry/metrics.ts",
+        "lines": "1572-1578"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/telemetry/sanitize.ts",
+          "lines": "26-52",
+          "kind": "other"
+        }
+      ],
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.5",
       "claim": "Billing events are strongly typed classes that serialize to both OpenTelemetry attributes and log bodies.",
-      "primary_citation": "packages/core/src/telemetry/billingEvents.ts:27-256",
+      "primary": {
+        "path": "packages/core/src/telemetry/billingEvents.ts",
+        "lines": "27-256"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.6",
       "claim": "Activity monitoring buffers up to 100 recent events and triggers memory snapshots based on specific activity types.",
-      "primary_citation": "packages/core/src/telemetry/activity-monitor.ts:45-56",
+      "primary": {
+        "path": "packages/core/src/telemetry/activity-monitor.ts",
+        "lines": "45-56"
+      },
       "confidence": "high"
     },
     {
-      "claim_id": "VT-11.7",
       "claim": "Telemetry initialization is deferred if CLI authentication is required but no credentials are provided yet.",
-      "primary_citation": "packages/core/src/telemetry/sdk.ts:194-212",
+      "primary": {
+        "path": "packages/core/src/telemetry/sdk.ts",
+        "lines": "194-212"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Per-chunk token capture already exists: GeminiChat forwards each chunk's usageMetadata to chatRecordingService.recordMessageTokens(...), which writes input, output, cached, thoughts, tool, and total token counts onto the last gemini message in the conversation file.",
+      "primary": {
+        "path": "packages/core/src/core/geminiChat.ts",
+        "lines": "915-921"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/services/chatRecordingService.ts",
+          "lines": "486-515",
+          "kind": "other"
+        }
+      ],
       "confidence": "high"
     }
+  ],
+  "contradictions": [
+    {
+      "description": "Pollux spec §8 TurnLog proposes a per-turn token logger as a new component. Forensic F-10 flags this as a duplicate of existing capture; VT-11.8 shows per-chunk usage is already persisted by chatRecordingService.recordMessageTokens via GeminiChat. A Pollux TurnLog should extend this sink, not replace it.",
+      "evidence": [
+        { "path": "packages/core/src/core/geminiChat.ts", "lines": "915-921" },
+        {
+          "path": "packages/core/src/services/chatRecordingService.ts",
+          "lines": "486-515"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 16
+    }
+  ],
+  "risks": [
+    {
+      "description": "Telemetry buffer could lose events if the process crashes before flushTelemetryBuffer completes.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "ensure critical events bypass buffer or flush synchronously"
+    },
+    {
+      "description": "Memory monitoring snapshots triggered by activity events could cause performance degradation if snapshotThrottleMs is too low.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "enforce a hard lower bound on throttle interval"
+    },
+    {
+      "description": "If a Pollux TurnLog writes to a parallel sink instead of chatRecordingService, per-turn totals will drift from the persisted conversation record and from gemini_cli.token.usage counters.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "route advisor-turn token deltas through recordMessageTokens (extended if needed) and assert conversation-file totals match metric export in an integration test"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/telemetry/sdk.test.ts",
+      "packages/core/src/telemetry/trace.test.ts",
+      "packages/core/src/telemetry/metrics.test.ts",
+      "packages/core/src/telemetry/sanitize.test.ts",
+      "packages/core/src/telemetry/activity-detector.test.ts",
+      "packages/core/src/telemetry/activity-monitor.test.ts",
+      "packages/core/src/services/chatRecordingService.test.ts"
+    ],
+    "observabilitySignals": [
+      "gemini_cli.tool.call.count",
+      "gemini_cli.api.request.count",
+      "gemini_cli.token.usage",
+      "gemini_cli.overage_option_selected"
+    ],
+    "gaps": [
+      "No tests found for activity monitor memory snapshot throttling (R-11.2).",
+      "No integration test asserts gemini_cli.token.usage totals match conversation-file totals (R-11.3)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-11.1: How are performance and memory metrics validated for accuracy? Escalate to compartment 14.",
+    "OQ-11.2: Should the Pollux advisor turn extend chatRecordingService with an advisor message type, or reuse gemini with a role tag? Escalate to compartment 02."
+  ],
+  "handoffs": {
+    "dependsOn": [2],
+    "affects": [7],
+    "escalatedTo": [2, 14, 16]
+  },
+  "definitionOfDone": [
+    { "item": "Trace/metric/log architecture is mapped.", "done": true },
+    {
+      "item": "Billing/activity signal pathways are documented.",
+      "done": true
+    },
+    { "item": "Sanitization guarantees and limits are clear.", "done": true },
+    { "item": "Operational telemetry workflows are validated.", "done": true },
+    { "item": "Observability gaps are prioritized.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in Section 0.",
+      "done": true
+    },
+    {
+      "item": "Sidecar populated at reports/11-.../report.json.",
+      "done": true
+    },
+    { "item": "INDEX.md row flipped to done.", "done": true }
   ]
 }

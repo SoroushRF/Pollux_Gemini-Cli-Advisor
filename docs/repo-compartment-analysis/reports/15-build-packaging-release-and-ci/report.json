@@ -1,0 +1,198 @@
+{
+  "compartment": {
+    "number": 15,
+    "slug": "build-packaging-release-and-ci",
+    "title": "Build, Packaging, Release, and CI"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/15-build-packaging-release-and-ci.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "package.json", "exists": true },
+      { "path": "scripts/build.js", "exists": true },
+      { "path": "scripts/build_package.js", "exists": true },
+      { "path": "scripts/build_sandbox.js", "exists": true },
+      { "path": "scripts/build_binary.js", "exists": true },
+      { "path": "scripts/build_vscode_companion.js", "exists": true },
+      { "path": "scripts/version.js", "exists": true },
+      { "path": "scripts/copy_bundle_assets.js", "exists": true },
+      { "path": "scripts/prepare-package.js", "exists": true },
+      { "path": "scripts/prepare-npm-release.js", "exists": true },
+      { "path": "scripts/prepare-github-release.js", "exists": true },
+      { "path": "scripts/get-release-version.js", "exists": true },
+      { "path": "scripts/releasing/create-patch-pr.js", "exists": true },
+      { "path": "scripts/releasing/patch-trigger.js", "exists": true },
+      { "path": "scripts/releasing/patch-comment.js", "exists": true },
+      { "path": "scripts/releasing/patch-create-comment.js", "exists": true },
+      { "path": "esbuild.config.js", "exists": true },
+      { "path": "Dockerfile", "exists": true },
+      { "path": "Makefile", "exists": true },
+      { "path": ".nvmrc", "exists": true },
+      { "path": ".github/workflows/ci.yml", "exists": true },
+      { "path": ".github/workflows/release-nightly.yml", "exists": true },
+      { "path": ".github/workflows/release-manual.yml", "exists": true },
+      { "path": ".github/workflows/release-promote.yml", "exists": true },
+      { "path": ".github/workflows/release-rollback.yml", "exists": true },
+      { "path": ".github/workflows/release-sandbox.yml", "exists": true },
+      { "path": ".github/workflows/test-build-binary.yml", "exists": true },
+      { "path": ".github/workflows/verify-release.yml", "exists": true },
+      { "path": ".github/workflows/evals-nightly.yml", "exists": true },
+      { "path": ".github/workflows/perf-nightly.yml", "exists": true },
+      { "path": ".github/workflows/memory-nightly.yml", "exists": true },
+      { "path": "sea/sea-launch.cjs", "exists": true },
+      { "path": "sea/sea-launch.test.js", "exists": true }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "npm run build does not produce distributable artifacts; distribution requires npm run bundle plus optional build:sandbox and build:binary.",
+      "primary": { "path": "package.json", "lines": "35-42" },
+      "supporting": [
+        { "path": "scripts/build.js", "lines": "29-79", "kind": "other" }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "The CLI bundle is a code-split ESM build at bundle/gemini.js with @lydell/node-pty, @github/keytar, and @google/gemini-cli-devtools externalized; devtools are built separately by the bundle script chain.",
+      "primary": { "path": "esbuild.config.js", "lines": "57-108" },
+      "supporting": [
+        { "path": "package.json", "lines": "42-42", "kind": "other" }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Four release channels exist (dev, nightly, preview, latest): nightly is cron-driven, promote coordinates preview and stable together, and manual/patch/rollback are separate workflows.",
+      "primary": {
+        "path": ".github/workflows/release-manual.yml",
+        "lines": "14-23"
+      },
+      "supporting": [
+        {
+          "path": ".github/workflows/release-nightly.yml",
+          "lines": "4-6",
+          "kind": "other"
+        },
+        {
+          "path": ".github/workflows/release-promote.yml",
+          "lines": "38-52",
+          "kind": "other"
+        },
+        {
+          "path": ".github/workflows/release-rollback.yml",
+          "lines": "14-23",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "The PR gate requires lint, link_checker, test_linux, test_mac, test_windows, codeql, and bundle_size to each succeed or be skipped; nightly evals/perf/memory are not on the PR gate.",
+      "primary": { "path": ".github/workflows/ci.yml", "lines": "466-499" },
+      "supporting": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "lines": "344-367",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "scripts/version.js bumps root + workspace versions and rewrites config.sandboxImageUri in lockstep with the root version, then refreshes package-lock.json.",
+      "primary": { "path": "scripts/version.js", "lines": "35-107" },
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "test-build-binary.yml is workflow_dispatch-only; the SEA binary path has no scheduled or PR gate.",
+      "evidence": [
+        { "path": ".github/workflows/test-build-binary.yml", "lines": "1-50" }
+      ],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "Makefile 'build-all' delegates to npm run build:all, which omits build:binary; the name is narrower than it sounds.",
+      "evidence": [
+        { "path": "package.json", "lines": "38-38" },
+        { "path": "Makefile", "lines": "30-32" }
+      ],
+      "resolution": "deferred"
+    }
+  ],
+  "risks": [
+    {
+      "description": "Pollux currently lives as a pure-TS module; if future Pollux code adds a native addon or dynamic require, esbuild externals and build_binary native-staging need updates and have no Pollux-aware test.",
+      "severity": "medium",
+      "mitigatingTest": "sea/sea-launch.test.js",
+      "suggestedGuard": "Keep Pollux pure-TS; add a bundle smoke once /pollux command lands."
+    },
+    {
+      "description": "Bundle-size guard uses a 1000-byte threshold over ./bundle/**/*.{js,sb}; Pollux modules could silently cross it.",
+      "severity": "low",
+      "mitigatingTest": ".github/workflows/ci.yml:344-367",
+      "suggestedGuard": "Document expected bundle delta in the Pollux rollout PR."
+    },
+    {
+      "description": "Perf/memory/evals nightly suites are not PR-gated; a Pollux regression is only visible next morning on main.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "Make compartment-14 benchmark harness PR-dispatchable for Pollux rollout PRs."
+    },
+    {
+      "description": "Nightly release auto-opens a PR that bumps package.json version + sandboxImageUri; overlapping version-touching PRs between 00:00 UTC and PR merge risk conflict.",
+      "severity": "low",
+      "mitigatingTest": "scripts/version.js",
+      "suggestedGuard": "Avoid landing version-touching PRs during the nightly release window."
+    }
+  ],
+  "coverage": {
+    "tests": [
+      ".github/workflows/ci.yml (lint + 3-OS × 3-node test matrix + bundle smoke + npx tarball smoke)",
+      ".github/workflows/test-build-binary.yml (4-platform SEA build, manual only)",
+      ".github/workflows/verify-release.yml (cross-OS post-publish npm-tag smoke)",
+      ".github/workflows/release-sandbox.yml (manual sandbox push)",
+      "sea/sea-launch.test.js (SEA launcher shim)"
+    ],
+    "observabilitySignals": [
+      "GitHub Actions run outcomes",
+      "Auto-created release-failure,priority/p0 issues on nightly/manual/sandbox/rollback failure",
+      "bundle_size PR comment via preactjs/compressed-size-action",
+      "Nightly release PR authored by gemini-cli-robot"
+    ],
+    "gaps": [
+      "No scheduled binary build (C-15.1, R-15.1).",
+      "No perf/memory gate on PR (R-15.3).",
+      "No Pollux-specific bundle-size baseline (R-15.2)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-15.1: Should POLLUX_SPEC.md and IMPLEMENTATION_PLAN.md carry a generator-populated version/date header bumped at release time? Escalate to synthesis.",
+    "OQ-15.2: Should test-build-binary.yml become PR-gated for PRs touching packages/core/src/pollux/** or esbuild.config.js? Escalate to synthesis."
+  ],
+  "handoffs": {
+    "dependsOn": [4, 11, 14],
+    "affects": [13, 16],
+    "escalatedTo": []
+  },
+  "definitionOfDone": [
+    {
+      "item": "Build and artifact pipelines are mapped end-to-end.",
+      "done": true
+    },
+    { "item": "CI workflow taxonomy and gates are explicit.", "done": true },
+    { "item": "Release automation chain is documented.", "done": true },
+    { "item": "Delivery risks are prioritized.", "done": true },
+    { "item": "Change-impact checklist is actionable.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 15 flipped to done.", "done": true }
+  ]
+}

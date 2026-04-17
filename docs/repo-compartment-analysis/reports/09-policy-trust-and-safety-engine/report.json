@@ -1,0 +1,228 @@
+{
+  "compartment": {
+    "number": 9,
+    "slug": "policy-trust-and-safety-engine",
+    "title": "Policy, Trust, and Safety Engine"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/09-policy-trust-and-safety-engine.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/policy/types.ts", "exists": true },
+      { "path": "packages/core/src/policy/policy-engine.ts", "exists": true },
+      { "path": "packages/core/src/policy/config.ts", "exists": true },
+      { "path": "packages/core/src/policy/toml-loader.ts", "exists": true },
+      { "path": "packages/core/src/policy/integrity.ts", "exists": true },
+      { "path": "packages/core/src/policy/utils.ts", "exists": true },
+      { "path": "packages/cli/src/config/policy.ts", "exists": true },
+      { "path": "packages/cli/src/config/trustedFolders.ts", "exists": true },
+      {
+        "path": "packages/core/src/services/FolderTrustDiscoveryService.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/scheduler/scheduler.ts",
+        "exists": true,
+        "notes": "actual scheduler consumer (not coreToolScheduler)"
+      },
+      { "path": "packages/core/src/scheduler/policy.ts", "exists": true },
+      {
+        "path": "packages/core/src/confirmation-bus/message-bus.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/core/src/policy/shell-safety.test.ts",
+        "exists": true
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "PolicyDecision is a closed enum (allow, deny, ask_user); engine returns one per call via CheckResult.",
+      "primary": {
+        "path": "packages/core/src/policy/types.ts",
+        "lines": "10-14"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/policy/policy-engine.ts",
+          "lines": "745-748",
+          "kind": "type"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Rule evaluation is first-match-wins after priority sort; default is DENY non-interactive and ASK_USER interactive; YOLO short-circuits to ALLOW.",
+      "primary": {
+        "path": "packages/core/src/policy/policy-engine.ts",
+        "lines": "565-661"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/policy-engine.integration.test.ts",
+          "lines": "36-74",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Workspace policy is gated by both folder trust and an integrity hash; loading is skipped when untrusted; modified workspace TOML triggers re-prompt.",
+      "primary": {
+        "path": "packages/cli/src/config/policy.ts",
+        "lines": "108-160"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/policy/integrity.ts",
+          "lines": "40-114",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Extension-supplied policies cannot grant ALLOW or YOLO-mode rules; the loader strips them on import.",
+      "primary": {
+        "path": "packages/core/src/policy/config.ts",
+        "lines": "225-282"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Tool execution is policy-gated at two sites: scheduler._processToolCall via scheduler/policy.ts:checkPolicy, and MessageBus.publish for TOOL_CONFIRMATION_REQUEST.",
+      "primary": {
+        "path": "packages/core/src/scheduler/scheduler.ts",
+        "lines": "617-678"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/confirmation-bus/message-bus.ts",
+          "lines": "90-137",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Engine matching is keyed on FunctionCall.name (with aliases and MCP FQN); synthetic tools have no special-case exemption.",
+      "primary": {
+        "path": "packages/core/src/policy/policy-engine.ts",
+        "lines": "47-194"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/policy/policy-engine.ts",
+          "lines": "492-563",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Guideline cites packages/core/src/core/coreToolScheduler.ts as integration point; actual consumer is packages/core/src/scheduler/scheduler.ts.",
+      "evidence": [
+        {
+          "path": "packages/core/src/scheduler/scheduler.ts",
+          "lines": "617-678"
+        }
+      ],
+      "resolution": "resolved"
+    },
+    {
+      "description": "FolderTrustDiscoveryService is consumed by UI/extension flows, not directly by the policy engine; engine coupling to trust is only via trustedFolders.ts.",
+      "evidence": [
+        {
+          "path": "packages/core/src/services/FolderTrustDiscoveryService.ts",
+          "lines": "29-60"
+        }
+      ],
+      "resolution": "resolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "advisor_consultation synthetic tool would be denied by default in non-interactive mode unless an explicit ALLOW rule ships.",
+      "severity": "high",
+      "mitigatingTest": null,
+      "suggestedGuard": "ship packaged-default TOML allow-rule for advisor_consultation gated on Pollux feature flag"
+    },
+    {
+      "description": "Dynamic policy updater appends ALLOW rules at runtime; per-turn Pollux updates could grow rule set unboundedly.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/policy/policy-updater.test.ts:46-78",
+      "suggestedGuard": "prohibit Pollux from emitting UPDATE_POLICY messages"
+    },
+    {
+      "description": "Engine called from both scheduler and confirmation bus; advisor reaching both paths could prompt twice.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/confirmation-bus/message-bus.test.ts:143-149",
+      "suggestedGuard": "route advisor through scheduler path only"
+    },
+    {
+      "description": "Extension-stripped ALLOW semantics mean a Pollux extension cannot ship its own allow-rule; only built-in or admin policyPaths works.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/policy/config.test.ts",
+      "suggestedGuard": "document Pollux policy-shipping channel explicitly"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/policy/workspace-policy.test.ts",
+      "packages/core/src/policy/shell-safety.test.ts",
+      "packages/core/src/policy/persistence.test.ts",
+      "packages/core/src/policy/policy-updater.test.ts",
+      "packages/core/src/policy/integrity.test.ts",
+      "packages/core/src/policy/topic-policy.test.ts",
+      "packages/core/src/policy/memory-manager-policy.test.ts",
+      "packages/cli/src/config/policy.test.ts",
+      "packages/cli/src/config/policy-engine.integration.test.ts",
+      "packages/core/src/confirmation-bus/message-bus.test.ts"
+    ],
+    "observabilitySignals": [
+      "MessageBusType.TOOL_CONFIRMATION_REQUEST",
+      "MessageBusType.UPDATE_POLICY",
+      "scheduler.checkPolicy decision logs"
+    ],
+    "gaps": [
+      "No test for advisor_consultation-style synthetic tool double-prompt avoidance (R-09.3).",
+      "No Pollux-specific feature-flag scoped policy bundle (R-09.1).",
+      "No published guidance on which channel ships Pollux allow-rule (R-09.4)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-09.1: Should advisor_consultation bypass the engine entirely (in-process metadata vs tool call)? Escalate to 02 and 04.",
+    "OQ-09.2: Does synthesis need to add a Pollux-specific rule to packaged default policy? Escalate to 16."
+  ],
+  "handoffs": {
+    "dependsOn": [6, 4],
+    "affects": [2, 4, 10],
+    "escalatedTo": [2, 16]
+  },
+  "definitionOfDone": [
+    {
+      "item": "Policy loading, evaluation, and enforcement pipeline is mapped.",
+      "done": true
+    },
+    { "item": "Trust-state behavior is explicit.", "done": true },
+    { "item": "Enforcement matrix is evidence-backed.", "done": true },
+    { "item": "Integrity controls are identified.", "done": true },
+    {
+      "item": "Safety gaps and follow-up recommendations are documented.",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 09 flipped to done.", "done": true }
+  ]
+}

@@ -1,0 +1,252 @@
+{
+  "compartment": {
+    "number": 5,
+    "slug": "extensibility-skills-hooks-commands",
+    "title": "Extensibility (Skills, Hooks, Commands, Extensions)"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/05-extensibility-skills-hooks-commands.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/skills/skillManager.ts", "exists": true },
+      { "path": "packages/core/src/skills/skillLoader.ts", "exists": true },
+      { "path": "packages/core/src/hooks/hookSystem.ts", "exists": true },
+      { "path": "packages/core/src/hooks/hookRegistry.ts", "exists": true },
+      { "path": "packages/core/src/hooks/hookPlanner.ts", "exists": true },
+      { "path": "packages/core/src/hooks/hookRunner.ts", "exists": true },
+      { "path": "packages/core/src/hooks/types.ts", "exists": true },
+      { "path": "packages/core/src/hooks/trustedHooks.ts", "exists": true },
+      {
+        "path": "packages/cli/src/services/BuiltinCommandLoader.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/services/FileCommandLoader.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/services/SkillCommandLoader.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/services/McpPromptLoader.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/services/SlashCommandResolver.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/config/extension-manager.ts",
+        "exists": true
+      },
+      { "path": "packages/cli/src/config/extension.ts", "exists": true },
+      {
+        "path": "packages/cli/src/config/extensionRegistryClient.ts",
+        "exists": true
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "HookEventName enumerates 11 events: BeforeTool, AfterTool, BeforeAgent, Notification, AfterAgent, SessionStart, SessionEnd, PreCompress, BeforeModel, AfterModel, BeforeToolSelection.",
+      "primary": {
+        "path": "packages/core/src/hooks/types.ts",
+        "lines": "43-55"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Project-sourced hooks are double-gated: registration is skipped when workspace is untrusted; runtime execution returns failure under the same condition.",
+      "primary": {
+        "path": "packages/core/src/hooks/hookRegistry.ts",
+        "lines": "172-187"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/hooks/hookRunner.ts",
+          "lines": "64-79",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Interactive slash chain is Builtin → Skill → McpPrompt → File; non-interactive omits SkillCommandLoader.",
+      "primary": {
+        "path": "packages/cli/src/ui/hooks/slashCommandProcessor.ts",
+        "lines": "326-332"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+          "lines": "43-48",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "SlashCommandResolver always preserves built-in command names; extension-file and skill-with-extension are always prefixed; collisions force renaming via getPrefix.",
+      "primary": {
+        "path": "packages/cli/src/services/SlashCommandResolver.ts",
+        "lines": "46-204"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/services/SlashCommandResolver.test.ts",
+          "lines": "1-1",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Extension installation requires workspace trust; remote sources gated by allowedExtensions regex and blockGitExtensions rule.",
+      "primary": {
+        "path": "packages/cli/src/config/extension-manager.ts",
+        "lines": "217-232"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/extension-manager.ts",
+          "lines": "183-210",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Extension hooks load only when settings.hooksConfig.enabled is true; payloads then pass through recursivelyHydrateStrings.",
+      "primary": {
+        "path": "packages/cli/src/config/extension-manager.ts",
+        "lines": "883-889"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/config/extension-manager.ts",
+          "lines": "1029-1087",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "Non-interactive handleSlashCommand omits SkillCommandLoader while interactive includes it; intent unverified.",
+      "evidence": [
+        {
+          "path": "packages/cli/src/nonInteractiveCliCommands.ts",
+          "lines": "43-48"
+        },
+        {
+          "path": "packages/cli/src/ui/hooks/slashCommandProcessor.ts",
+          "lines": "326-332"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 1
+    },
+    {
+      "description": "POLLUX_SPEC §10 Phase 7 names a /pollux slash command, but no 'pollux' identifier exists in packages/cli/src.",
+      "evidence": [{ "path": "POLLUX_SPEC.md", "lines": "1-1" }],
+      "resolution": "unresolved"
+    }
+  ],
+  "risks": [
+    {
+      "description": "/pollux added only to BuiltinCommandLoader would be invisible to ACP clients which use a separate registry (compartment 12).",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "register /pollux in both BuiltinCommandLoader and packages/cli/src/acp/commands/commandRegistry.ts"
+    },
+    {
+      "description": "/pollux shipped as a skill would be invisible in non-interactive mode (skills dropped from chain).",
+      "severity": "medium",
+      "mitigatingTest": "packages/cli/src/services/SkillCommandLoader.test.ts",
+      "suggestedGuard": "ship /pollux as built-in or file command; integration test for non-interactive /pollux help"
+    },
+    {
+      "description": "Pollux advisor implemented as extension hook is off by default until hooksConfig.enabled = true.",
+      "severity": "low",
+      "mitigatingTest": "integration-tests/hooks-system.test.ts:29-70",
+      "suggestedGuard": "emit clear error when Pollux is enabled but hooksConfig.enabled is false"
+    },
+    {
+      "description": "extensions-reload.test.ts is skipped with TODO; reload semantics unverified.",
+      "severity": "low",
+      "mitigatingTest": null,
+      "suggestedGuard": "re-enable integration test before any reload-dependent Pollux feature ships"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/hooks/hookEventHandler.test.ts",
+      "packages/core/src/hooks/hookRegistry.test.ts",
+      "packages/core/src/hooks/hookRunner.test.ts",
+      "packages/core/src/hooks/hookPlanner.test.ts",
+      "packages/core/src/hooks/hookSystem.test.ts",
+      "packages/core/src/hooks/hookAggregator.test.ts",
+      "packages/core/src/hooks/hookTranslator.test.ts",
+      "packages/cli/src/services/SlashCommandResolver.test.ts",
+      "packages/cli/src/services/SkillCommandLoader.test.ts",
+      "packages/core/src/skills/skillLoader.test.ts",
+      "packages/core/src/skills/skillManager.test.ts",
+      "packages/core/src/skills/skillManagerAlias.test.ts",
+      "integration-tests/hooks-system.test.ts",
+      "integration-tests/extensions-install.test.ts"
+    ],
+    "observabilitySignals": [
+      "HookEventName.BeforeTool",
+      "HookEventName.AfterTool",
+      "HookEventName.BeforeAgent",
+      "HookEventName.AfterAgent",
+      "HookEventName.SessionStart",
+      "HookEventName.SessionEnd",
+      "HookEventName.PreCompress",
+      "HookEventName.BeforeModel",
+      "HookEventName.AfterModel",
+      "HookEventName.BeforeToolSelection",
+      "HookEventName.Notification",
+      "extension-manager install/error logs"
+    ],
+    "gaps": [
+      "Non-interactive /pollux reachability untested (R-05.1, R-05.2).",
+      "Extension reload semantics skipped (R-05.4).",
+      "No parity assertion between CLI and ACP slash registration."
+    ]
+  },
+  "openQuestions": [
+    "OQ-05.1: Is the non-interactive SkillCommandLoader omission intentional? Escalate to 01.",
+    "OQ-05.2: Should Pollux ship as built-in, file, or extension command? Escalate to 16."
+  ],
+  "handoffs": {
+    "dependsOn": [4, 6],
+    "affects": [9, 12, 13],
+    "escalatedTo": [1, 16]
+  },
+  "definitionOfDone": [
+    { "item": "All extension points are enumerated and scoped.", "done": true },
+    {
+      "item": "Hook lifecycle and command precedence are evidence-backed.",
+      "done": true
+    },
+    {
+      "item": "Extension manager trust/scope behavior is documented.",
+      "done": true
+    },
+    { "item": "Test-backed guardrails are explicitly listed.", "done": true },
+    { "item": "Safe extension recipe is publish-ready.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 05 flipped to done.", "done": true }
+  ]
+}

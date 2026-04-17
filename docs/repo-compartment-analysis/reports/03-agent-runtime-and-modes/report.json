@@ -1,45 +1,232 @@
 {
-  "schemaVersion": "1.0",
-  "compartment": "03-agent-runtime-and-modes",
-  "evidenceMatrix": [
+  "compartment": {
+    "number": 3,
+    "slug": "agent-runtime-and-modes",
+    "title": "Agent Runtime and Modes"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/03-agent-runtime-and-modes.md",
+  "owner": "gemini-3.1-pro",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "packages/core/src/agent", "exists": true },
+      { "path": "packages/core/src/agents", "exists": true },
+      {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+        "exists": true
+      },
+      {
+        "path": "packages/cli/src/nonInteractiveCliAgentSession.test.ts",
+        "exists": true
+      },
+      { "path": "packages/cli/src/ui/hooks/useAgentStream.ts", "exists": true },
+      {
+        "path": "packages/cli/src/ui/AppContainer.tsx",
+        "exists": true,
+        "notes": "interactive mode selector at 1178-1216"
+      },
+      {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "exists": true,
+        "notes": "non-interactive selector at 62-65"
+      },
+      {
+        "path": "packages/core/src/agent/legacy-agent-session.ts",
+        "exists": true
+      }
+    ]
+  },
+  "evidence": [
     {
-      "id": "VT-03.1",
-      "claim": "The system supports two primary interactive stream modes: legacy Gemini stream and the new AgentProtocol-backed stream.",
-      "citations": ["packages/cli/src/ui/AppContainer.tsx:1180-1196"],
+      "claim": "The CLI has two interactive stream sources: legacy Gemini stream and the AgentProtocol-backed stream, selected by getAgentSessionInteractiveEnabled() at mount time.",
+      "primary": {
+        "path": "packages/cli/src/ui/AppContainer.tsx",
+        "lines": "1178-1216"
+      },
       "confidence": "high"
     },
     {
-      "id": "VT-03.2",
-      "claim": "LegacyAgentSession adapts the existing Gemini client and scheduler loop to the AgentProtocol interface using an event translator.",
-      "citations": [
-        "packages/core/src/agent/legacy-agent-session.ts:8-10",
-        "packages/core/src/agent/legacy-agent-session.ts:214"
+      "claim": "The CLI has two non-interactive stream sources: runNonInteractive (legacy) and runNonInteractiveAgentSession, selected by getAgentSessionNoninteractiveEnabled() before the prompt loop starts.",
+      "primary": {
+        "path": "packages/cli/src/nonInteractiveCli.ts",
+        "lines": "62-65"
+      },
+      "supporting": [
+        {
+          "path": "packages/cli/src/nonInteractiveCliAgentSession.ts",
+          "lines": "290-313",
+          "kind": "other"
+        }
       ],
       "confidence": "high"
     },
     {
-      "id": "VT-03.3",
-      "claim": "AgentRegistry discovers and loads built-in, user-level, project-level, and extension-provided agents.",
-      "citations": ["packages/core/src/agents/registry.ts:117-263"],
+      "claim": "LegacyAgentSession adapts the existing Gemini client and scheduler loop to the AgentProtocol interface using an event translator; the same adapter is used by both interactive and non-interactive agent-session drivers.",
+      "primary": {
+        "path": "packages/core/src/agent/legacy-agent-session.ts",
+        "lines": "8-10"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/agent/legacy-agent-session.test.ts",
+          "lines": "9-9",
+          "kind": "test"
+        }
+      ],
       "confidence": "high"
     },
     {
-      "id": "VT-03.4",
+      "claim": "AgentRegistry discovers and loads built-in, user-level, project-level, and extension-provided agents in that order.",
+      "primary": {
+        "path": "packages/core/src/agents/registry.ts",
+        "lines": "117-263"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/agents/registry.test.ts",
+          "lines": "109-120",
+          "kind": "test"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
       "claim": "LocalSubagentInvocation executes local agents using LocalAgentExecutor and bridges their streaming activity to the tool's output.",
-      "citations": ["packages/core/src/agents/local-invocation.ts:40-49"],
+      "primary": {
+        "path": "packages/core/src/agents/local-invocation.ts",
+        "lines": "40-49"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/agents/local-invocation.test.ts",
+          "lines": "25-33",
+          "kind": "test"
+        }
+      ],
       "confidence": "high"
     },
     {
-      "id": "VT-03.5",
       "claim": "RemoteAgentInvocation bypasses the local executor loop and directly invokes remote A2A agents via A2AClientManager.",
-      "citations": ["packages/core/src/agents/remote-invocation.ts:35-40"],
+      "primary": {
+        "path": "packages/core/src/agents/remote-invocation.ts",
+        "lines": "35-40"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/agents/remote-invocation.test.ts",
+          "lines": "17-17",
+          "kind": "test"
+        }
+      ],
       "confidence": "high"
     },
     {
-      "id": "VT-03.6",
       "claim": "Agent scheduling uses a subagent-specific context, including isolated ToolRegistry and PromptRegistry instances.",
-      "citations": ["packages/core/src/agents/agent-scheduler.ts:67-76"],
+      "primary": {
+        "path": "packages/core/src/agents/agent-scheduler.ts",
+        "lines": "67-76"
+      },
+      "supporting": [
+        {
+          "path": "packages/core/src/agents/agent-scheduler.test.ts",
+          "lines": "84-84",
+          "kind": "test"
+        }
+      ],
       "confidence": "high"
     }
+  ],
+  "contradictions": [
+    {
+      "description": "Pollux spec/forensic assume a single interceptor between GeminiClient and Turn is sufficient; only two of four drivers (interactive legacy, non-interactive legacy) flow through GeminiClient.sendMessageStream. Both agent-session drivers route through LegacyAgentSession + LegacyAgentProtocol, and ACP bypasses the client entirely.",
+      "evidence": [
+        {
+          "path": "packages/cli/src/ui/AppContainer.tsx",
+          "lines": "1186-1194"
+        },
+        { "path": "packages/cli/src/nonInteractiveCli.ts", "lines": "62-65" },
+        {
+          "path": "packages/core/src/agent/legacy-agent-session.ts",
+          "lines": "8-10"
+        }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 2
+    }
+  ],
+  "risks": [
+    {
+      "description": "LegacyAgentSession is a temporary adapter and may diverge from pure AgentProtocol semantics over time; Pollux behavior parity across legacy vs agent-session drivers is not test-enforced.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/agent/legacy-agent-session.test.ts:9",
+      "suggestedGuard": "assert every new Pollux event round-trips through both adapters"
+    },
+    {
+      "description": "Remote invocation relies on network stability and A2A auth and can fail mid-stream.",
+      "severity": "medium",
+      "mitigatingTest": "packages/core/src/agents/remote-invocation.test.ts:17",
+      "suggestedGuard": "retry/fallback path gated by ModelAvailabilityService snapshot"
+    },
+    {
+      "description": "Subagent tool registries are isolated, but concurrent subagents against the same workspace resource can still contend.",
+      "severity": "low",
+      "mitigatingTest": "packages/core/src/agents/local-executor.test.ts:3618",
+      "suggestedGuard": "workspace-level lock or per-tool serialization"
+    },
+    {
+      "description": "AppContainer.tsx:1186-1216 disables rules-of-hooks to switch between useAgentStream and useGeminiStream; if the feature flag flips mid-session, React state corrupts.",
+      "severity": "high",
+      "mitigatingTest": null,
+      "suggestedGuard": "forbid runtime flag changes and verify in CLI startup"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      "packages/core/src/agent/legacy-agent-session.test.ts",
+      "packages/core/src/agents/registry.test.ts",
+      "packages/core/src/agents/local-invocation.test.ts",
+      "packages/core/src/agents/remote-invocation.test.ts",
+      "packages/cli/src/nonInteractiveCliAgentSession.test.ts"
+    ],
+    "observabilitySignals": [
+      "CoreEvent.AgentsDiscovered",
+      "CoreEvent.AgentsRefreshed",
+      "MessageBusType.SUBAGENT_ACTIVITY"
+    ],
+    "gaps": [
+      "No test asserts Pollux-event parity across the four drivers (R-03.1).",
+      "No test guards against mid-session flip of agent-session flag (R-03.4)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-03.1: When will LegacyAgentSession be fully deprecated in favor of a native AgentSession implementation? Escalate to compartment 02.",
+    "OQ-03.2: Does a Pollux interceptor attached at GeminiClient reach the agent-session drivers via LegacyAgentSession's internal use of the client, or must it be re-attached per driver? Escalate to compartment 02."
+  ],
+  "handoffs": {
+    "dependsOn": [1, 2, 4],
+    "affects": [11, 12, 13],
+    "escalatedTo": [2]
+  },
+  "definitionOfDone": [
+    { "item": "All active agent session paths are mapped.", "done": true },
+    {
+      "item": "Legacy/current differences are explicitly documented.",
+      "done": true
+    },
+    {
+      "item": "Registry, loader, scheduler, and invocation paths are analyzed.",
+      "done": true
+    },
+    { "item": "Mode matrix is evidence-backed.", "done": true },
+    { "item": "Agent-specific risk surfaces are enumerated.", "done": true },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 03 flipped to done.", "done": true }
   ]
 }

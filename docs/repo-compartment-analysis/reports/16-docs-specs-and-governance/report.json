@@ -1,0 +1,223 @@
+{
+  "compartment": {
+    "number": 16,
+    "slug": "docs-specs-and-governance",
+    "title": "Docs, Specs, and Governance"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/16-docs-specs-and-governance.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "preflight": {
+    "paths": [
+      { "path": "README.md", "exists": true },
+      { "path": "CONTRIBUTING.md", "exists": true },
+      { "path": "SECURITY.md", "exists": true },
+      { "path": "ROADMAP.md", "exists": true },
+      { "path": "POLLUX_SPEC.md", "exists": true },
+      { "path": "IMPLEMENTATION_PLAN.md", "exists": true },
+      { "path": "POLLUX_FULL_FORENSIC_CONTEXT.md", "exists": true },
+      { "path": "GEMINI.md", "exists": true },
+      {
+        "path": "AGENTS.md",
+        "exists": false,
+        "notes": "not present at repo root"
+      },
+      { "path": ".github/CODEOWNERS", "exists": true },
+      { "path": ".github/ISSUE_TEMPLATE/bug_report.yml", "exists": true },
+      { "path": ".github/ISSUE_TEMPLATE/feature_request.yml", "exists": true },
+      { "path": ".github/ISSUE_TEMPLATE/website_issue.yml", "exists": true },
+      { "path": ".github/pull_request_template.md", "exists": true },
+      { "path": ".github/workflows/docs-audit.yml", "exists": true },
+      { "path": ".github/workflows/docs-rebuild.yml", "exists": true },
+      { "path": ".github/workflows/docs-page-action.yml", "exists": true },
+      { "path": ".github/workflows/links.yml", "exists": true },
+      { "path": "scripts/generate-settings-doc.ts", "exists": true },
+      { "path": "scripts/generate-settings-schema.ts", "exists": true },
+      { "path": "scripts/generate-keybindings-doc.ts", "exists": true },
+      { "path": "docs/repo-compartment-analysis/INDEX.md", "exists": true },
+      {
+        "path": "docs/assets/gemini-screenshot.png",
+        "exists": false,
+        "notes": "referenced from README.md:9 - fork drift"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "claim": "Forensic ledger F-01..F-10 is fully enumerated in POLLUX_FULL_FORENSIC_CONTEXT.md and each finding cites specific spec/plan line ranges.",
+      "primary": {
+        "path": "POLLUX_FULL_FORENSIC_CONTEXT.md",
+        "lines": "158-326"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "POLLUX_PRIORITY.md maps high-severity F-IDs to compartments: F-04→02, F-01→07, F-02→06, F-03→01, F-08→04, F-09→08, F-10→11, F-07→14.",
+      "primary": {
+        "path": "docs/repo-compartment-analysis/POLLUX_PRIORITY.md",
+        "lines": "96-194"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Three generated-docs scripts cover settings and keyboard-shortcuts docs; outputs use autogen markers so manual edits are overwritten.",
+      "primary": {
+        "path": "scripts/generate-settings-doc.ts",
+        "lines": "50-105"
+      },
+      "supporting": [
+        {
+          "path": "scripts/generate-keybindings-doc.ts",
+          "lines": "25-78",
+          "kind": "other"
+        },
+        {
+          "path": "scripts/generate-settings-schema.ts",
+          "lines": "26-99",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "CODEOWNERS routes /docs/ and /README.md to maintainers + gemini-cli-docs; POLLUX_*.md falls under default * rule only.",
+      "primary": { "path": ".github/CODEOWNERS", "lines": "1-23" },
+      "confidence": "high"
+    },
+    {
+      "claim": "Docs governance is automated by scheduled docs-audit (Gemini PRs), docs-rebuild on docs/** push, and links workflow on PR/push/schedule.",
+      "primary": {
+        "path": ".github/workflows/docs-audit.yml",
+        "lines": "1-31"
+      },
+      "supporting": [
+        {
+          "path": ".github/workflows/docs-rebuild.yml",
+          "lines": "1-18",
+          "kind": "other"
+        },
+        {
+          "path": ".github/workflows/links.yml",
+          "lines": "1-26",
+          "kind": "other"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "docs/repo-compartment-analysis is the doc-code alignment artifact: INDEX.md is live status truth; POLLUX_PRIORITY.md sets the depth contract.",
+      "primary": {
+        "path": "docs/repo-compartment-analysis/INDEX.md",
+        "lines": "1-87"
+      },
+      "supporting": [
+        {
+          "path": "docs/repo-compartment-analysis/POLLUX_PRIORITY.md",
+          "lines": "38-79",
+          "kind": "doc"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "description": "README.md:9 references /docs/assets/gemini-screenshot.png but no docs/assets/** files exist in this fork.",
+      "evidence": [{ "path": "README.md", "lines": "9-9" }],
+      "resolution": "unresolved"
+    },
+    {
+      "description": "POLLUX_SPEC.md cites a 2026-04-09 advisor strategy date but is otherwise undated; forensic audit date is 2026-04-13.",
+      "evidence": [
+        { "path": "POLLUX_SPEC.md", "lines": "17-19" },
+        { "path": "POLLUX_FULL_FORENSIC_CONTEXT.md", "lines": "5-8" }
+      ],
+      "resolution": "deferred",
+      "handoffCompartment": 15
+    },
+    {
+      "description": "F-05 (scaffold-only) and F-06 (confidence tagging) are not directly named in POLLUX_PRIORITY.md compartment mapping.",
+      "evidence": [
+        { "path": "POLLUX_FULL_FORENSIC_CONTEXT.md", "lines": "239-266" },
+        {
+          "path": "docs/repo-compartment-analysis/POLLUX_PRIORITY.md",
+          "lines": "96-194"
+        }
+      ],
+      "resolution": "deferred"
+    }
+  ],
+  "risks": [
+    {
+      "description": "Spec passages flagged by F-01..F-10 will desynchronize from code as Pollux is implemented unless doc-update PRs land alongside.",
+      "severity": "high",
+      "mitigatingTest": ".github/workflows/docs-audit.yml:1-31",
+      "suggestedGuard": "synthesis must produce a per-F-ID doc-PR list keyed to Pollux PR sequence"
+    },
+    {
+      "description": "Settings/keybindings/schema docs are autogenerated; Pollux settings doc additions must come from the schema, not the rendered doc.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "add Pollux settings to the schema source, not the rendered doc"
+    },
+    {
+      "description": "CODEOWNERS does not mention POLLUX_*.md; default * rule may miss spec-vs-code drift.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "add explicit ownership for POLLUX_*.md and docs/repo-compartment-analysis/"
+    },
+    {
+      "description": "Spec describes Pollux scaffolding artifacts that don't exist (per F-05); treating spec as status misleads implementers.",
+      "severity": "medium",
+      "mitigatingTest": null,
+      "suggestedGuard": "prefix every spec section with an implemented? yes/no/partial tag"
+    }
+  ],
+  "coverage": {
+    "tests": [
+      ".github/workflows/links.yml",
+      ".github/workflows/docs-audit.yml",
+      "scripts/generate-settings-doc.ts (check-only mode)",
+      "scripts/generate-keybindings-doc.ts (check-only mode)"
+    ],
+    "observabilitySignals": [
+      "docs-audit workflow PRs",
+      "docs-rebuild workflow runs on docs/** push",
+      "INDEX.md row state changes per compartment"
+    ],
+    "gaps": [
+      "No automated assertion that F-01..F-10 spec line ranges exist verbatim (R-16.1).",
+      "No CODEOWNERS coverage for POLLUX_*.md (R-16.3).",
+      "No version header on spec/plan (C-16.2, OQ-16.1).",
+      "Broken asset reference in README (C-16.1)."
+    ]
+  },
+  "openQuestions": [
+    "OQ-16.1: Should POLLUX_SPEC.md and IMPLEMENTATION_PLAN.md get a versioning header? Escalate to 15.",
+    "OQ-16.2: Where do F-05 (scaffold-only) and F-06 (confidence tagging) belong in the priority table? Escalate to synthesis."
+  ],
+  "handoffs": {
+    "dependsOn": [1, 2, 4, 6, 7, 8, 11, 14],
+    "affects": [15],
+    "escalatedTo": [15]
+  },
+  "definitionOfDone": [
+    { "item": "Docs and governance surfaces are classified.", "done": true },
+    { "item": "Major spec claims are validated against code.", "done": true },
+    { "item": "Ownership and review routing are explicit.", "done": true },
+    { "item": "Drift risks are prioritized.", "done": true },
+    {
+      "item": "Alignment procedure is documented and actionable.",
+      "done": true
+    },
+    {
+      "item": "Pre-flight path validation recorded in report section 0.",
+      "done": true
+    },
+    { "item": "Evidence matrix populated in the JSON sidecar.", "done": true },
+    { "item": "INDEX.md row 16 flipped to done.", "done": true }
+  ]
+}

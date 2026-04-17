@@ -1,0 +1,1061 @@
+{
+  "$schema": "https://pollux.local/schemas/compartment-report-sidecar.json",
+  "compartment": {
+    "number": 0,
+    "slug": "synthesis",
+    "title": "Cross-Compartment Synthesis"
+  },
+  "guidelineFile": "docs/repo-compartment-analysis/_TEMPLATES/cross-compartment-synthesis.md",
+  "owner": "composer-agent",
+  "startedAt": "2026-04-16T00:00:00Z",
+  "finishedAt": "2026-04-16T00:00:00Z",
+  "repoCommit": "c8127045c5832b0e66cb1efd04e0dd6800ce78e7",
+  "upstreamBaseCommit": null,
+  "inputs": {
+    "compartmentsCovered": 16,
+    "compartmentsOf": 16,
+    "sidecarsLoaded": [
+      "reports/01-cli-runtime-surface/report.json",
+      "reports/02-core-turn-engine/report.json",
+      "reports/03-agent-runtime-and-modes/report.json",
+      "reports/04-tools-and-mcp-platform/report.json",
+      "reports/05-extensibility-skills-hooks-commands/report.json",
+      "reports/06-settings-schema-and-config-plumbing/report.json",
+      "reports/07-routing-availability-loop-and-pollux/report.json",
+      "reports/08-context-memory-and-compression/report.json",
+      "reports/09-policy-trust-and-safety-engine/report.json",
+      "reports/10-sandbox-shell-and-filesystem-substrate/report.json",
+      "reports/11-telemetry-observability-and-billing-signals/report.json",
+      "reports/12-output-protocol-and-acp-adapters/report.json",
+      "reports/13-integration-products-sdk-vscode-a2a-devtools/report.json",
+      "reports/14-testing-and-evaluation-architecture/report.json",
+      "reports/15-build-packaging-release-and-ci/report.json",
+      "reports/16-docs-specs-and-governance/report.json"
+    ],
+    "tier1Summary": "reports/TIER1_SUMMARY.md",
+    "index": "docs/repo-compartment-analysis/INDEX.md",
+    "priorityDoc": "docs/repo-compartment-analysis/POLLUX_PRIORITY.md"
+  },
+  "integrationMap": {
+    "edges": [
+      { "from": 1, "to": 2, "kind": "dependsOn" },
+      { "from": 1, "to": 4, "kind": "dependsOn" },
+      { "from": 1, "to": 6, "kind": "dependsOn" },
+      { "from": 1, "to": 3, "kind": "affects" },
+      { "from": 1, "to": 5, "kind": "affects" },
+      { "from": 1, "to": 7, "kind": "affects" },
+      { "from": 1, "to": 11, "kind": "affects" },
+      { "from": 1, "to": 12, "kind": "affects" },
+      { "from": 2, "to": 1, "kind": "affects" },
+      { "from": 2, "to": 4, "kind": "affects" },
+      { "from": 2, "to": 7, "kind": "affects" },
+      { "from": 2, "to": 11, "kind": "affects" },
+      { "from": 3, "to": 1, "kind": "dependsOn" },
+      { "from": 3, "to": 2, "kind": "dependsOn" },
+      { "from": 3, "to": 4, "kind": "dependsOn" },
+      { "from": 3, "to": 11, "kind": "affects" },
+      { "from": 3, "to": 12, "kind": "affects" },
+      { "from": 3, "to": 13, "kind": "affects" },
+      { "from": 4, "to": 2, "kind": "dependsOn" },
+      { "from": 4, "to": 5, "kind": "dependsOn" },
+      { "from": 4, "to": 6, "kind": "dependsOn" },
+      { "from": 4, "to": 9, "kind": "dependsOn" },
+      { "from": 4, "to": 2, "kind": "affects" },
+      { "from": 4, "to": 9, "kind": "affects" },
+      { "from": 4, "to": 10, "kind": "affects" },
+      { "from": 4, "to": 11, "kind": "affects" },
+      { "from": 4, "to": 12, "kind": "affects" },
+      { "from": 5, "to": 4, "kind": "dependsOn" },
+      { "from": 5, "to": 6, "kind": "dependsOn" },
+      { "from": 5, "to": 9, "kind": "affects" },
+      { "from": 5, "to": 12, "kind": "affects" },
+      { "from": 5, "to": 13, "kind": "affects" },
+      { "from": 6, "to": 2, "kind": "dependsOn" },
+      { "from": 6, "to": 7, "kind": "dependsOn" },
+      { "from": 6, "to": 1, "kind": "affects" },
+      { "from": 6, "to": 4, "kind": "affects" },
+      { "from": 6, "to": 5, "kind": "affects" },
+      { "from": 6, "to": 9, "kind": "affects" },
+      { "from": 6, "to": 15, "kind": "affects" },
+      { "from": 6, "to": 16, "kind": "affects" },
+      { "from": 7, "to": 2, "kind": "dependsOn" },
+      { "from": 7, "to": 6, "kind": "affects" },
+      { "from": 7, "to": 11, "kind": "affects" },
+      { "from": 7, "to": 14, "kind": "affects" },
+      { "from": 7, "to": 16, "kind": "affects" },
+      { "from": 8, "to": 2, "kind": "dependsOn" },
+      { "from": 8, "to": 4, "kind": "dependsOn" },
+      { "from": 8, "to": 14, "kind": "affects" },
+      { "from": 9, "to": 4, "kind": "dependsOn" },
+      { "from": 9, "to": 6, "kind": "dependsOn" },
+      { "from": 9, "to": 2, "kind": "affects" },
+      { "from": 9, "to": 4, "kind": "affects" },
+      { "from": 9, "to": 10, "kind": "affects" },
+      { "from": 10, "to": 4, "kind": "dependsOn" },
+      { "from": 10, "to": 9, "kind": "dependsOn" },
+      { "from": 10, "to": 14, "kind": "affects" },
+      { "from": 11, "to": 2, "kind": "dependsOn" },
+      { "from": 11, "to": 7, "kind": "affects" },
+      { "from": 12, "to": 1, "kind": "dependsOn" },
+      { "from": 12, "to": 2, "kind": "dependsOn" },
+      { "from": 12, "to": 4, "kind": "affects" },
+      { "from": 12, "to": 13, "kind": "affects" },
+      { "from": 13, "to": 2, "kind": "dependsOn" },
+      { "from": 13, "to": 4, "kind": "dependsOn" },
+      { "from": 13, "to": 5, "kind": "dependsOn" },
+      { "from": 13, "to": 12, "kind": "dependsOn" },
+      { "from": 13, "to": 15, "kind": "dependsOn" },
+      { "from": 14, "to": 1, "kind": "dependsOn" },
+      { "from": 14, "to": 3, "kind": "dependsOn" },
+      { "from": 14, "to": 4, "kind": "dependsOn" },
+      { "from": 14, "to": 5, "kind": "dependsOn" },
+      { "from": 14, "to": 7, "kind": "dependsOn" },
+      { "from": 14, "to": 8, "kind": "dependsOn" },
+      { "from": 14, "to": 10, "kind": "dependsOn" },
+      { "from": 14, "to": 15, "kind": "affects" },
+      { "from": 15, "to": 4, "kind": "dependsOn" },
+      { "from": 15, "to": 11, "kind": "dependsOn" },
+      { "from": 15, "to": 14, "kind": "dependsOn" },
+      { "from": 15, "to": 13, "kind": "affects" },
+      { "from": 15, "to": 16, "kind": "affects" },
+      { "from": 16, "to": 1, "kind": "dependsOn" },
+      { "from": 16, "to": 2, "kind": "dependsOn" },
+      { "from": 16, "to": 4, "kind": "dependsOn" },
+      { "from": 16, "to": 6, "kind": "dependsOn" },
+      { "from": 16, "to": 7, "kind": "dependsOn" },
+      { "from": 16, "to": 8, "kind": "dependsOn" },
+      { "from": 16, "to": 11, "kind": "dependsOn" },
+      { "from": 16, "to": 14, "kind": "dependsOn" },
+      { "from": 16, "to": 15, "kind": "affects" }
+    ],
+    "asymmetries": [
+      {
+        "from": 1,
+        "to": 5,
+        "note": "01 affects 5 but 5 dependsOn does not include 1"
+      },
+      { "from": 1, "to": 7, "note": "01 affects 7 but 7 dependsOn only [2]" },
+      {
+        "from": 1,
+        "to": 11,
+        "note": "01 affects 11 but 11 dependsOn only [2]"
+      },
+      {
+        "from": 3,
+        "to": 2,
+        "note": "03 dependsOn 2; 2 affects does not include 3"
+      },
+      {
+        "from": 3,
+        "to": 11,
+        "note": "03 affects 11; 11 dependsOn does not include 3"
+      },
+      {
+        "from": 4,
+        "to": 5,
+        "note": "04 dependsOn 5; 5 affects does not include 4"
+      },
+      { "from": 4, "to": 11, "note": "04 affects 11; 11 dependsOn only [2]" },
+      {
+        "from": 5,
+        "to": 4,
+        "note": "05 dependsOn 4; 4 affects does not include 5"
+      },
+      {
+        "from": 7,
+        "to": 11,
+        "note": "07 affects 11 asserted; 11 dependsOn only [2]"
+      },
+      {
+        "from": 14,
+        "to": 3,
+        "note": "14 dependsOn 3; 3 affects does not include 14"
+      },
+      {
+        "from": 14,
+        "to": 5,
+        "note": "14 dependsOn 5; 5 affects does not include 14"
+      },
+      {
+        "from": 14,
+        "to": 8,
+        "note": "14 dependsOn 8; 8 affects includes 14 (consistent)"
+      },
+      {
+        "from": 14,
+        "to": 10,
+        "note": "14 dependsOn 10; 10 affects includes 14 (consistent)"
+      }
+    ],
+    "mutualEdges": [
+      {
+        "a": 4,
+        "b": 9,
+        "note": "04 and 09 mutually declare dependsOn + affects — genuine cycle tied to SR-5"
+      }
+    ]
+  },
+  "systemicRisks": [
+    {
+      "id": "SR-1",
+      "title": "Multi-driver interceptor fragmentation",
+      "severity": "high",
+      "compartments": [1, 2, 3, 12, 13],
+      "citations": [
+        "reports/01-cli-runtime-surface/report.md#riskset",
+        "reports/02-core-turn-engine/report.md#contradictions C-02.8",
+        "reports/03-agent-runtime-and-modes/report.md#contradictions C-03.1",
+        "reports/12-output-protocol-and-acp-adapters/report.md#contradictions C-12.1",
+        "reports/13-integration-products-sdk-vscode-a2a-devtools/report.md#risks R-13.2"
+      ],
+      "summary": "Pollux at GeminiClient/Turn seam reaches 2 of 5 drivers; 3 drivers + A2A CoderAgentExecutor bypass entirely.",
+      "mitigation": "Per-driver interceptor matrix; tag each turn with driver id; explicit Phase 1 A2A scoping."
+    },
+    {
+      "id": "SR-2",
+      "title": "Parallel token sink duplicates existing capture",
+      "severity": "medium",
+      "compartments": [2, 7, 11],
+      "citations": [
+        "reports/02-core-turn-engine/report.md#contradictions C-02.2",
+        "reports/07-routing-availability-loop-and-pollux/report.md#evidence T3",
+        "reports/11-telemetry-observability-and-billing-signals/report.md#contradictions C-11.1"
+      ],
+      "summary": "POLLUX_SPEC.md §8 TurnLog duplicates LoggingContentGenerator + ChatRecordingService.recordMessageTokens.",
+      "mitigation": "Add LlmRole.UTILITY_ADVISOR; reuse existing telemetry; delete pollux/logger.ts proposal."
+    },
+    {
+      "id": "SR-3",
+      "title": "Router + loop detection break \"zero-baseline\" benchmark fairness",
+      "severity": "high",
+      "compartments": [2, 7, 14],
+      "citations": [
+        "reports/02-core-turn-engine/report.md#contradictions C-02.3",
+        "reports/07-routing-availability-loop-and-pollux/report.md#contradictions C-07.1",
+        "reports/14-testing-and-evaluation-architecture/report.md#contradictions C-14.1"
+      ],
+      "summary": "Router emits 0-1 UTILITY_ROUTER call per prompt; loop detector emits 0-2 UTILITY_LOOP_DETECTOR calls from turn 30; no harness suppresses either.",
+      "mitigation": "BenchmarkHarness in packages/test-utils using 07 §8 pin list; OverrideStrategy + disableLoopDetection=true."
+    },
+    {
+      "id": "SR-4",
+      "title": "/pollux command-surface fragmentation",
+      "severity": "medium",
+      "compartments": [1, 5, 12, 13],
+      "citations": [
+        "reports/01-cli-runtime-surface/report.md#evidence VT-6",
+        "reports/05-extensibility-skills-hooks-commands/report.md#risks R-05.1",
+        "reports/12-output-protocol-and-acp-adapters/report.md#contradictions C-12.2",
+        "reports/13-integration-products-sdk-vscode-a2a-devtools/report.md#evidence"
+      ],
+      "summary": "Four command registries must be coordinated (interactive, non-interactive sans Skill, ACP, A2A).",
+      "mitigation": "Ship /pollux in BuiltinCommandLoader + ACP + A2A; avoid skill."
+    },
+    {
+      "id": "SR-5",
+      "title": "Synthetic advisor_consultation has no policy or ACP path",
+      "severity": "high",
+      "compartments": [4, 9, 12],
+      "citations": [
+        "reports/04-tools-and-mcp-platform/report.md#contradictions C-04.2",
+        "reports/09-policy-trust-and-safety-engine/report.md#risks R-09.1",
+        "reports/12-output-protocol-and-acp-adapters/report.md#risks R-12.2"
+      ],
+      "summary": "Policy default-deny non-interactive; static MCP allowlist parallels policy; ACP uses connection.requestPermission not the engine.",
+      "mitigation": "Packaged-default TOML ALLOW rule gated on Pollux flag; classify advisor as non-prompting; route through scheduler."
+    },
+    {
+      "id": "SR-6",
+      "title": "Settings block addition is silent-failure-prone",
+      "severity": "medium",
+      "compartments": [6, 15, 16],
+      "citations": [
+        "reports/06-settings-schema-and-config-plumbing/report.md#risks R-06",
+        "reports/16-docs-specs-and-governance/report.md#risks R-16.2",
+        "reports/15-build-packaging-release-and-ci/report.md#risks R-15.2"
+      ],
+      "summary": "ConfigParameters drift, mergeStrategy silent rewrites, autogen docs desync.",
+      "mitigation": "experimental.pollux.* first; regenerate schemas/settings.schema.json; CI gate npm run schema:settings --check."
+    },
+    {
+      "id": "SR-7",
+      "title": "Docs-vs-code desynchronization",
+      "severity": "medium",
+      "compartments": [7, 11, 14, 15, 16],
+      "citations": [
+        "reports/07-routing-availability-loop-and-pollux/report.md#contradictions C-07.3",
+        "reports/11-telemetry-observability-and-billing-signals/report.md#contradictions C-11.1",
+        "reports/14-testing-and-evaluation-architecture/report.md#contradictions C-14.1",
+        "reports/16-docs-specs-and-governance/report.md#risks R-16.1",
+        "reports/15-build-packaging-release-and-ci/report.md#contradictions C-15.1"
+      ],
+      "summary": "POLLUX_SPEC.md, docs/cli/model-routing.md, CODEOWNERS, README asset all carry stale/incorrect claims.",
+      "mitigation": "Per-F-ID doc-PR list; CODEOWNERS for POLLUX_*.md; version headers; implemented? tags."
+    }
+  ],
+  "polluxReadiness": [
+    {
+      "id": "P-1",
+      "requirement": "Interceptor in processTurn",
+      "targetCompartments": [2, 1, 3, 12, 13],
+      "status": "blocked",
+      "blockers": ["SR-1", "SR-8"],
+      "citation": "reports/02-core-turn-engine/report.md"
+    },
+    {
+      "id": "P-2",
+      "requirement": "Advisor as synthetic tool",
+      "targetCompartments": [4],
+      "status": "blocked",
+      "blockers": ["SR-5"],
+      "citation": "reports/04-tools-and-mcp-platform/report.md"
+    },
+    {
+      "id": "P-3",
+      "requirement": "Escalation detectors",
+      "targetCompartments": [7],
+      "status": "scaffold-only",
+      "blockers": [],
+      "citation": "reports/07-routing-availability-loop-and-pollux/report.md"
+    },
+    {
+      "id": "P-4",
+      "requirement": "Token logging extension",
+      "targetCompartments": [2, 11],
+      "status": "recommended-path-exists",
+      "blockers": ["SR-2"],
+      "citation": "reports/02-core-turn-engine/report.md; reports/11-telemetry-observability-and-billing-signals/report.md"
+    },
+    {
+      "id": "P-5",
+      "requirement": "Benchmark harness (Conditions A/E)",
+      "targetCompartments": [14],
+      "status": "not_started",
+      "blockers": ["SR-3"],
+      "citation": "reports/14-testing-and-evaluation-architecture/report.md"
+    },
+    {
+      "id": "P-6",
+      "requirement": "Settings schema block pollux.*",
+      "targetCompartments": [6, 16],
+      "status": "not_started",
+      "blockers": ["SR-6"],
+      "citation": "reports/06-settings-schema-and-config-plumbing/report.md"
+    },
+    {
+      "id": "P-7",
+      "requirement": "/pollux slash command",
+      "targetCompartments": [5, 1, 12, 13],
+      "status": "blocked",
+      "blockers": ["SR-4"],
+      "citation": "reports/05-extensibility-skills-hooks-commands/report.md"
+    },
+    {
+      "id": "P-8",
+      "requirement": "Advisor model alias",
+      "targetCompartments": [6, 7],
+      "status": "not_started",
+      "blockers": [],
+      "citation": "reports/07-routing-availability-loop-and-pollux/report.md"
+    },
+    {
+      "id": "P-9",
+      "requirement": "Context trimming for advisor",
+      "targetCompartments": [8],
+      "status": "recommended-path-exists",
+      "blockers": [],
+      "citation": "reports/08-context-memory-and-compression/report.md"
+    },
+    {
+      "id": "P-10",
+      "requirement": "Policy allow-rule for advisor",
+      "targetCompartments": [9, 16],
+      "status": "blocked",
+      "blockers": ["SR-5"],
+      "citation": "reports/09-policy-trust-and-safety-engine/report.md"
+    },
+    {
+      "id": "P-11",
+      "requirement": "JSON-stream + ACP event types for advisor",
+      "targetCompartments": [12],
+      "status": "not_started",
+      "blockers": ["SR-1"],
+      "citation": "reports/12-output-protocol-and-acp-adapters/report.md"
+    },
+    {
+      "id": "P-12",
+      "requirement": "Build/CI carries Pollux unchanged",
+      "targetCompartments": [15],
+      "status": "not_started",
+      "blockers": ["SR-6", "SR-7"],
+      "citation": "reports/15-build-packaging-release-and-ci/report.md"
+    },
+    {
+      "id": "P-13",
+      "requirement": "Doc alignment (spec → code)",
+      "targetCompartments": [16],
+      "status": "not_started",
+      "blockers": ["SR-7"],
+      "citation": "reports/16-docs-specs-and-governance/report.md"
+    }
+  ],
+  "upstreamDrift": [
+    {
+      "path": "docs/assets/gemini-screenshot.png",
+      "compartment": 16,
+      "kind": "broken-reference",
+      "resolution": "add asset or remove reference"
+    },
+    {
+      "path": "bundle/sandbox-*.sb",
+      "compartment": 10,
+      "kind": "generated-artifact",
+      "resolution": "guideline update (already resolved in 10 sidecar)"
+    },
+    {
+      "path": "packages/devtools/client/src",
+      "compartment": 13,
+      "kind": "shipping-mismatch",
+      "resolution": "guideline update (already resolved in 13 sidecar)"
+    },
+    {
+      "path": "packages/core/src/core/coreToolScheduler.ts",
+      "compartment": 9,
+      "kind": "stale-guideline",
+      "resolution": "point at scheduler/scheduler.ts (already resolved in 09 sidecar)"
+    },
+    {
+      "path": "AGENTS.md",
+      "compartment": 16,
+      "kind": "missing-root-file",
+      "resolution": "governance decision"
+    },
+    {
+      "path": "packages/core/src/pollux/benchmark/",
+      "compartment": 7,
+      "kind": "empty-scaffold",
+      "resolution": "ship runner or delete (SR-3)"
+    }
+  ],
+  "testGaps": [
+    {
+      "id": "TG-1",
+      "description": "No benchmark harness suppresses router/loop-detector LLM calls",
+      "compartments": [14, 7],
+      "linkedRisk": "SR-3",
+      "severity": "high"
+    },
+    {
+      "id": "TG-2",
+      "description": "No cross-driver invariant test for event-type handling across 5 drivers",
+      "compartments": [1, 3],
+      "linkedRisk": "SR-1",
+      "severity": "high"
+    },
+    {
+      "id": "TG-3",
+      "description": "No test for synthetic-tool double-prompt avoidance (scheduler + confirmation-bus)",
+      "compartments": [9, 12],
+      "linkedRisk": "SR-5",
+      "severity": "high"
+    },
+    {
+      "id": "TG-4",
+      "description": "No integration test asserts gemini_cli.token.usage matches conversation-file totals",
+      "compartments": [11],
+      "linkedRisk": "SR-2",
+      "severity": "high"
+    },
+    {
+      "id": "TG-5",
+      "description": "No invariant test mapping every schema key to a ConfigParameters field",
+      "compartments": [6],
+      "linkedRisk": "SR-6",
+      "severity": "high"
+    },
+    {
+      "id": "TG-6",
+      "description": "No Pollux-specific tests exist anywhere (scaffold only)",
+      "compartments": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      "linkedRisk": "SR-1..SR-5",
+      "severity": "high"
+    },
+    {
+      "id": "TG-7",
+      "description": "_recoverFromLoop feedback text + boundedTurns counting untested",
+      "compartments": [2],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-8",
+      "description": "currentSequenceModel sticky-reset across all three triggers untested",
+      "compartments": [2, 7],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-9",
+      "description": "updateTelemetryTokenCount on error-path events untested",
+      "compartments": [2],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-10",
+      "description": "IDE context double-injection across aborted turn untested",
+      "compartments": [2],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-11",
+      "description": "Discovered-tool malformed JSON / stderr-on-success untested",
+      "compartments": [4],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-12",
+      "description": "MCP name truncation collisions untested",
+      "compartments": [4],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-13",
+      "description": "Confirmation-bus 30s timeout outcome in non-interactive drivers untested",
+      "compartments": [4],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-14",
+      "description": "Static MCP allowlist cross-session persistence untested",
+      "compartments": [4],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-15",
+      "description": "Cross-process cache invalidation for loadSettings untested",
+      "compartments": [6],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-16",
+      "description": "Generator-drift enforcement in CI not wired as gate",
+      "compartments": [6],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-17",
+      "description": "CompositeStrategy non-terminal exception path untested",
+      "compartments": [7],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-18",
+      "description": "Router exception fallback when DefaultStrategy throws untested",
+      "compartments": [7],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-19",
+      "description": "Loop-detection LLM-call token-budget not capped or tested",
+      "compartments": [7],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-20",
+      "description": "Full handleFallback → activate → emit → reroute integration untested",
+      "compartments": [7],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-21",
+      "description": "Pollux trim + compression non-interference untested",
+      "compartments": [8],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-22",
+      "description": "Memory-monitor snapshot throttling untested",
+      "compartments": [11],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-23",
+      "description": "Non-interactive /pollux reachability (skill-loader omission)",
+      "compartments": [5, 1],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-24",
+      "description": "Extension reload semantics skipped in tests",
+      "compartments": [5],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-25",
+      "description": "No parity assertion CLI vs ACP slash registration",
+      "compartments": [5],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-26",
+      "description": "No JsonStreamEventType for advisor/escalation",
+      "compartments": [12],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-27",
+      "description": "No regression that both non-interactive drivers emit identical JSONL",
+      "compartments": [12],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-28",
+      "description": "ACP advisor permission flow untested",
+      "compartments": [12],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-29",
+      "description": "No contract test for VS Code deep core imports",
+      "compartments": [13],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-30",
+      "description": "DevTools-vs-core version-skew test missing",
+      "compartments": [13],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-31",
+      "description": "A2A Pollux-path reachability test missing",
+      "compartments": [13],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-32",
+      "description": "SEA binary workflow workflow_dispatch-only (no PR gate)",
+      "compartments": [15],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-33",
+      "description": "Perf/memory not PR-gated (nightly-only)",
+      "compartments": [15],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-34",
+      "description": "Pollux-specific bundle-size baseline missing",
+      "compartments": [15],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-35",
+      "description": "CODEOWNERS coverage for POLLUX_*.md",
+      "compartments": [16],
+      "severity": "medium"
+    },
+    {
+      "id": "TG-36",
+      "description": "Version-header automation on spec/plan missing",
+      "compartments": [16],
+      "severity": "medium"
+    }
+  ],
+  "openQuestionClusters": [
+    {
+      "id": "cluster-A",
+      "title": "Interceptor seam + driver parity",
+      "owner": 2,
+      "linkedRisk": "SR-1",
+      "members": [
+        {
+          "compartment": 1,
+          "text": "Which of the four turn drivers should Pollux instrument first?"
+        },
+        {
+          "compartment": 2,
+          "ref": "OQ-02.3",
+          "text": "Continuation recursion signal linkage"
+        },
+        {
+          "compartment": 2,
+          "ref": "OQ-02.5",
+          "text": "Correct seam for synthetic ToolCallResponse"
+        },
+        {
+          "compartment": 3,
+          "ref": "OQ-03.2",
+          "text": "Does Pollux at GeminiClient reach agent-session?"
+        },
+        {
+          "compartment": 13,
+          "ref": "OQ-13.1",
+          "text": "Does Pollux rollout scope include A2A + SDK?"
+        }
+      ],
+      "resolutionPath": "Per-driver interceptor matrix; explicit Phase 1 A2A/SDK scoping"
+    },
+    {
+      "id": "cluster-B",
+      "title": "/pollux placement",
+      "owner": 5,
+      "linkedRisk": "SR-4",
+      "members": [
+        { "compartment": 1, "text": "/pollux loader choice" },
+        {
+          "compartment": 5,
+          "ref": "OQ-05.2",
+          "text": "built-in, file, or extension command?"
+        },
+        {
+          "compartment": 12,
+          "ref": "OQ-12.2",
+          "text": "ACP parallel /pollux registration?"
+        },
+        {
+          "compartment": 13,
+          "ref": "OQ-13.2",
+          "text": "VS Code marker for Pollux?"
+        }
+      ],
+      "resolutionPath": "Built-in + ACP + A2A registration; not a skill"
+    },
+    {
+      "id": "cluster-C",
+      "title": "Advisor as synthetic tool",
+      "owner": 9,
+      "linkedRisk": "SR-5",
+      "members": [
+        { "compartment": 4, "text": "Why per-process MCP allowlist?" },
+        {
+          "compartment": 9,
+          "ref": "OQ-09.1",
+          "text": "Should advisor bypass engine?"
+        },
+        {
+          "compartment": 9,
+          "ref": "OQ-09.2",
+          "text": "Pollux-specific allow-rule in default?"
+        },
+        {
+          "compartment": 11,
+          "ref": "OQ-11.2",
+          "text": "Advisor message type vs gemini + role tag"
+        },
+        {
+          "compartment": 12,
+          "ref": "OQ-12.1",
+          "text": "tool_use/tool_result or new event kind?"
+        }
+      ],
+      "resolutionPath": "Packaged default ALLOW; scheduler-only; reuse tool_use/tool_result + LlmRole.UTILITY_ADVISOR"
+    },
+    {
+      "id": "cluster-D",
+      "title": "Benchmark fairness",
+      "owner": 14,
+      "linkedRisk": "SR-3",
+      "members": [
+        {
+          "compartment": 7,
+          "ref": "OQ-07.4",
+          "text": "disableLoopDetection mid-session behaviour"
+        },
+        {
+          "compartment": 7,
+          "ref": "OQ-07.6",
+          "text": "disable only LLM loop-check tier?"
+        },
+        {
+          "compartment": 10,
+          "ref": "OQ-10.2",
+          "text": "Force sandbox.enabled=false in benchmarks?"
+        },
+        {
+          "compartment": 14,
+          "ref": "OQ-14.2",
+          "text": "Who owns harness suppression knobs?"
+        },
+        {
+          "compartment": 11,
+          "ref": "OQ-11.1",
+          "text": "Perf/memory metrics validation"
+        },
+        {
+          "compartment": 8,
+          "ref": "OQ-08.1",
+          "text": "Extremely-large-file compression routing"
+        }
+      ],
+      "resolutionPath": "BenchmarkHarness in packages/test-utils, combining 07 §8 pin list"
+    },
+    {
+      "id": "cluster-E",
+      "title": "Settings + generators",
+      "owner": 6,
+      "linkedRisk": "SR-6",
+      "members": [
+        { "compartment": 6, "text": "Experimental-first block graduation?" },
+        { "compartment": 6, "text": "Schema generation as CI gate?" },
+        { "compartment": 6, "text": "SettingPaths registry or delete?" },
+        { "compartment": 6, "text": "Session scope persistence?" },
+        { "compartment": 6, "text": "migrateExperimentalSettings re-entry?" },
+        { "compartment": 6, "text": "admin.* contract in user/system files?" }
+      ],
+      "resolutionPath": "yes/yes/delete/in-memory only/once-per-load/intentional drop"
+    },
+    {
+      "id": "cluster-F",
+      "title": "Docs & governance",
+      "owner": 16,
+      "linkedRisk": "SR-7",
+      "members": [
+        {
+          "compartment": 15,
+          "ref": "OQ-15.1",
+          "text": "Spec/plan version header?"
+        },
+        {
+          "compartment": 15,
+          "ref": "OQ-15.2",
+          "text": "PR-gate test-build-binary for pollux/**?"
+        },
+        { "compartment": 16, "ref": "OQ-16.1", "text": "Version header" },
+        {
+          "compartment": 16,
+          "ref": "OQ-16.2",
+          "text": "F-05 + F-06 placement",
+          "synthesisResolution": "F-05 owners 02/07; F-06 synthesis-level governance"
+        }
+      ],
+      "resolutionPath": "Per-F-ID doc-PR list; CODEOWNERS update; version headers"
+    },
+    {
+      "id": "cluster-G",
+      "title": "Compartment-local (non-systemic)",
+      "owner": null,
+      "members": [
+        {
+          "compartment": 2,
+          "refs": ["OQ-02.1", "OQ-02.2", "OQ-02.4", "OQ-02.6"]
+        },
+        { "compartment": 4, "text": "connectAndDiscover public or dead?" },
+        {
+          "compartment": 4,
+          "text": "Discovered-tool stderr warning vs error?"
+        },
+        {
+          "compartment": 7,
+          "refs": ["OQ-07.1", "OQ-07.2", "OQ-07.3", "OQ-07.5"]
+        },
+        {
+          "compartment": 10,
+          "ref": "OQ-10.1",
+          "text": "Advisor-driven tool bypass ShellExecutionService?"
+        }
+      ],
+      "resolutionPath": "Tracked in home sidecars; no synthesis follow-up required"
+    }
+  ],
+  "recommendedNextActions": [
+    {
+      "id": "NA-1",
+      "title": "Per-driver interceptor matrix in POLLUX_SPEC.md §3",
+      "unblocks": ["P-1", "P-11", "SR-1"],
+      "coAuthors": [1, 2, 3, 12, 13]
+    },
+    {
+      "id": "NA-2",
+      "title": "BenchmarkHarness in packages/test-utils",
+      "unblocks": ["P-5", "SR-3"],
+      "coAuthors": [14, 7, 10]
+    },
+    {
+      "id": "NA-3",
+      "title": "Packaged-default advisor_consultation ALLOW rule",
+      "unblocks": ["P-2", "P-10", "SR-5"],
+      "coAuthors": [9, 4, 12]
+    },
+    {
+      "id": "NA-4",
+      "title": "LlmRole.UTILITY_ADVISOR + reuse existing token sink",
+      "unblocks": ["P-4", "SR-2"],
+      "coAuthors": [2, 11]
+    },
+    {
+      "id": "NA-5",
+      "title": "experimental.pollux.* block + CI schema gate",
+      "unblocks": ["P-6", "SR-6"],
+      "coAuthors": [6, 15]
+    },
+    {
+      "id": "NA-6",
+      "title": "Register /pollux in all four command surfaces",
+      "unblocks": ["P-7", "SR-4"],
+      "coAuthors": [1, 5, 12, 13]
+    },
+    {
+      "id": "NA-7",
+      "title": "Per-F-ID doc-PR list + CODEOWNERS update",
+      "unblocks": ["P-13", "SR-7"],
+      "coAuthors": [16, 15]
+    },
+    {
+      "id": "NA-8",
+      "title": "Escalation detectors atop LoopDetectionService",
+      "unblocks": ["P-3"],
+      "coAuthors": [7]
+    },
+    {
+      "id": "NA-9",
+      "title": "Gate test-build-binary + perf/memory for pollux/** PRs",
+      "unblocks": ["P-12"],
+      "coAuthors": [15]
+    },
+    {
+      "id": "NA-10",
+      "title": "Codify mount-time-only contract for agent-session flag",
+      "unblocks": ["SR-8"],
+      "coAuthors": [1, 3]
+    }
+  ],
+  "evidence": [
+    {
+      "claim": "16 of 16 compartments are done",
+      "primary": { "path": "docs/repo-compartment-analysis/INDEX.md" },
+      "confidence": "high"
+    },
+    {
+      "claim": "Pollux scaffold is 171-byte export-only stub",
+      "primary": {
+        "path": "reports/07-routing-availability-loop-and-pollux/report.md"
+      },
+      "supporting": [
+        { "path": "reports/02-core-turn-engine/report.md" },
+        { "path": "reports/06-settings-schema-and-config-plumbing/report.md" }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Five turn drivers bypass a single GeminiClient-Turn interceptor",
+      "primary": { "path": "reports/01-cli-runtime-surface/report.md" },
+      "supporting": [
+        { "path": "reports/03-agent-runtime-and-modes/report.md" },
+        {
+          "path": "reports/13-integration-products-sdk-vscode-a2a-devtools/report.md"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Token logging is already end-to-end via LlmRole",
+      "primary": { "path": "reports/02-core-turn-engine/report.md" },
+      "supporting": [
+        {
+          "path": "reports/11-telemetry-observability-and-billing-signals/report.md"
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "Single-model baseline is false; router + loop emit utility calls",
+      "primary": {
+        "path": "reports/07-routing-availability-loop-and-pollux/report.md"
+      },
+      "supporting": [
+        { "path": "reports/02-core-turn-engine/report.md" },
+        { "path": "reports/14-testing-and-evaluation-architecture/report.md" }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "advisor_consultation default-denies non-interactive",
+      "primary": {
+        "path": "reports/09-policy-trust-and-safety-engine/report.md"
+      },
+      "supporting": [
+        { "path": "reports/04-tools-and-mcp-platform/report.md" },
+        { "path": "reports/12-output-protocol-and-acp-adapters/report.md" }
+      ],
+      "confidence": "high"
+    },
+    {
+      "claim": "CLI owns settings schema; adding pollux block in core only silently drifts",
+      "primary": {
+        "path": "reports/06-settings-schema-and-config-plumbing/report.md"
+      },
+      "confidence": "high"
+    },
+    {
+      "claim": "Four command registries do not share /pollux",
+      "primary": { "path": "reports/01-cli-runtime-surface/report.md" },
+      "supporting": [
+        { "path": "reports/05-extensibility-skills-hooks-commands/report.md" },
+        { "path": "reports/12-output-protocol-and-acp-adapters/report.md" },
+        {
+          "path": "reports/13-integration-products-sdk-vscode-a2a-devtools/report.md"
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "contradictions": [
+    {
+      "id": "SC-1",
+      "description": "Resolved cross-compartment contradictions: 09 coreToolScheduler citation, 09 FolderTrustDiscoveryService coupling, 10 bundle/sandbox .sb tracking, 10 Windows commandSafety duplication, 13 devtools/client/src path",
+      "resolution": "resolved"
+    },
+    {
+      "id": "SC-2",
+      "description": "Unresolved contradictions clustered into SR-1..SR-7 and compartment-local groups",
+      "resolution": "deferred"
+    }
+  ],
+  "risks": [
+    {
+      "description": "Readiness table shows 4 blocked + 1 scaffold-only Pollux requirements; implementation will regress an existing driver if SR-1 is not resolved first",
+      "severity": "high"
+    },
+    {
+      "description": "Benchmark publishing without NA-2 will produce invalid Condition A/E numbers (SR-3)",
+      "severity": "high"
+    },
+    {
+      "description": "Policy gap (SR-5) surfaces as first-run tool failure in non-interactive advisor_consultation calls",
+      "severity": "high"
+    }
+  ],
+  "coverage": {
+    "tests": [],
+    "observabilitySignals": [],
+    "gaps": [
+      "6 test gaps block Pollux implementation; see testGaps list TG-1..TG-6"
+    ]
+  },
+  "openQuestions": [
+    "Which F-IDs from POLLUX_FULL_FORENSIC_CONTEXT.md should become tracked doc-PRs (per NA-7)?",
+    "Is the Phase-1 Pollux scope limited to legacy drivers only, or does it include agent-session (NA-1)?",
+    "Should the new BenchmarkHarness live under packages/test-utils or a new packages/pollux-bench package (NA-2)?"
+  ],
+  "handoffs": {
+    "dependsOn": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    "affects": [],
+    "escalatedTo": []
+  },
+  "definitionOfDone": [
+    { "item": ">= 12 of 16 compartments referenced", "done": true },
+    {
+      "item": "Every systemic risk has >= 3 compartment citations",
+      "done": true
+    },
+    {
+      "item": "Every Pollux readiness row has a compartment citation",
+      "done": true
+    },
+    {
+      "item": "Upstream drift register is non-empty or 'no drift detected'",
+      "done": true
+    },
+    { "item": "INDEX.md synthesis rows updated to done", "done": false }
+  ]
+}
