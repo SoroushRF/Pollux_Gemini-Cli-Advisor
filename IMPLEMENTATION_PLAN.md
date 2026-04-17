@@ -188,7 +188,7 @@ Task breakdown:
 | P0-04 | [Done 2026-04-17] Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs -> docs/core/pollux/P0-04_CI_GATES_BRANCH_PROTECTIONS.md                   | P0-02/P0-03  |
 | P0-05 | [Done 2026-04-17] Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract -> docs/core/pollux/P0-05_BENCHMARK_FAIRNESS_HARNESS_CONTRACT.md  | G0           |
 | P0-06 | [Done 2026-04-17] Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map -> docs/core/pollux/P0-06_GOVERNANCE_CONTROLS_CODEOWNERS_LEDGER.md | G5           |
-| P0-07 | Create implementation PR template keyed to TGs                                                    | 16            | PR template with TG mapping                                                                             | P0-04        |
+| P0-07 | [Done 2026-04-17] Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping -> docs/core/pollux/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md          | P0-04        |
 | P0-08 | Produce Phase 1 execution board (task issue list with owners)                                     | PM/16         | Tracked issue set                                                                                       | P0-01..P0-07 |
 
 ### Phase 0 completion notes (persistent evidence)
@@ -372,6 +372,37 @@ Citations and references:
    (governance linkage in CI/release context).
 5. .github/CODEOWNERS
 6. POLLUX_DOC_CORRECTIONS.md
+
+Change record:
+
+1. Commit reference recorded in task completion report and linked in git
+   history.
+
+#### P0-07 (Done 2026-04-17)
+
+Summary:
+
+1. Updated the repository PR template with a Pollux TG mapping section for TG-1
+   through TG-10.
+2. Added explicit evidence fields (tests/logs/artifacts) and Pass/N/A status
+   tracking for each gate.
+3. Added pre-merge checklist enforcement requiring Pollux TG mapping completion
+   or explicit N/A declaration.
+
+Pointer:
+
+1. Canonical artifact:
+   docs/core/pollux/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md
+2. Pointer stub:
+   docs/repo-compartment-analysis/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md
+
+Citations and references:
+
+1. IMPLEMENTATION_PLAN.md section 6 (TG-1 through TG-10 definitions).
+2. POLLUX_SPEC.md section 14 (documentation and governance contract).
+3. docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md
+   (governance metadata and review routing context).
+4. .github/pull_request_template.md
 
 Change record:
 
