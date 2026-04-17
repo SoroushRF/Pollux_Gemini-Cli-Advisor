@@ -180,16 +180,16 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                            | Owner         | Deliverable                                                                                 | Depends on   |
-| ----- | ------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------- | ------------ |
-| P0-01 | [Done 2026-04-17] Publish driver/interceptor matrix for all in-scope surfaces   | 02 + 01/03/12 | Matrix doc + seam ownership map -> docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md      | G0           |
-| P0-02 | [Done 2026-04-17] Lock advisor policy decision path, including ACP behavior     | 09 + 04/12    | Policy design note + acceptance tests list -> docs/core/pollux/P0-02_POLICY_CHANNEL_LOCK.md | P0-01        |
-| P0-03 | Define settings strategy (experimental.pollux.\* + promotion path)              | 06            | Settings contract note                                                                      | G0           |
-| P0-04 | Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs                                                                | P0-02/P0-03  |
-| P0-05 | Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract                                                       | G0           |
-| P0-06 | Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map                                                        | G5           |
-| P0-07 | Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping                                                                 | P0-04        |
-| P0-08 | Produce Phase 1 execution board (task issue list with owners)                   | PM/16         | Tracked issue set                                                                           | P0-01..P0-07 |
+| ID    | Task                                                                                 | Owner         | Deliverable                                                                                 | Depends on   |
+| ----- | ------------------------------------------------------------------------------------ | ------------- | ------------------------------------------------------------------------------------------- | ------------ |
+| P0-01 | [Done 2026-04-17] Publish driver/interceptor matrix for all in-scope surfaces        | 02 + 01/03/12 | Matrix doc + seam ownership map -> docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md      | G0           |
+| P0-02 | [Done 2026-04-17] Lock advisor policy decision path, including ACP behavior          | 09 + 04/12    | Policy design note + acceptance tests list -> docs/core/pollux/P0-02_POLICY_CHANNEL_LOCK.md | P0-01        |
+| P0-03 | [Done 2026-04-17] Define settings strategy (experimental.pollux.\* + promotion path) | 06            | Settings contract note -> docs/core/pollux/P0-03_SETTINGS_STRATEGY.md                       | G0           |
+| P0-04 | Define mandatory CI gates and branch protections                                     | 15            | CI checklist + required jobs                                                                | P0-02/P0-03  |
+| P0-05 | Define benchmark fairness controls (router/loop/availability/session isolation)      | 14 + 07/10    | Fairness checklist + harness contract                                                       | G0           |
+| P0-06 | Land governance controls (CODEOWNERS + correction ledger process)                    | 16 + 15       | Governance PR + review ownership map                                                        | G5           |
+| P0-07 | Create implementation PR template keyed to TGs                                       | 16            | PR template with TG mapping                                                                 | P0-04        |
+| P0-08 | Produce Phase 1 execution board (task issue list with owners)                        | PM/16         | Tracked issue set                                                                           | P0-01..P0-07 |
 
 ### Phase 0 completion notes (persistent evidence)
 
@@ -247,6 +247,36 @@ Citations and references:
 3. docs/repo-compartment-analysis/reports/09-policy-trust-and-safety-engine/report.md
 4. docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters/report.md
 5. docs/repo-compartment-analysis/reports/04-tools-and-mcp-platform/report.md
+
+Change record:
+
+1. Commit reference recorded in task completion report and linked in git
+   history.
+
+#### P0-03 (Done 2026-04-17)
+
+Summary:
+
+1. Published the settings strategy contract for Phase 1 under
+   experimental.pollux.\*.
+2. Defined schema-to-loader-to-core mapping constraints and silent-drift
+   safeguards.
+3. Defined promotion path from experimental.pollux._ to top-level pollux._ with
+   TG-5 acceptance tests.
+
+Pointer:
+
+1. Canonical artifact: docs/core/pollux/P0-03_SETTINGS_STRATEGY.md
+2. Pointer stub: docs/repo-compartment-analysis/P0-03_SETTINGS_STRATEGY.md
+
+Citations and references:
+
+1. POLLUX_SPEC.md section 8 (settings and configuration contract).
+2. docs/repo-compartment-analysis/reports/SYNTHESIS/report.md (SR-6 and NA-5
+   settings mitigation).
+3. docs/repo-compartment-analysis/reports/06-settings-schema-and-config-plumbing/report.md
+4. docs/repo-compartment-analysis/reports/15-build-packaging-release-and-ci/report.md
+5. docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md
 
 Change record:
 
