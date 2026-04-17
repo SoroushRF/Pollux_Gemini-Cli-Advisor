@@ -46,12 +46,23 @@ Rules:
 
 ## 4) Open deliverables
 
-| Item | Description                                     | Owner    | Due phase |
-| ---- | ----------------------------------------------- | -------- | --------- |
-| D-01 | Packaged advisor ALLOW rule implementation note | 09       | Phase 0   |
-| D-02 | schema:settings CI guard update                 | 06/15    | Phase 0   |
-| D-03 | Pollux command registration map and tests       | 05/12/13 | Phase 5   |
-| D-05 | A2A deferred-scope documentation note           | 13/16    | Phase 0   |
+| Item | Description                                       | Owner    | Due phase |
+| ---- | ------------------------------------------------- | -------- | --------- |
+| D-01 | Packaged advisor ALLOW rule implementation        | 09       | Phase 1   |
+| D-02 | schema:settings CI guard wired as required PR job | 06/15    | Phase 1   |
+| D-03 | Pollux command registration map and tests         | 05/12/13 | Phase 5   |
+
+Note: D-01 and D-02 were originally scoped as Phase 0 deliverables but are
+implementation items. Phase 0 contract lock (G2, G3) is achieved by the
+corresponding P0-02 and P0-03 control artifacts; the runtime/CI landings are
+carried into Phase 1 per IMPLEMENTATION_PLAN.md section 3 "Implementation
+carry-over".
+
+## 4a) Completed deliverables
+
+| Item | Description                           | Owner | Closed     | Verification                                                                           |
+| ---- | ------------------------------------- | ----- | ---------- | -------------------------------------------------------------------------------------- |
+| D-05 | A2A deferred-scope documentation note | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 row D6 + BP-06 deferred bypass. |
 
 ---
 
@@ -92,3 +103,7 @@ surfaces.
 5. Closed C-07 after landing explicit CODEOWNERS coverage for Pollux governance
    docs.
 6. Added mandatory correction-ledger operating process for Pollux PRs.
+7. Closed D-05 after landing A2A deferred-scope documentation in
+   docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 (row D6) and BP-06.
+8. Re-scoped D-01 and D-02 Due phase from Phase 0 to Phase 1 to match the Phase
+   0 contract-lock scope of G2 and G3 in IMPLEMENTATION_PLAN.md.

@@ -57,6 +57,27 @@ Issue ID namespace:
 
 ---
 
+## 4a) Phase 0 compartment signoff register
+
+IMPLEMENTATION_PLAN.md section 5 Phase 0 exit criteria requires signoff from
+compartments 01, 02, 06, 09, 14, 16. Signoff is recorded here as PR review
+approvals on the relevant P0 artifacts. Each compartment must list at least one
+PR-review approval or a named reviewer acknowledgement.
+
+| Compartment                            | Signoff on                          | Signer / PR review | Date |
+| -------------------------------------- | ----------------------------------- | ------------------ | ---- |
+| 01 CLI runtime surface                 | P0-01 matrix, seams S2              | TBD                | TBD  |
+| 02 Core turn engine                    | P0-01 seam S1, P0-02 touchpoints    | TBD                | TBD  |
+| 06 Settings schema and config plumbing | P0-03 strategy, P0-04 CG-02         | TBD                | TBD  |
+| 09 Policy, trust, and safety engine    | P0-02 policy channel lock           | TBD                | TBD  |
+| 14 Testing and evaluation architecture | P0-05 fairness harness contract     | TBD                | TBD  |
+| 16 Docs, specs, and governance         | P0-06 governance, P0-07 PR template | TBD                | TBD  |
+
+Rule: Phase 1 tasks may not move from `not_started` in section 3 until the
+corresponding signoff rows are filled for the gating compartments.
+
+---
+
 ## 5) P0-08 acceptance checklist
 
 P0-08 is complete when:

@@ -282,8 +282,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit b1b4260fc: docs: complete P0-02 policy channel lock artifacts.
 
 #### P0-03 (Done 2026-04-17)
 
@@ -312,8 +311,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit f95ebac89: docs: complete P0-03 settings strategy artifact.
 
 #### P0-04 (Done 2026-04-17)
 
@@ -343,8 +341,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit 66d5f7edb: docs: complete P0-04 CI and branch protection contract.
 
 #### P0-05 (Done 2026-04-17)
 
@@ -373,8 +370,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit 45bbfca89: docs: complete P0-05 benchmark fairness contract.
 
 #### P0-06 (Done 2026-04-17)
 
@@ -384,8 +380,7 @@ Summary:
    docs/repo-compartment-analysis governance docs.
 2. Added mandatory correction-ledger operating process to prevent doc/spec
    governance drift.
-3. Closed governance correction item C-07 and completed deliverable D-04 in
-   POLLUX_DOC_CORRECTIONS.md.
+3. Closed governance correction item C-07 in POLLUX_DOC_CORRECTIONS.md.
 
 Pointer:
 
@@ -407,8 +402,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit 57a9e89ef: docs: complete P0-06 governance controls.
 
 #### P0-07 (Done 2026-04-17)
 
@@ -438,8 +432,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit 1d83d946b: docs: complete P0-07 Pollux PR template gate mapping.
 
 #### P0-08 (Done 2026-04-17)
 
@@ -468,8 +461,7 @@ Citations and references:
 
 Change record:
 
-1. Commit reference recorded in task completion report and linked in git
-   history.
+1. Commit 1f0e66a4b: docs: complete P0-08 phase1 execution board.
 
 Exit criteria:
 
@@ -621,7 +613,7 @@ These are release blockers, not optional tests.
 | TG-1  | Harness suppresses router/loop utility noise for fairness  | 14/07    | Phase 4 start |
 | TG-2  | Cross-surface behavior parity (legacy, agent-session, ACP) | 01/03/12 | Phase 2 exit  |
 | TG-3  | Advisor policy path avoids double prompt                   | 09/12    | Phase 2 exit  |
-| TG-4  | token usage metrics match conversation totals              | 11/02    | Phase 4 exit  |
+| TG-4  | Token usage metrics match conversation totals              | 11/02    | Phase 4 exit  |
 | TG-5  | Schema-to-ConfigParameters mapping invariant test          | 06       | Phase 1 exit  |
 | TG-6  | Pollux-specific integration tests exist and are green      | 02/14    | Phase 2 exit  |
 | TG-7  | /pollux command reachability across in-scope surfaces      | 05/12/13 | Phase 5 exit  |

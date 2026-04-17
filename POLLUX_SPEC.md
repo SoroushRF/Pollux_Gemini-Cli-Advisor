@@ -6,6 +6,39 @@ for gemini-cli fork with benchmarkable behavior and governance controls
 
 ---
 
+## Section implementation status
+
+Legend: contracted = design/contract locked in this spec and linked P0
+artifacts; planned = described but not yet contract-locked; implemented =
+runtime behavior shipped and test-gated in-tree. Status is tracked here to
+satisfy IMPLEMENTATION_PLAN.md G5 "Unimplemented sections marked as such".
+
+| Section                                   | Status     |
+| ----------------------------------------- | ---------- |
+| 1 Purpose                                 | contracted |
+| 2 Goals and non-goals                     | contracted |
+| 3 Runtime reality and coverage matrix     | contracted |
+| 4 Pollux component model                  | contracted |
+| 5 Interceptor contract                    | contracted |
+| 6 Advisor invocation and policy contract  | contracted |
+| 7 Escalation detector contract            | contracted |
+| 8 Settings and configuration contract     | contracted |
+| 9 Telemetry and token accounting contract | contracted |
+| 10 Benchmark protocol                     | contracted |
+| 11 Command and output surface contract    | contracted |
+| 12 CI, test, and release contract         | contracted |
+| 13 Security and safety contract           | contracted |
+| 14 Documentation and governance contract  | contracted |
+| 15 Acceptance criteria                    | contracted |
+| Appendix A Driver/interceptor matrix      | contracted |
+| Appendix B Benchmark fairness checklist   | contracted |
+| Appendix C Terminology                    | contracted |
+
+No section is currently in "implemented" state. All runtime implementation and
+test-gated behavior lands in Phase 1 through Phase 5 per IMPLEMENTATION_PLAN.md.
+
+---
+
 ## 1) Purpose
 
 Pollux adds an adaptive advisor path so a fast executor model can escalate
