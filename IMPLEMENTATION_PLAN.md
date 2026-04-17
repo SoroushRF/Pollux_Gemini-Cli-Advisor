@@ -191,6 +191,40 @@ Task breakdown:
 | P0-07 | Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping                                                            | P0-04        |
 | P0-08 | Produce Phase 1 execution board (task issue list with owners)                   | PM/16         | Tracked issue set                                                                      | P0-01..P0-07 |
 
+### Phase 0 completion notes (persistent evidence)
+
+#### P0-01 (Done 2026-04-17)
+
+Summary:
+
+1. Published the driver/interceptor matrix for all in-scope drivers (D1-D5) and
+   explicit deferred A2A bypass (D6).
+2. Documented seam ownership and approval/change-control map.
+3. Added integration test blueprints BP-01 through BP-06 with TG mappings.
+
+Pointer:
+
+1. Canonical artifact: docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md
+2. Pointer stub:
+   docs/repo-compartment-analysis/P0-01_DRIVER_INTERCEPTOR_MATRIX.md
+
+Citations and references:
+
+1. POLLUX_SPEC.md Appendix A (driver/interceptor expectations and A2A deferred
+   behavior).
+2. docs/repo-compartment-analysis/reports/SYNTHESIS/report.md (SR-1 and NA-1
+   per-driver matrix requirement).
+3. docs/repo-compartment-analysis/reports/01-cli-runtime-surface/report.md
+4. docs/repo-compartment-analysis/reports/03-agent-runtime-and-modes/report.md
+5. docs/repo-compartment-analysis/reports/12-output-protocol-and-acp-adapters/report.md
+6. docs/repo-compartment-analysis/reports/13-integration-products-sdk-vscode-a2a-devtools/report.md
+
+Change record:
+
+1. Commit 190ffcc9e: created P0-01 matrix artifact.
+2. Commit 548672c52: relocated artifact to docs/core/pollux and added pointer
+   stub.
+
 Exit criteria:
 
 - Gates G0-G5 are complete.
