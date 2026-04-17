@@ -1,314 +1,347 @@
-# Pollux — Detailed Implementation Plan (Revised)
+# Pollux Implementation Plan (Start-Ready)
 
-This plan is updated to match the current gemini-cli architecture validated in
-the forensic audit.
-
-Key realities this revision assumes:
-
-- The runtime already performs model routing in core.
-- Settings ownership is CLI-first (schema, validation, merge), then mapped into
-  core config.
-- Pollux integration must work across interactive and non-interactive loops.
-- An agent-session interactive branch exists and must be validated.
-- Existing token and loop-detection systems already affect cost/latency behavior
-  and benchmark fidelity.
+Version: 2.0 Date: 2026-04-17 Status: Conditionally ready. Implementation starts
+only after Gates G0-G5 are complete. Primary references: Tier summaries and
+synthesis under docs/repo-compartment-analysis/reports/
 
 ---
 
-## Epic 1: Foundations, Baseline Controls, and Config Plumbing
+## 1) Why this revision exists
 
-**Goal:** Establish a router-aware, benchmark-safe Pollux foundation.
+This revision replaces an implementation-heavy but architecture-light plan with
+an execution plan that is safe against known systemic failures:
 
-### Phase 0: Environment Setup and Baseline Characterization (Day 1)
+- Pollux must cover multiple runtime surfaces, not just one seam.
+- Advisor policy behavior must be non-interactive-safe by default.
+- Benchmark baselines must suppress hidden utility LLM calls.
+- Token accounting must extend existing sinks, not fork new ones.
+- Settings, docs, and CI must be wired before runtime work begins.
 
-**Objective:** Ensure baseline repo health and establish reproducible baseline
-behavior before adding Pollux logic.
-
-- **Task 0.1: Repository Initialization**
-  - [x] **Step 1:** Fork/clone the `gemini-cli` repository.
-  - [x] **Step 2:** Run `npm install` and verify the base build.
-  - [x] **Step 3:** Confirm dev workflow works and CLI is operational.
-
-- **Task 0.2: Pollux Scaffolding**
-  - [x] **Step 1:** Create `packages/core/src/pollux/`.
-  - [x] **Step 2:** Create `packages/core/src/pollux/benchmark/`.
-  - [x] **Step 3:** Initialize `packages/core/src/pollux/index.ts`.
-
-- **Task 0.3: Baseline Architecture Mapping (Completed)**
-  - [x] **Step 1:** Confirm core turn entry points and stream surfaces.
-  - [x] **Step 2:** Confirm settings ownership in CLI schema/loader.
-  - [x] **Step 3:** Confirm existing model router, loop detector, and token
-        accounting paths.
-
-- **Task 0.4: Benchmark Control Strategy**
-  - [ ] **Step 1:** Define how each benchmark condition controls model routing
-        behavior.
-  - [ ] **Step 2:** Define how loop-detection utility checks are normalized
-        across conditions.
-  - [ ] **Step 3:** Document baseline control knobs before writing harness code.
+This plan is written as a delivery contract, not a concept document.
 
 ---
 
-### Phase 1: Type System and Config Integration (Days 2-4)
+## 2) Scope and boundaries
 
-**Objective:** Create Pollux primitives and wire configuration through canonical
-paths.
+### Phase 1 in-scope surfaces (required)
 
-- **Task 1.1: Type System Definition (`types.ts`)**
-  - [ ] **Step 1:** Define `TurnContext` with fields needed by detector,
-        advisor, and logger.
-  - [ ] **Step 2:** Define `EscalationDecision`, `EscalationDetector`, and
-        strategy enum/type contracts.
-  - [ ] **Step 3:** Define `AdvisorPlan`, `PolluxConfig`, and `TurnLog`
-        structures. **Notes:** Mandatory first coding task for Pollux modules.
+| Surface                       | Current path                                        | Pollux requirement                    | Owner |
+| ----------------------------- | --------------------------------------------------- | ------------------------------------- | ----- |
+| Interactive legacy            | useGeminiStream -> GeminiClient.sendMessageStream   | Full Pollux behavior                  | 01/02 |
+| Non-interactive legacy        | runNonInteractive -> GeminiClient.sendMessageStream | Full Pollux behavior                  | 01/02 |
+| Interactive agent-session     | useAgentStream -> LegacyAgentSession                | Pollux parity with legacy             | 01/03 |
+| Non-interactive agent-session | runNonInteractiveAgentSession -> LegacyAgentSession | Pollux parity with legacy             | 01/03 |
+| ACP                           | GeminiAgent.prompt                                  | Pollux-aware advisor/policy semantics | 12/02 |
 
-- **Task 1.2: Model Registry (`models.ts`)**
-  - [ ] **Step 1:** Define executor/advisor model sets using currently valid
-        model IDs.
-  - [ ] **Step 2:** Add metadata for benchmark reporting (tier, nominal prices,
-        aliases).
-  - [ ] **Step 3:** Add guardrails for invalid pairings and unsupported models.
+### Explicitly out of scope for Phase 1
 
-- **Task 1.3: CLI Settings Schema Integration (`settingsSchema.ts`)**
-  - [ ] **Step 1:** Add `pollux` block to
-        `packages/cli/src/config/settingsSchema.ts`.
-  - [ ] **Step 2:** Include fields: enabled, executorModel, advisorModel,
-        escalationStrategy, thresholds, logging flags, and limits.
-  - [ ] **Step 3:** Add defaults and descriptions suitable for docs generation.
+- A2A CoderAgentExecutor runtime interception.
 
-- **Task 1.4: Settings Validation and Merge (`settings.ts`)**
-  - [ ] **Step 1:** Ensure `pollux` is parsed and validated by existing settings
-        validation flow.
-  - [ ] **Step 2:** Confirm user/workspace/system merge behavior for `pollux`.
-  - [ ] **Step 3:** Add tests for invalid values and precedence behavior.
+### Phase 1 out-of-scope control
 
-- **Task 1.5: Core Config Mapping (`config.ts`)**
-  - [ ] **Step 1:** Map merged CLI `pollux` settings into core `Config`
-        construction params.
-  - [ ] **Step 2:** Add core getters/accessors for Pollux runtime use.
-  - [ ] **Step 3:** Ensure defaults preserve baseline behavior when Pollux is
-        disabled.
+- A2A path must be explicitly documented as non-Pollux in spec and plan.
+- A2A tests must assert expected bypass behavior with a clear reason.
 
 ---
 
-## Epic 2: Advisor and Escalation Intelligence
+## 3) Start gates (hard blockers)
 
-**Goal:** Implement advisor consultation and escalation decisions with strong
-testability.
+All gates are mandatory. No Pollux runtime code should land before all gates are
+green.
 
-### Phase 2: Advisor Client and Prompting (Days 5-7)
+### G0: Spec-plan contract lock
 
-**Objective:** Implement a stateless advisor path and stable injection strategy.
+Done criteria:
 
-- **Task 2.1: Prompting and Context Formatter (`prompts.ts`)**
-  - [ ] **Step 1:** Implement advisor system prompt and strict JSON response
-        contract.
-  - [ ] **Step 2:** Implement context compaction/trimming for long histories.
-  - [ ] **Step 3:** Add deterministic formatting helpers for easier tests.
+- POLLUX_SPEC.md and this plan use consistent seam language.
+- Contradictory guidance removed (single seam assumptions, duplicate logger
+  assumptions).
+- Version headers added to both documents.
 
-- **Task 2.2: Advisor Client (`advisor.ts`)**
-  - [ ] **Step 1:** Implement `consult()` for single-shot advisor request.
-  - [ ] **Step 2:** Parse and validate advisor JSON response.
-  - [ ] **Step 3:** Return normalized `AdvisorPlan` with telemetry payload.
+Owner: 16
 
-- **Task 2.3: Guidance Injection Strategy**
-  - [ ] **Step 1:** Implement v1 injection path aligned with existing runtime
-        patterns (synthetic history/tool-result semantics).
-  - [ ] **Step 2:** Optionally implement registry-backed `advisor_consultation`
-        tool path if needed for clearer traceability.
-  - [ ] **Step 3:** Add tests to verify the executor consumes advisor guidance
-        predictably.
+### G1: Driver/interceptor matrix locked
 
-- **Task 2.4: Advisor Isolation Tests**
-  - [ ] **Step 1:** Golden tests for prompt formatting.
-  - [ ] **Step 2:** Parse-failure and schema-violation tests.
-  - [ ] **Step 3:** Timeout and fallback behavior tests.
+Done criteria:
 
----
+- Interceptor contract documented per in-scope surface.
+- Explicit no-op/bypass behavior documented for out-of-scope A2A.
+- One integration test blueprint exists per in-scope surface.
 
-### Phase 3: Escalation Detectors (Days 8-10)
+Owner: 02, with 01/03/12 support
 
-**Objective:** Implement detector strategies that complement existing loop
-systems and avoid duplicate logic.
+### G2: Advisor policy channel locked
 
-- **Task 3.1: Heuristic Detector (`detector.ts`)**
-  - [ ] **Step 1:** Implement tool-loop and repeated-failure triggers.
-  - [ ] **Step 2:** Implement confusion/uncertainty trigger logic.
-  - [ ] **Step 3:** Implement turn overflow and retry pressure triggers.
-  - [ ] **Step 4:** Define interaction boundaries with existing
-        `LoopDetectionService` to avoid double-triggering.
+Done criteria:
 
-- **Task 3.2: Structured Detector**
-  - [ ] **Step 1:** Implement confidence-tag instruction injection.
-  - [ ] **Step 2:** Implement extraction/stripping parser for
-        `<pollux_confidence>`.
-  - [ ] **Step 3:** Add fallback logic when tags are missing or malformed.
+- advisor_consultation has packaged default ALLOW rule behind Pollux flag.
+- Non-interactive default behavior cannot silently DENY advisor path.
+- ACP path does not trigger unexpected permission prompt for advisor
+  consultation.
 
-- **Task 3.3: Hybrid Detector**
-  - [ ] **Step 1:** Compose heuristic + structured detectors.
-  - [ ] **Step 2:** Define deterministic precedence and reason labeling.
+Owner: 09, with 04/12 support
 
-- **Task 3.4: Detector Unit Tests**
-  - [ ] **Step 1:** Mocked-context tests for all trigger paths.
-  - [ ] **Step 2:** False-positive suppression tests.
-  - [ ] **Step 3:** Boundary tests for threshold tuning.
+### G3: Settings pipeline locked
 
----
+Done criteria:
 
-## Epic 3: Runtime Integration Across All Execution Paths
+- experimental.pollux.\* added to CLI schema and loader path.
+- Core ConfigParameters mapping implemented and tested.
+- CI gate added for schema generation check.
 
-**Goal:** Integrate Pollux safely without stream regressions.
+Owner: 06, with 15 support
 
-### Phase 4: Interceptor and Multi-Path Integration (Days 11-14)
+### G4: Benchmark fairness harness locked
 
-**Objective:** Wire Pollux in core and validate behavior in every active runtime
-surface.
+Done criteria:
 
-- **Task 4.1: Interceptor Core (`interceptor.ts`)**
-  - [ ] **Step 1:** Implement orchestration pipeline:
-        `shouldEscalate -> consult -> inject`.
-  - [ ] **Step 2:** Add max-advisor-calls-per-turn safety and fail-open
-        behavior.
-  - [ ] **Step 3:** Add reason codes and event payloads for telemetry/logging.
+- Dedicated benchmark harness wraps TestRig.
+- Router and loop detector controls pinned per fairness contract.
+- Availability state reset and session isolation strategy documented.
 
-- **Task 4.2: Core Client Wiring (`client.ts`)**
-  - [ ] **Step 1:** Integrate Pollux orchestration into `processTurn()`.
-  - [ ] **Step 2:** Ensure disabled mode is a no-op with identical baseline
-        behavior.
-  - [ ] **Step 3:** Ensure routing and Pollux controls do not conflict.
+Owner: 14, with 07/10 support
 
-- **Task 4.3: Interactive CLI Path Validation (`useGeminiStream.ts`)**
-  - [ ] **Step 1:** Verify tool-call continuation remains ordered with Pollux
-        escalations.
-  - [ ] **Step 2:** Verify confidence-tag stripping never leaks to UI.
-  - [ ] **Step 3:** Validate client-initiated and model-initiated tool paths
-        remain stable.
+### G5: Governance/doc correction lock
 
-- **Task 4.4: Non-Interactive CLI Path Validation (`nonInteractiveCli.ts`)**
-  - [ ] **Step 1:** Verify Pollux escalation works in non-interactive turn
-        loops.
-  - [ ] **Step 2:** Verify JSON/text output modes remain stable.
-  - [ ] **Step 3:** Verify cancellation and error handling semantics are
-        unchanged.
+Done criteria:
 
-- **Task 4.5: Agent-Session Interactive Branch Validation**
-  - [ ] **Step 1:** Validate behavior when agent-session interactive mode is on.
-  - [ ] **Step 2:** Validate behavior when standard Gemini stream mode is on.
-  - [ ] **Step 3:** Confirm no branch-specific regressions.
+- Pollux doc correction checklist exists and is tracked.
+- CODEOWNERS explicitly covers POLLUX\_\*.md and repo-compartment-analysis docs.
+- Unimplemented sections marked as such.
 
-- **Task 4.6: Integration Test Matrix**
-  - [ ] **Step 1:** Pollux off baseline parity tests.
-  - [ ] **Step 2:** Pollux on escalation path tests.
-  - [ ] **Step 3:** Regression tests for event ordering and tool continuation.
+Owner: 16, with 15 support
 
 ---
 
-## Epic 4: Logging, Benchmarking, and Evaluation
+## 4) Locked architecture decisions
 
-**Goal:** Produce trustworthy accuracy/cost/latency comparisons.
+### D1: Interceptor coverage strategy
 
-### Phase 5: Logging and Harness Implementation (Days 15-18)
+- Pollux behavior is defined per surface, not assumed globally.
+- processTurn integration is necessary but not sufficient.
 
-**Objective:** Build Pollux-specific observability on top of existing telemetry
-primitives and run controls.
+### D2: Advisor invocation strategy
 
-- **Task 5.1: Pollux Logger (`logger.ts`)**
-  - [ ] **Step 1:** Reuse existing usage metadata capture instead of duplicating
-        token extraction logic.
-  - [ ] **Step 2:** Add Pollux attribution fields: executor/advisor token split,
-        escalation reason, advisor latency, call count.
-  - [ ] **Step 3:** Emit JSONL with stable schema for analytics.
+- Preferred: advisor_consultation synthetic tool path routed through scheduler
+  policy checks.
+- Allowed fallback: synthetic message injection only for fail-open recovery, not
+  primary behavior.
 
-- **Task 5.2: Benchmark Task Suite (`benchmark/tasks.ts`)**
-  - [ ] **Step 1:** Define 30 tasks across easy/medium/hard.
-  - [ ] **Step 2:** Implement deterministic pass/fail oracles.
-  - [ ] **Step 3:** Tag tasks for failure mode analysis (loop-prone, multi-file,
-        etc.).
+### D3: Telemetry/token accounting strategy
 
-- **Task 5.3: Benchmark Runner (`benchmark/runner.ts`)**
-  - [ ] **Step 1:** Implement five benchmark conditions.
-  - [ ] **Step 2:** Add checkpointing and idempotent resume.
-  - [ ] **Step 3:** Add rate limiting (1 req/sec) and robust backoff.
-  - [ ] **Step 4:** Add explicit controls for existing model routing and loop
-        detection side effects per condition.
+- Extend existing pipeline using LlmRole.UTILITY_ADVISOR.
+- Do not introduce a parallel token sink.
 
-- **Task 5.4: Reporting (`benchmark/report.ts`)**
-  - [ ] **Step 1:** Aggregate JSONL into markdown tables.
-  - [ ] **Step 2:** Compute accuracy, token stats, and latency metrics.
-  - [ ] **Step 3:** Compute escalation precision/recall and confidence
-        intervals.
+### D4: Settings strategy
 
----
+- Start at experimental.pollux.\*.
+- Promote to top-level pollux.\* after stability and migration readiness.
 
-### Phase 6: Full Benchmark Execution (Days 19-20)
+### D5: Benchmark fairness strategy
 
-**Objective:** Execute the full run and validate data integrity.
+- Conditions A-E only valid with fairness pins active.
+- If pins are not active, run is invalid for comparison.
 
-- **Task 6.1: Full Trial Execution**
-  - [ ] **Step 1:** Run 450 trials (30 tasks x 5 conditions x 3 trials).
-  - [ ] **Step 2:** Monitor run health and resume from checkpoints as needed.
-  - [ ] **Step 3:** Validate run completeness and schema consistency.
+### D6: Command registration strategy
 
-- **Task 6.2: Data Quality Gate**
-  - [ ] **Step 1:** Identify flaky oracle outcomes and mark exclusions.
-  - [ ] **Step 2:** Verify baseline controls actually held during runs.
-  - [ ] **Step 3:** Generate final clean dataset for publication.
+- /pollux must be registered in all required command surfaces for in-scope
+  runtime paths.
+- Shipping a single registration point is considered incomplete.
+
+### D7: GeminiChat access constraint
+
+- Read access may occur through existing core flows where already established.
+- External mutation of GeminiChat history outside controlled services is
+  prohibited.
 
 ---
 
-## Epic 5: Productization and Documentation
+## 5) Delivery plan by phase
 
-**Goal:** Ship a demonstrable Pollux feature set with accurate architecture
-documentation.
+## Phase 0: Contracts and control plane (Week 1)
 
-### Phase 7: UX and Docs (Days 21-22)
+Goal: clear systemic blockers before runtime coding.
 
-**Objective:** Add runtime controls and publish the final technical story.
+Tasks:
 
-- **Task 7.1: Runtime Controls**
-  - [ ] **Step 1:** Implement `/pollux` slash command for runtime toggling.
-  - [ ] **Step 2:** Ensure command respects config precedence and session mode.
+1. Publish driver/interceptor matrix and ownership.
+2. Finalize advisor policy channel and ACP behavior contract.
+3. Land settings schema path and CI guard.
+4. Land benchmark harness scaffold with fairness pins.
+5. Land governance corrections and ownership controls.
 
-- **Task 7.2: Minimal UX Signals**
-  - [ ] **Step 1:** Add concise indicator when advisor is consulted.
-  - [ ] **Step 2:** Add optional verbose debugging view for escalation reasons.
+Exit criteria:
 
-- **Task 7.3: Documentation Alignment**
-  - [ ] **Step 1:** Update architecture docs to reflect router-aware baseline.
-  - [ ] **Step 2:** Document settings ownership (CLI schema -> loader -> core
-        config mapping).
-  - [ ] **Step 3:** Document multi-path integration (interactive,
-        non-interactive, agent-session branch).
+- Gates G0-G5 complete.
+- PR-level signoff from compartments 01/02/06/09/14/16.
 
-- **Task 7.4: PR and Demo Readiness**
-  - [ ] **Step 1:** Prepare final benchmark summary and reproducibility notes.
-  - [ ] **Step 2:** Prepare PR narrative with risk mitigations and test
-        evidence.
+## Phase 1: Foundation implementation (Week 2)
+
+Goal: establish core Pollux primitives without behavior risk.
+
+Tasks:
+
+1. Define types and runtime configuration contracts.
+2. Add model registry and advisor model aliasing contract.
+3. Extend telemetry role taxonomy with UTILITY_ADVISOR.
+4. Implement advisor prompting/parsing modules behind feature flags.
+
+Exit criteria:
+
+- Unit tests pass for types, parsing, and role tagging.
+- Pollux disabled mode remains behavior-identical.
+
+## Phase 2: Runtime integration by surface (Weeks 3-4)
+
+Goal: integrate Pollux safely across all in-scope surfaces.
+
+Tasks:
+
+1. Integrate legacy interactive and non-interactive paths.
+2. Integrate agent-session interactive and non-interactive parity behavior.
+3. Integrate ACP advisor semantics.
+4. Add explicit A2A bypass assertions and documentation.
+
+Exit criteria:
+
+- TG-2 parity tests pass across all in-scope surfaces.
+- No event-ordering regressions.
+
+## Phase 3: Escalation and advisor behavior hardening (Week 5)
+
+Goal: ensure escalation is useful, deterministic, and recoverable.
+
+Tasks:
+
+1. Implement heuristic detector.
+2. Implement structured detector with safe tag stripping.
+3. Implement hybrid precedence rules.
+4. Add fail-open handling for malformed advisor responses/timeouts.
+
+Exit criteria:
+
+- Detector precision/recall thresholds measured and documented.
+- No confidence-tag leakage into user-visible output.
+
+## Phase 4: Benchmarking and evaluation (Weeks 6-7)
+
+Goal: produce valid, reproducible A-E benchmark results.
+
+Tasks:
+
+1. Implement benchmark task corpus and oracle reliability checks.
+2. Run five-condition harness with checkpoint/resume.
+3. Validate fairness pins were active for every run.
+4. Publish token/latency/accuracy report with confidence intervals.
+
+Exit criteria:
+
+- TG-1 benchmark fairness gate passes.
+- Results reproducible from checkpointed data.
+
+## Phase 5: Command surface and docs rollout (Week 8)
+
+Goal: complete product and governance surfaces.
+
+Tasks:
+
+1. Register /pollux across required command registries.
+2. Add minimal UX signals and debug mode output.
+3. Finalize docs, correction ledger, and ownership coverage.
+4. Add PR narrative and rollout guidance.
+
+Exit criteria:
+
+- TG-23/TG-25 command parity checks pass.
+- Docs and plan/spec remain mutually consistent.
 
 ---
 
-## Architecture-Specific Guardrails (Must Keep)
+## 6) Mandatory test gates
 
-1. **Pollux off means true no-op:** disabled mode must not change output,
-   ordering, or model behavior.
-2. **Do not bypass CLI settings schema:** all user-facing settings must be
-   defined in CLI schema and validated in CLI loader.
-3. **No stream corruption:** event ordering and tool continuation must remain
-   stable in both interactive and non-interactive paths.
-4. **Benchmark fairness first:** isolate Pollux effect from existing router and
-   loop-detection utility checks.
-5. **Leverage existing telemetry:** extend current token/usage capture, do not
-   duplicate it.
+These are release blockers, not optional tests.
+
+| Gate  | Description                                                | Owner    | Required by   |
+| ----- | ---------------------------------------------------------- | -------- | ------------- |
+| TG-1  | Harness suppresses router/loop utility noise for fairness  | 14/07    | Phase 4 start |
+| TG-2  | Cross-surface behavior parity (legacy, agent-session, ACP) | 01/03/12 | Phase 2 exit  |
+| TG-3  | Advisor policy path avoids double prompt                   | 09/12    | Phase 2 exit  |
+| TG-4  | token usage metrics match conversation totals              | 11/02    | Phase 4 exit  |
+| TG-5  | Schema-to-ConfigParameters mapping invariant test          | 06       | Phase 1 exit  |
+| TG-6  | Pollux-specific integration tests exist and are green      | 02/14    | Phase 2 exit  |
+| TG-7  | /pollux command reachability across in-scope surfaces      | 05/12/13 | Phase 5 exit  |
+| TG-8  | ACP advisor flow regression test                           | 12       | Phase 2 exit  |
+| TG-9  | Binary build smoke test for Pollux-touching PRs            | 15       | Phase 5 exit  |
+| TG-10 | Doc/spec drift check for Pollux files                      | 16       | Phase 5 exit  |
 
 ---
 
-## Definition of Done
+## 7) CI and release gates
 
-Pollux implementation is complete when:
+Required CI updates:
 
-1. Pollux can be enabled/disabled via settings and runtime command.
-2. Escalation strategies run reliably and are unit/integration tested.
-3. Interactive, non-interactive, and agent-session interactive paths all pass
-   regression tests.
-4. Benchmark harness produces reproducible, checkpointed runs and valid reports.
-5. Documentation reflects actual architecture and measured outcomes.
+1. schema:settings check required in PR.
+2. Pollux-scoped benchmark dispatch workflow.
+3. Pollux-scoped binary build workflow.
+4. Pollux-scoped perf/memory workflow.
+
+Release policy:
+
+- No promote/latest without TG-1 through TG-10 green.
+
+---
+
+## 8) Deliverables
+
+Engineering deliverables:
+
+1. Pollux runtime modules under packages/core/src/pollux/.
+2. Benchmark harness and report artifacts.
+3. Command surface registrations.
+4. Test suites and CI workflows.
+
+Governance deliverables:
+
+1. Updated POLLUX_SPEC.md.
+2. Updated IMPLEMENTATION_PLAN.md.
+3. Pollux doc corrections ledger.
+4. CODEOWNERS updates.
+
+---
+
+## 9) Critical risk register
+
+| Risk                              | Impact                                   | Mitigation      |
+| --------------------------------- | ---------------------------------------- | --------------- |
+| Seam coverage incomplete          | Silent behavior drift by surface         | Gate G1 + TG-2  |
+| Advisor denied in non-interactive | Silent failure in CI/headless            | Gate G2 + TG-3  |
+| Biased baseline metrics           | Invalid benchmark claims                 | Gate G4 + TG-1  |
+| Token sink divergence             | Inconsistent cost accounting             | D3 + TG-4       |
+| Settings drift                    | Feature misconfiguration in production   | Gate G3 + TG-5  |
+| Command fragmentation             | /pollux works only in subset of paths    | D6 + TG-7       |
+| Doc governance drift              | Spec no longer reflects shipped behavior | Gate G5 + TG-10 |
+
+---
+
+## 10) Definition of done
+
+Pollux is done only when all of the following are true:
+
+1. Gates G0-G5 are complete.
+2. TG-1 through TG-10 are green.
+3. Pollux-off behavior matches baseline behavior.
+4. Pollux-on behavior is parity-verified across all in-scope surfaces.
+5. Benchmark report is reproducible, fairness-validated, and reviewable.
+6. Spec, plan, and docs are aligned and ownership-protected.
+
+---
+
+## 11) First 72-hour execution checklist
+
+1. Lock and merge G0/G1 documents.
+2. Land policy defaults and ACP behavior contract (G2).
+3. Land settings schema + CI check (G3).
+4. Land benchmark fairness harness scaffold (G4).
+5. Land doc governance controls (G5).
+
+No runtime feature code before checklist completion.

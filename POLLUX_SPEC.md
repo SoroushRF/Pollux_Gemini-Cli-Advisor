@@ -1,636 +1,365 @@
-# Pollux — Master Implementation Document
+# Pollux Master Specification (Reconciled)
+
+Version: 2.0 Date: 2026-04-17 Status: Implementation-ready only after start
+gates in IMPLEMENTATION_PLAN.md are complete Scope: Pollux advisor integration
+for gemini-cli fork with benchmarkable behavior and governance controls
 
 ---
 
-## 1. Project Overview
+## 1) Purpose
 
-**Name:** Pollux **Tagline:** Adaptive advisor layer for Gemini CLI — flash
-intelligence when you need it, pro judgment when it counts.
+Pollux adds an adaptive advisor path so a fast executor model can escalate
+selected decisions to a stronger advisor model. The objective is to improve
+hard-task success without paying full premium-model cost for every turn.
 
-**Core idea:** Gemini CLI today runs every task on a single model. Pollux
-intercepts the agentic loop inside a fork of gemini-cli and introduces a second
-model — a Pro advisor — that the executor (Flash) consults only when it hits a
-decision it cannot confidently resolve alone. The result is near-Pro accuracy at
-near-Flash cost, with a tunable escalation system that can be benchmarked across
-three strategies.
-
-**Inspired by:** Anthropic's Advisor Strategy (launched April 9, 2026),
-reimplemented from scratch for the Gemini ecosystem as an open-source, forkable,
-benchmarkable module.
+This spec defines execution contracts, not just architecture intent.
 
 ---
 
-## 2. Goals
+## 2) Goals and non-goals
 
-**Primary:**
+### Goals
 
-- Build a working advisor layer inside a gemini-cli fork
-- Support swappable escalation strategies (heuristic, structured, hybrid)
-- Support a matrix of executor and advisor models
-- Produce real benchmark data comparing Flash-only vs Flash+Advisor vs Pro-only
+1. Improve hard-task completion quality over flash-only baseline.
+2. Keep token and latency overhead controlled and measurable.
+3. Preserve deterministic runtime behavior across supported surfaces.
+4. Keep observability, policy, and configuration inside existing platform
+   mechanisms.
 
-**Secondary:**
+### Non-goals for Phase 1
 
-- Clean enough to demo at a GDG event
-- Structured enough to pitch as a PR or standalone package
-- Documented well enough to be a portfolio piece
-
-**Non-goals (for now):**
-
-- Production hardening
-- Multi-user support
-- Cloud deployment
-- UI changes beyond minimal advisor indicators
+1. Full A2A runtime interception.
+2. New standalone telemetry sink for token accounting.
+3. New protocol event taxonomy for advisor-specific stream events.
 
 ---
 
-## 3. Architecture Overview
+## 3) Runtime reality and coverage matrix
 
+Pollux is specified against actual runtime entry points.
+
+| Surface                       | Entry path                                          | Phase 1 status       | Pollux expectation                                   |
+| ----------------------------- | --------------------------------------------------- | -------------------- | ---------------------------------------------------- |
+| Interactive legacy            | useGeminiStream -> GeminiClient.sendMessageStream   | In scope             | Full behavior                                        |
+| Non-interactive legacy        | runNonInteractive -> GeminiClient.sendMessageStream | In scope             | Full behavior                                        |
+| Interactive agent-session     | useAgentStream -> LegacyAgentSession                | In scope             | Behavioral parity                                    |
+| Non-interactive agent-session | runNonInteractiveAgentSession -> LegacyAgentSession | In scope             | Behavioral parity                                    |
+| ACP                           | GeminiAgent.prompt                                  | In scope             | Pollux-compatible advisor policy/permission behavior |
+| A2A CoderAgentExecutor        | a2a-server executor path                            | Out of scope Phase 1 | Explicit documented bypass and tests                 |
+
+Important: processTurn-level integration is necessary but not sufficient for
+cross-surface coverage.
+
+---
+
+## 4) Pollux component model
+
+All Pollux modules live under packages/core/src/pollux/.
+
+Required modules:
+
+1. types.ts
+2. models.ts
+3. prompts.ts
+4. advisor.ts
+5. detector.ts
+6. interceptor.ts
+7. benchmark/runner.ts
+8. benchmark/tasks.ts
+9. benchmark/report.ts
+
+No dedicated pollux/logger.ts token sink is defined in this spec.
+
+---
+
+## 5) Interceptor contract
+
+### 5.1 Core behavior
+
+On eligible turns:
+
+1. Evaluate shouldEscalate(context).
+2. If false: continue unchanged.
+3. If true: consult advisor with bounded context.
+4. Inject advisor guidance through approved injection path.
+5. Resume executor path.
+
+### 5.2 Safety behavior
+
+1. Fail-open on advisor timeout/parse errors/policy denial.
+2. Bound advisor calls per turn and per session.
+3. Never mutate event ordering guarantees.
+4. Never regress Pollux-off behavior.
+
+### 5.3 Surface expectations
+
+1. Legacy and agent-session paths must satisfy same observable contract.
+2. ACP path must not introduce unexpected human permission prompts for
+   advisor-only flow.
+
+---
+
+## 6) Advisor invocation and policy contract
+
+### 6.1 Primary invocation shape
+
+Preferred shape: advisor_consultation synthetic tool routed through scheduler
+policy path.
+
+### 6.2 Policy defaults
+
+advisor_consultation must have a packaged default ALLOW rule, gated by Pollux
+feature flag.
+
+Policy decisions remain allow/deny/ask_user. Pollux does not introduce a new
+policy decision type.
+
+### 6.3 ACP behavior
+
+ACP integration must prevent redundant requestPermission prompts for
+advisor-only synthetic consultation.
+
+### 6.4 Runtime policy constraints
+
+1. No unbounded per-turn policy mutation.
+2. No extension-based ALLOW dependency for advisor path.
+3. Policy bypass is prohibited unless explicitly documented and tested.
+
+### 6.5 Example packaged rule (illustrative)
+
+```toml
+[[rules]]
+match_tool = "advisor_consultation"
+decision = "allow"
+when_feature_flag = "pollux.enabled"
+scope = "built_in_default"
 ```
-┌─────────────────────────────────────────────────┐
-│                  gemini-cli fork                │
-│                                                 │
-│  packages/cli        packages/core              │
-│  (unchanged)         (modified)                 │
-│                           │                     │
-│                    ┌──────▼──────┐              │
-│                    │ GeminiClient│              │
-│                    │ (client.ts) │              │
-│                    └──────┬──────┘              │
-│                           │                     │
-│                    ┌──────▼──────┐              │
-│                    │  Turn.run() │              │
-│                    │  (turn.ts)  │              │
-│                    └──────┬──────┘              │
-│                           │                     │
-│              ┌────────────▼────────────┐        │
-│              │     PolluxInterceptor   │  NEW   │
-│              │  (pollux/interceptor.ts)│        │
-│              └────────────┬────────────┘        │
-│                           │                     │
-│          ┌────────────────┼────────────────┐    │
-│          │                │                │    │
-│   ┌──────▼──────┐  ┌──────▼──────┐        │    │
-│   │ Escalation  │  │   Advisor   │        │    │
-│   │  Detector   │  │   Client    │        │    │
-│   │(detector.ts)│  │(advisor.ts) │        │    │
-│   └──────┬──────┘  └──────┬──────┘        │    │
-│          │                │                │    │
-│          └────────────────┘                │    │
-│                    │                        │    │
-│             ┌──────▼──────┐                │    │
-│             │  Token      │                │    │
-│             │  Logger     │                │    │
-│             │(logger.ts)  │                │    │
-│             └─────────────┘                │    │
-└─────────────────────────────────────────────────┘
-```
-
-**All Pollux code lives under:** `packages/core/src/pollux/`
-
-**Files touched in existing codebase:**
-
-- `packages/core/src/core/client.ts` — wire in PolluxInterceptor
-- `packages/core/src/core/turn.ts` — pause/resume stream around advisor call
-- `packages/core/src/config/config.ts` — add PolluxConfig reader
-- `~/.gemini/settings.json` — new `pollux` settings block
-
-**Files created (all under `packages/core/src/pollux/`):**
-
-- `index.ts` — public exports
-- `interceptor.ts` — main orchestration logic
-- `advisor.ts` — Pro model client, single-shot consultation
-- `detector.ts` — escalation signal, three swappable strategies
-- `logger.ts` — token counting, cost proxy, run metadata
-- `prompts.ts` — advisor system prompt, context formatter
-- `models.ts` — model registry, pricing metadata
-- `types.ts` — shared interfaces
-- `benchmark/runner.ts` — benchmark harness
-- `benchmark/tasks.ts` — task suite definitions
-- `benchmark/report.ts` — results aggregation and output
 
 ---
 
-## 4. Model Registry
+## 7) Escalation detector contract
 
-```typescript
-// pollux/models.ts
+### 7.1 Detector strategies
 
-export const EXECUTOR_MODELS = {
-  'gemini-3-flash-preview': { tier: 'flash', inPrice: 0, outPrice: 0 },
-  'gemini-3.1-flash-lite-preview': {
-    tier: 'flash-lite',
-    inPrice: 0,
-    outPrice: 0,
-  },
-  'gemini-2.5-flash': { tier: 'flash', inPrice: 0, outPrice: 0 },
-  'gemini-2.5-flash-lite': { tier: 'flash-lite', inPrice: 0, outPrice: 0 },
-} as const;
+1. heuristic
+2. structured
+3. hybrid
 
-export const ADVISOR_MODELS = {
-  'gemini-3.1-pro-preview': { tier: 'pro', inPrice: 0, outPrice: 0 },
-  'gemini-2.5-pro': { tier: 'pro', inPrice: 0, outPrice: 0 },
-} as const;
+### 7.2 Required detector properties
 
-// Prices are 0 for free-tier benchmarking
-// Token counts are used as the cost proxy metric instead
-```
+1. Deterministic reason codes.
+2. Threshold-driven behavior from config.
+3. Explicit false-positive and false-negative test coverage.
 
-Default pairing: `gemini-3-flash-preview` + `gemini-3.1-pro-preview`
+### 7.3 Structured confidence tag behavior
+
+1. Tag extraction and stripping must not leak to user-visible output.
+2. Missing/malformed tags must fail-open.
+
+### 7.4 Baseline purity constraint
+
+Detectors must not add extra LLM calls during baseline conditions that claim no
+advisor behavior.
 
 ---
 
-## 5. Settings Schema
+## 8) Settings and configuration contract
 
-New block added to `~/.gemini/settings.json`:
+### 8.1 Phase 1 settings path
+
+Phase 1 uses experimental.pollux.\* through CLI schema and loader.
+
+### 8.2 Example settings block
 
 ```json
 {
-  "pollux": {
-    "enabled": true,
-    "executorModel": "gemini-3-flash-preview",
-    "advisorModel": "gemini-3.1-pro-preview",
-    "escalationStrategy": "hybrid",
-    "maxAdvisorCallsPerTurn": 3,
-    "confidenceThreshold": 6,
-    "logTokens": true,
-    "logPath": "~/.gemini/pollux-logs/"
+  "experimental": {
+    "pollux": {
+      "enabled": true,
+      "executorModel": "gemini-2.5-flash",
+      "advisorModel": "gemini-3.1-pro-preview",
+      "strategy": "hybrid",
+      "maxAdvisorCallsPerTurn": 2,
+      "maxAdvisorCallsPerSession": 20,
+      "confidenceThreshold": 6,
+      "emitAdvisorDebug": false
+    }
   }
 }
 ```
+
+### 8.3 Precedence and migration
+
+1. argv > environment > settings > defaults.
+2. Migration to top-level pollux.\* is a post-stability milestone.
+
+### 8.4 Required quality gates
+
+1. schema generation check in CI.
+2. ConfigParameters mapping invariant tests.
 
 ---
 
-## 6. Escalation Strategies — Detailed Design
+## 9) Telemetry and token accounting contract
 
-Each strategy is a class implementing the same interface:
+### 9.1 Required extension
 
-```typescript
-interface EscalationDetector {
-  name: 'heuristic' | 'structured' | 'hybrid';
-  shouldEscalate(context: TurnContext): EscalationDecision;
-  reset(): void;
-}
+Add LlmRole.UTILITY_ADVISOR to existing role taxonomy.
 
-interface TurnContext {
-  turnNumber: number;
-  toolCallHistory: ToolCall[];
-  lastToolResult: ToolResult | null;
-  streamBuffer: string; // partial Flash output so far
-  retryCount: number;
-  consecutiveFailures: number;
-}
+### 9.2 Required sinks
 
-interface EscalationDecision {
-  escalate: boolean;
-  reason: string;
-  confidence?: number; // only for structured/hybrid
-}
-```
+1. LoggingContentGenerator events.
+2. ChatRecordingService token persistence.
+3. Existing metrics export path.
 
-### Strategy A — Heuristic
+### 9.3 Prohibited patterns
 
-Triggers escalation based on observable failure signals. No extra API call. Zero
-latency overhead.
+1. Parallel token sink that becomes source-of-truth.
+2. Advisor-only logging path that bypasses standard role-tagged accounting.
 
-Trigger conditions (any one fires escalation):
+### 9.4 Reconciliation requirement
 
-- Same tool called ≥ 2 times with same args (stuck in loop)
-- Tool returned error AND Flash's next output starts with uncertainty markers
-  (`"I'm not sure"`, `"It seems"`, `"I'm having trouble"`)
-- Turn count exceeds threshold (default: 8 turns) without task completion
-- Flash emits `ask_user` signal (it's asking the human = it's stuck)
-- Consecutive tool failures ≥ 2
-
-```typescript
-class HeuristicDetector implements EscalationDetector {
-  name = 'heuristic' as const;
-
-  shouldEscalate(ctx: TurnContext): EscalationDecision {
-    if (this.isLooping(ctx)) return { escalate: true, reason: 'tool_loop' };
-    if (this.isConfusedAfterError(ctx))
-      return { escalate: true, reason: 'error_confusion' };
-    if (ctx.turnNumber > 8) return { escalate: true, reason: 'turn_overflow' };
-    if (ctx.consecutiveFailures >= 2)
-      return { escalate: true, reason: 'consecutive_failures' };
-    return { escalate: false, reason: 'none' };
-  }
-}
-```
-
-### Strategy B — Structured
-
-Modifies Flash's system prompt to emit a confidence tag at the end of every
-reasoning step. Parser reads the tag from the stream before forwarding output to
-the UI.
-
-Prompt injection (appended to Flash system prompt):
-
-```
-At the end of each reasoning step before taking an action, output exactly:
-<pollux_confidence>N</pollux_confidence>
-where N is your confidence 1-10 that your current approach is correct.
-Do not explain the number. Output it silently.
-```
-
-Stream parser strips the tag before it hits the UI. If N < threshold (default:
-6), escalation fires.
-
-Cost: zero extra API calls. Latency: zero added. Risk: Flash sometimes ignores
-the instruction or outputs it mid-stream inconsistently.
-
-```typescript
-class StructuredDetector implements EscalationDetector {
-  name = 'structured' as const;
-  private threshold: number;
-
-  shouldEscalate(ctx: TurnContext): EscalationDecision {
-    const confidence = this.parseConfidenceTag(ctx.streamBuffer);
-    if (confidence === null) return { escalate: false, reason: 'no_tag' };
-    if (confidence < this.threshold)
-      return { escalate: true, reason: 'low_confidence', confidence };
-    return { escalate: false, reason: 'high_confidence', confidence };
-  }
-
-  private parseConfidenceTag(buffer: string): number | null {
-    const match = buffer.match(/<pollux_confidence>(\d+)<\/pollux_confidence>/);
-    return match ? parseInt(match[1]) : null;
-  }
-}
-```
-
-### Strategy C — Hybrid
-
-Runs both detectors. Heuristic acts as a hard floor (always fires on obvious
-failures). Structured acts as an early warning (fires before Flash even makes a
-mistake). Either one firing triggers escalation.
-
-```typescript
-class HybridDetector implements EscalationDetector {
-  name = 'hybrid' as const;
-  private heuristic = new HeuristicDetector();
-  private structured: StructuredDetector;
-
-  shouldEscalate(ctx: TurnContext): EscalationDecision {
-    const h = this.heuristic.shouldEscalate(ctx);
-    if (h.escalate) return { ...h, reason: `heuristic:${h.reason}` };
-
-    const s = this.structured.shouldEscalate(ctx);
-    if (s.escalate) return { ...s, reason: `structured:${s.reason}` };
-
-    return { escalate: false, reason: 'none' };
-  }
-}
-```
+Token totals in metrics and conversation record must reconcile in automated
+integration tests.
 
 ---
 
-## 7. Advisor Client — Detailed Design
+## 10) Benchmark protocol
 
-Single-shot Pro consultation. Stateless. Does not continue the conversation.
-Returns a plan string that gets injected back into Flash's context as a
-synthetic tool result.
+### 10.1 Conditions
 
-```typescript
-// pollux/advisor.ts
-
-class AdvisorClient {
-  private model: string;
-  private contentGenerator: ContentGenerator;
-
-  async consult(
-    history: Content[],
-    stalledReason: string,
-    taskContext: string,
-  ): Promise<AdvisorPlan> {
-    const prompt = buildAdvisorPrompt(history, stalledReason, taskContext);
-
-    // Single non-streaming call via generateJson
-    // Uses existing utility path in client.ts — no new API surface
-    const raw = await this.contentGenerator.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      model: this.model,
-    });
-
-    return {
-      action: raw.action, // 'continue' | 'replan' | 'stop'
-      reasoning: raw.reasoning,
-      nextSteps: raw.next_steps, // string[]
-      rawTokensIn: raw.usageMetadata.promptTokenCount,
-      rawTokensOut: raw.usageMetadata.candidatesTokenCount,
-    };
-  }
-}
-```
-
-Advisor system prompt (in `pollux/prompts.ts`):
-
-```
-You are a senior engineering advisor. A junior AI agent (Flash) is working on a
-coding task and has gotten stuck. You will be shown the full conversation history
-and the reason it escalated.
-
-Your job: provide a short, concrete plan (3-5 steps max) to get it unstuck.
-Do NOT execute anything. Do NOT write code. Only plan.
-
-Respond in JSON:
-{
-  "action": "continue" | "replan" | "stop",
-  "reasoning": "one sentence explaining what went wrong",
-  "next_steps": ["step 1", "step 2", ...]
-}
-```
-
-Injection back into Flash: The plan is formatted as a synthetic tool result and
-appended to the conversation history before Flash's next generation call. Flash
-sees it as the result of an `advisor_consultation` tool it "called."
-
----
-
-## 8. Token Logger
-
-```typescript
-// pollux/logger.ts
-
-interface TurnLog {
-  taskId: string;
-  trial: number;
-  condition: 'flash_only' | 'flash_advisor' | 'pro_only';
-  escalationStrategy: 'heuristic' | 'structured' | 'hybrid' | 'none';
-
-  // Per-model token breakdown
-  executorTokensIn: number;
-  executorTokensOut: number;
-  advisorTokensIn: number; // 0 when no advisor
-  advisorTokensOut: number; // 0 when no advisor
-  totalTokens: number;
-
-  // Escalation metadata
-  advisorCallCount: number;
-  escalationReasons: string[];
-
-  // Outcome
-  passed: boolean;
-  turnCount: number;
-  wallTimeMs: number;
-  advisorLatencyMs: number;
-}
-```
-
-Logs are written as newline-delimited JSON to
-`~/.gemini/pollux-logs/run-{timestamp}.jsonl`. The benchmark report script reads
-these and computes aggregated metrics.
-
----
-
-## 9. Benchmark Design
-
-### Conditions
-
-| ID  | Executor | Advisor | Escalation |
+| ID  | Executor | Advisor | Strategy   |
 | --- | -------- | ------- | ---------- |
-| A   | Flash    | none    | none       |
-| B   | Flash    | Pro     | heuristic  |
-| C   | Flash    | Pro     | structured |
-| D   | Flash    | Pro     | hybrid     |
-| E   | Pro      | none    | none       |
+| A   | Flash    | None    | None       |
+| B   | Flash    | Pro     | Heuristic  |
+| C   | Flash    | Pro     | Structured |
+| D   | Flash    | Pro     | Hybrid     |
+| E   | Pro      | None    | None       |
 
-Condition A = baseline. Condition E = oracle ceiling. B/C/D = the three Pollux
-modes.
+### 10.2 Fairness pins (mandatory)
 
-### Task Suite
+All benchmark runs used for A-E comparison must enforce:
 
-30 tasks across three difficulty tiers. Each task has:
+1. Router pinned to explicit override strategy for target model.
+2. Loop detector LLM checks disabled for baseline fairness mode.
+3. Availability state reset between runs.
+4. Dynamic model configuration features fixed and deterministic.
+5. Fresh isolated session IDs per iteration.
 
-- A natural language prompt (what Flash is asked to do)
-- A target repo or file context
-- A correctness oracle (test command or diff check)
-- A difficulty label
+### 10.3 Run validity
 
-**Easy (10 tasks):** Single file bug fix, rename a function, add a docstring,
-fix a test that fails with an obvious error message, add error handling to one
-function.
+A run is invalid if fairness pins are not active and recorded.
 
-**Medium (10 tasks):** Multi-file refactor, implement a feature from a spec, fix
-a bug that requires reading multiple files to understand, debug a subtle logic
-error, add a new API endpoint.
+### 10.4 Metrics
 
-**Hard (10 tasks):** Architectural decision with tradeoffs, recover from a wrong
-implementation path, debug a concurrency issue, implement something requiring
-understanding of a complex system, resolve conflicting requirements.
-
-Task sources (decide later, all options viable):
-
-- Custom hand-written tasks on a small open source repo you control
-- SWE-bench Verified subset (30 problems from the 500)
-- Terminal-Bench task library
-
-### Metrics Per Task
-
-```
-accuracy:           pass | fail (binary, from oracle)
-executor_tokens_in: integer
-executor_tokens_out: integer
-advisor_tokens_in:  integer (0 if no advisor)
-advisor_tokens_out: integer (0 if no advisor)
-total_tokens:       sum of all above
-advisor_calls:      integer (0 if no advisor)
-escalation_reasons: string[] (what triggered each call)
-turn_count:         integer
-wall_time_ms:       integer
-advisor_latency_ms: integer (added latency from Pro calls)
-```
-
-### Statistical Plan
-
-- 3 trials per task per condition
-- 30 tasks × 5 conditions × 3 trials = 450 total runs
-- Report mean ± std for token counts
-- Report accuracy as pass rate with 95% CI (Wilson interval, appropriate for
-  binary outcomes)
-- Rate limiting: 1 req/s with exponential backoff
-
-### Escalation Signal Quality Metrics
-
-```
-precision = tasks where (advisor called AND flash_only fails) / tasks where advisor called
-recall    = tasks where (advisor called AND flash_only fails) / all tasks where flash_only fails
-```
-
-High precision = Pro not wasted on easy tasks. High recall = Pro catching the
-cases Flash actually needs help on.
+1. Accuracy (binary pass/fail by oracle).
+2. Executor/advisor tokens and totals.
+3. End-to-end latency.
+4. Escalation precision and recall.
+5. Confidence intervals for reported rates.
 
 ---
 
-## 10. Roadmap
+## 11) Command and output surface contract
 
-### Phase 0 — Setup (Day 1)
+### 11.1 /pollux command registration
 
-- Fork gemini-cli
-- Study `client.ts`, `turn.ts`, `contentGenerator.ts`, `config.ts`
-- Set up local dev environment, confirm `npm run dev` works
-- Create `packages/core/src/pollux/` directory structure
-- Confirm model strings work against your API key
+Phase 1 requires registration in all in-scope command surfaces:
 
-### Phase 1 — Foundation (Days 2–3)
+1. Builtin command loader path.
+2. ACP command registry path.
 
-- Implement `types.ts` — all shared interfaces
-- Implement `models.ts` — model registry
-- Implement `logger.ts` — token logger stub (log everything, compute nothing
-  yet)
-- Add `pollux` block to settings schema in `config.ts`
-- Write unit tests for types and model registry
+A2A command registration is Phase 2 scope and must be explicitly documented as
+deferred.
 
-### Phase 2 — Advisor Client (Days 4–5)
+### 11.2 Stream output contract
 
-- Implement `prompts.ts` — advisor system prompt + context formatter
-- Implement `advisor.ts` — single-shot Pro consultation
-- Register `advisor_consultation` as a synthetic tool in the tool registry
-- Test advisor in isolation: hardcode a stalled context, confirm Pro returns a
-  valid plan
-- Wire token logging into advisor responses
+Phase 1 reuses existing tool_use/tool_result semantics for advisor interactions.
 
-### Phase 3 — Escalation Detectors (Days 6–8)
-
-- Implement `HeuristicDetector` — all 5 trigger conditions
-- Implement `StructuredDetector` — prompt injection + stream parser
-- Implement `HybridDetector` — composition of the two
-- Unit test each detector independently with mocked `TurnContext` inputs
-- Test structured detector's tag stripping doesn't corrupt the UI stream
-
-### Phase 4 — Interceptor + Integration (Days 9–11)
-
-- Implement `interceptor.ts` — main orchestration
-- Wire interceptor into `client.ts` at `processTurn()`
-- Wire stream pause/resume in `turn.ts` around advisor call
-- Integration test: run a real task in Flash-only mode, confirm nothing breaks
-- Run a real task that should escalate, confirm advisor fires and plan is
-  injected
-- Confirm Flash uses the plan and continues correctly
-
-### Phase 5 — Benchmark Harness (Days 12–14)
-
-- Implement `benchmark/tasks.ts` — 30 task definitions
-- Implement `benchmark/runner.ts` — runs conditions, respects rate limits,
-  writes logs
-- Implement `benchmark/report.ts` — reads logs, computes all metrics, outputs
-  table
-- Test harness on 3 tasks × 2 conditions as a smoke test
-
-### Phase 6 — Benchmark Runs (Days 15–17)
-
-- Run full 450-task benchmark
-- Fix any runtime issues discovered during runs
-- Generate final report
-
-### Phase 7 — Polish (Days 18–20)
-
-- Write README with architecture diagram, benchmark results, usage instructions
-- Add `/pollux` slash command to CLI for toggling advisor on/off at runtime
-- Optional: minimal UI indicator showing when advisor was consulted
+No new JSON stream event type is required for Phase 1 unless proven necessary by
+test failures.
 
 ---
 
-## 11. PRD
+## 12) CI, test, and release contract
 
-**Problem:** Gemini CLI uses a single model for every task regardless of
-complexity. Easy tasks waste no money on the free tier but hard tasks fail more
-than they should, and there's no way to get Pro-level judgment without paying
-Pro-level token costs across the board.
+Required release-blocking gates:
 
-**Solution:** Pollux introduces a two-tier model system where Flash runs as
-executor and Pro is consulted only on escalation. The escalation signal is
-tunable and benchmarkable.
+1. Cross-surface parity tests.
+2. Advisor policy double-prompt avoidance tests.
+3. Token reconciliation tests.
+4. Benchmark fairness gate tests.
+5. Schema and config mapping tests.
+6. Pollux-scoped binary build and perf/memory workflows.
 
-**Users:** Developers using Gemini CLI on free/pro tier who want better outcomes
-on complex coding tasks without switching to Pro for everything.
-
-**Success criteria:**
-
-- Accuracy on hard tasks improves by ≥5 percentage points vs Flash-only
-- Total token consumption does not increase by more than 20% vs Flash-only
-- Escalation precision ≥ 0.6 (Pro called on real failure cases, not noise)
-- Zero regressions on easy tasks (accuracy stays flat or improves)
-
-**Out of scope:** UI redesign, multi-agent orchestration, cloud deployment,
-fine-tuning.
+No latest-channel promotion without all release-blocking gates green.
 
 ---
 
-## 12. Key Technical Risks
+## 13) Security and safety contract
 
-**Risk 1 — Stream splice corruption** Pausing `Turn.run()`'s streaming event
-loop to inject an advisor result and resume is the hardest integration point. If
-the pause/resume is not clean, the UI hook (`useGeminiStream.ts`) will receive
-events out of order and potentially crash. _Mitigation:_ Build the interceptor
-to work on completed turns first (non-streaming), get that stable, then add
-streaming support.
-
-**Risk 2 — Structured detector reliability** Flash may not consistently emit
-`<pollux_confidence>` tags, especially mid-stream. If the tag appears after the
-action has already been decided, it's too late. _Mitigation:_ Prompt
-engineering + fallback to heuristic if no tag detected within first 200 tokens
-of output.
-
-**Risk 3 — Advisor context size** Passing the full conversation history to Pro
-on every escalation makes Pro calls expensive in tokens. On a long task the
-history could be 50k+ tokens. _Mitigation:_ Implement context trimming in
-`prompts.ts` — summarize history older than N turns, keep last 5 turns verbatim.
-
-**Risk 4 — Rate limits during benchmark** 450 runs at mixed Flash/Pro could hit
-rate limits mid-benchmark and corrupt results. _Mitigation:_ Checkpoint after
-each task. Resume from checkpoint. Exponential backoff on 429s.
-
-**Risk 5 — Oracle reliability** If your correctness oracle (test command) is
-flaky, pass/fail numbers are meaningless. _Mitigation:_ Run oracle 3 times per
-task and take majority vote.
+1. Pollux must respect existing trust and policy mechanisms.
+2. Advisor behavior must not silently degrade into denied headless behavior.
+3. Pollux must fail-open to executor path if advisor path is unavailable.
+4. No unmanaged policy sprawl through per-turn rule append behavior.
 
 ---
 
-## 13. File Structure
+## 14) Documentation and governance contract
 
-```
-packages/core/src/pollux/
-├── index.ts                  # public exports
-├── types.ts                  # all shared interfaces
-├── models.ts                 # model registry + pricing
-├── interceptor.ts            # main orchestration, wired into client.ts
-├── advisor.ts                # Pro consultation client
-├── detector.ts               # all three EscalationDetector implementations
-├── logger.ts                 # TokenLogger, TurnLog, file writer
-├── prompts.ts                # advisor system prompt, context formatter
-└── benchmark/
-    ├── runner.ts             # runs conditions, rate limiting, checkpointing
-    ├── tasks.ts              # 30 task definitions
-    └── report.ts             # metrics computation, table output
-```
+Required updates as part of Pollux rollout:
+
+1. Keep this spec and IMPLEMENTATION_PLAN.md versioned and synchronized.
+2. Maintain explicit implemented status markers for major sections.
+3. Keep ownership coverage for POLLUX\_\*.md and repo-compartment-analysis docs.
+4. Keep per-finding correction ledger tied to implementation PR sequence.
 
 ---
 
-## 14. Implementation Notes
+## 15) Acceptance criteria
 
-**Start with `types.ts`.** Every other file depends on the interfaces defined
-there. Get them right first and you avoid refactoring everything later.
+Pollux Phase 1 is accepted only when:
 
-**Don't touch `GeminiChat` directly.** Work through `client.ts`. The
-`GeminiChat` class manages conversation history and touching it risks breaking
-the history compression and loop detection systems that already exist.
+1. Pollux-off behavior is baseline-identical.
+2. Pollux-on behavior is validated across all in-scope surfaces.
+3. Advisor policy works in non-interactive and ACP modes without surprise
+   prompts.
+4. Token accounting is reconciled across all required sinks.
+5. Benchmark A-E results are produced under documented fairness pins.
+6. CI and governance contracts are fully green.
 
-**The synthetic tool approach is the right injection method.** Registering
-`advisor_consultation` as a tool means Flash sees the advisor's plan as a tool
-result — which is the most natural way for it to incorporate guidance. Injecting
-as a system message or user message is messier and more likely to confuse
-Flash's next generation.
+---
 
-**Log everything from day one.** Wire the `TokenLogger` into the
-`ContentGenerator` layer before you do anything else. You want token data from
-your very first test runs, not just the benchmark runs.
+## Appendix A: Driver/interceptor matrix (Phase 1)
 
-**Test each escalation detector in isolation first.** Mock a `TurnContext` with
-known properties and assert the detector fires or doesn't fire as expected.
-Don't test the detectors through the full integration until each one passes unit
-tests alone.
+| Surface                       | Interceptor responsibility                      | Expected test                             |
+| ----------------------------- | ----------------------------------------------- | ----------------------------------------- |
+| Interactive legacy            | Pollux orchestration + event-order preservation | end-to-end interactive escalation test    |
+| Non-interactive legacy        | Pollux orchestration + text/json stability      | end-to-end non-interactive parity test    |
+| Interactive agent-session     | Pollux parity semantics with legacy             | agent-session interactive parity test     |
+| Non-interactive agent-session | Pollux parity semantics with legacy             | agent-session non-interactive parity test |
+| ACP                           | advisor policy/permission-safe integration      | ACP advisor prompt behavior test          |
+| A2A (deferred)                | explicit bypass behavior only                   | documented bypass assertion test          |
 
-**The benchmark runner must be idempotent.** If it crashes on run 200 of 450,
-you need to resume from run 200, not restart. Checkpoint after every completed
-task to a JSON file.
+---
+
+## Appendix B: Benchmark fairness checklist
+
+Each benchmark run artifact must record:
+
+1. model override state
+2. loop detector state
+3. availability reset state
+4. dynamic config state
+5. session isolation state
+
+Missing any item invalidates comparison claims.
+
+---
+
+## Appendix C: Terminology
+
+1. Executor: default task-performing model.
+2. Advisor: escalation model consulted by Pollux.
+3. Fairness pins: controls that neutralize non-Pollux utility call noise.
+4. In-scope surface: runtime path required to satisfy Phase 1 acceptance.
