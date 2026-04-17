@@ -496,12 +496,15 @@ Task breakdown:
 | P1-05 | Add LlmRole.UTILITY_ADVISOR and role-plumb through existing telemetry path        | 11 + 02 | role enum + wiring tests            | P1-01       | TG-4       |
 | P1-06 | Implement advisor prompt builder/parser with strict schema validation             | 02      | prompts/advisor parser + unit tests | P1-01       | TG-6       |
 | P1-07 | Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
+| P1-08 | Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
+| P1-09 | Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)  | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
 
 Exit criteria:
 
 - TG-5 green (schema/config invariants).
 - Foundation tests green with Pollux disabled and enabled (no runtime
   integration yet).
+- Ledger items D-01 and D-02 closed with evidence via P1-08 and P1-09.
 
 ## Phase 2: Runtime integration by surface (Weeks 3-4)
 

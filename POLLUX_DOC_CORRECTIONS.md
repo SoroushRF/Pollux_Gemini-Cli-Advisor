@@ -46,11 +46,11 @@ Rules:
 
 ## 4) Open deliverables
 
-| Item | Description                                       | Owner    | Due phase |
-| ---- | ------------------------------------------------- | -------- | --------- |
-| D-01 | Packaged advisor ALLOW rule implementation        | 09       | Phase 1   |
-| D-02 | schema:settings CI guard wired as required PR job | 06/15    | Phase 1   |
-| D-03 | Pollux command registration map and tests         | 05/12/13 | Phase 5   |
+| Item | Description                                               | Owner    | Due phase |
+| ---- | --------------------------------------------------------- | -------- | --------- |
+| D-01 | Packaged advisor ALLOW rule implementation (P1-08)        | 09       | Phase 1   |
+| D-02 | schema:settings CI guard wired as required PR job (P1-09) | 06/15    | Phase 1   |
+| D-03 | Pollux command registration map and tests                 | 05/12/13 | Phase 5   |
 
 Note: D-01 and D-02 were originally scoped as Phase 0 deliverables but are
 implementation items. Phase 0 contract lock (G2, G3) is achieved by the
@@ -107,3 +107,9 @@ surfaces.
    docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 (row D6) and BP-06.
 8. Re-scoped D-01 and D-02 Due phase from Phase 0 to Phase 1 to match the Phase
    0 contract-lock scope of G2 and G3 in IMPLEMENTATION_PLAN.md.
+9. Pinned D-01 to Phase 1 task P1-08 and D-02 to Phase 1 task P1-09 in
+   IMPLEMENTATION_PLAN.md and docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md.
+   Added copy-paste-ready issue bodies for P1-01..P1-09 under
+   docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md. Filed automated pre-review
+   signoff for compartments 01/02/06/09/14/16; human countersign still required
+   before any Phase 1 task may move from not_started.
