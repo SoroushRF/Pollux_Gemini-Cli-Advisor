@@ -189,7 +189,7 @@ Task breakdown:
 | P0-05 | [Done 2026-04-17] Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract -> docs/core/pollux/P0-05_BENCHMARK_FAIRNESS_HARNESS_CONTRACT.md  | G0           |
 | P0-06 | [Done 2026-04-17] Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map -> docs/core/pollux/P0-06_GOVERNANCE_CONTROLS_CODEOWNERS_LEDGER.md | G5           |
 | P0-07 | [Done 2026-04-17] Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping -> docs/core/pollux/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md          | P0-04        |
-| P0-08 | Produce Phase 1 execution board (task issue list with owners)                                     | PM/16         | Tracked issue set                                                                                       | P0-01..P0-07 |
+| P0-08 | [Done 2026-04-17] Produce Phase 1 execution board (task issue list with owners)                   | PM/16         | Tracked issue set -> docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md                                   | P0-01..P0-07 |
 
 ### Phase 0 completion notes (persistent evidence)
 
@@ -403,6 +403,36 @@ Citations and references:
 3. docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md
    (governance metadata and review routing context).
 4. .github/pull_request_template.md
+
+Change record:
+
+1. Commit reference recorded in task completion report and linked in git
+   history.
+
+#### P0-08 (Done 2026-04-17)
+
+Summary:
+
+1. Published a Phase 1 execution board with tracked issue IDs for P1-01 through
+   P1-07.
+2. Assigned owners, dependencies, TG mappings, and initial status for each Phase
+   1 task.
+3. Established execution-board rules for status lifecycle and evidence updates.
+
+Pointer:
+
+1. Canonical artifact: docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md
+2. Pointer stub: docs/repo-compartment-analysis/P0-08_PHASE1_EXECUTION_BOARD.md
+
+Citations and references:
+
+1. IMPLEMENTATION_PLAN.md (P0-08 task row and Phase 1 task breakdown).
+2. IMPLEMENTATION_PLAN.md section 6 (TG-1 through TG-10).
+3. IMPLEMENTATION_PLAN.md Phase 0 exit criteria (all Phase 1 tasks have issue
+   IDs and owners).
+4. POLLUX_SPEC.md section 14 (documentation and governance contract).
+5. docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md
+   (ownership and review routing context).
 
 Change record:
 
