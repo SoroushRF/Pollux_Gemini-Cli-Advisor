@@ -180,16 +180,16 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                            | Owner         | Deliverable                                | Depends on   |
-| ----- | ------------------------------------------------------------------------------- | ------------- | ------------------------------------------ | ------------ |
-| P0-01 | Publish driver/interceptor matrix for all in-scope surfaces                     | 02 + 01/03/12 | Matrix doc + seam ownership map            | G0           |
-| P0-02 | Lock advisor policy decision path, including ACP behavior                       | 09 + 04/12    | Policy design note + acceptance tests list | P0-01        |
-| P0-03 | Define settings strategy (experimental.pollux.\* + promotion path)              | 06            | Settings contract note                     | G0           |
-| P0-04 | Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs               | P0-02/P0-03  |
-| P0-05 | Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract      | G0           |
-| P0-06 | Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map       | G5           |
-| P0-07 | Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping                | P0-04        |
-| P0-08 | Produce Phase 1 execution board (task issue list with owners)                   | PM/16         | Tracked issue set                          | P0-01..P0-07 |
+| ID    | Task                                                                            | Owner         | Deliverable                                                                            | Depends on   |
+| ----- | ------------------------------------------------------------------------------- | ------------- | -------------------------------------------------------------------------------------- | ------------ |
+| P0-01 | [Done 2026-04-17] Publish driver/interceptor matrix for all in-scope surfaces   | 02 + 01/03/12 | Matrix doc + seam ownership map -> docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md | G0           |
+| P0-02 | Lock advisor policy decision path, including ACP behavior                       | 09 + 04/12    | Policy design note + acceptance tests list                                             | P0-01        |
+| P0-03 | Define settings strategy (experimental.pollux.\* + promotion path)              | 06            | Settings contract note                                                                 | G0           |
+| P0-04 | Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs                                                           | P0-02/P0-03  |
+| P0-05 | Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract                                                  | G0           |
+| P0-06 | Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map                                                   | G5           |
+| P0-07 | Create implementation PR template keyed to TGs                                  | 16            | PR template with TG mapping                                                            | P0-04        |
+| P0-08 | Produce Phase 1 execution board (task issue list with owners)                   | PM/16         | Tracked issue set                                                                      | P0-01..P0-07 |
 
 Exit criteria:
 
