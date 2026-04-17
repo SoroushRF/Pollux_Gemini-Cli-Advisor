@@ -1,18 +1,3 @@
-# P0-01 Driver Interceptor Matrix and Seam Ownership Map (Pointer)
-
-This artifact was moved to a long-lived Pollux docs location:
-
-- [docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md](../core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md)
-
-Reason:
-
-1. `docs/repo-compartment-analysis/` remains focused on analysis reports and
-   synthesis artifacts.
-2. The P0-01 matrix is a durable implementation control document used beyond
-   analysis execution.
-
-The content of record is now maintained at the new path above.
-
 # P0-01 Driver Interceptor Matrix and Seam Ownership Map
 
 Version: 1.0 Date: 2026-04-17 Status: Draft for G1 closure Purpose: Phase 0 task
