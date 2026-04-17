@@ -16,6 +16,12 @@
 /docs/ @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
 /README.md @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
 
+# Pollux governance docs require explicit ownership coverage
+/POLLUX_*.md @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
+/IMPLEMENTATION_PLAN.md @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
+/docs/repo-compartment-analysis/ @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
+/docs/core/pollux/ @google-gemini/gemini-cli-maintainers @google-gemini/gemini-cli-docs
+
 # Prompt contents, tool definitions, and evals require reviews from prompt approvers
 /packages/core/src/prompts/ @google-gemini/gemini-cli-prompt-approvers
 /packages/core/src/tools/ @google-gemini/gemini-cli-prompt-approvers

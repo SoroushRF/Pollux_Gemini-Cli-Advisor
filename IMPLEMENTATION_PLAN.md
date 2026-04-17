@@ -180,16 +180,16 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                                              | Owner         | Deliverable                                                                                            | Depends on   |
-| ----- | ------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------ | ------------ |
-| P0-01 | [Done 2026-04-17] Publish driver/interceptor matrix for all in-scope surfaces                     | 02 + 01/03/12 | Matrix doc + seam ownership map -> docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md                 | G0           |
-| P0-02 | [Done 2026-04-17] Lock advisor policy decision path, including ACP behavior                       | 09 + 04/12    | Policy design note + acceptance tests list -> docs/core/pollux/P0-02_POLICY_CHANNEL_LOCK.md            | P0-01        |
-| P0-03 | [Done 2026-04-17] Define settings strategy (experimental.pollux.\* + promotion path)              | 06            | Settings contract note -> docs/core/pollux/P0-03_SETTINGS_STRATEGY.md                                  | G0           |
-| P0-04 | [Done 2026-04-17] Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs -> docs/core/pollux/P0-04_CI_GATES_BRANCH_PROTECTIONS.md                  | P0-02/P0-03  |
-| P0-05 | [Done 2026-04-17] Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract -> docs/core/pollux/P0-05_BENCHMARK_FAIRNESS_HARNESS_CONTRACT.md | G0           |
-| P0-06 | Land governance controls (CODEOWNERS + correction ledger process)                                 | 16 + 15       | Governance PR + review ownership map                                                                   | G5           |
-| P0-07 | Create implementation PR template keyed to TGs                                                    | 16            | PR template with TG mapping                                                                            | P0-04        |
-| P0-08 | Produce Phase 1 execution board (task issue list with owners)                                     | PM/16         | Tracked issue set                                                                                      | P0-01..P0-07 |
+| ID    | Task                                                                                              | Owner         | Deliverable                                                                                             | Depends on   |
+| ----- | ------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------- | ------------ |
+| P0-01 | [Done 2026-04-17] Publish driver/interceptor matrix for all in-scope surfaces                     | 02 + 01/03/12 | Matrix doc + seam ownership map -> docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md                  | G0           |
+| P0-02 | [Done 2026-04-17] Lock advisor policy decision path, including ACP behavior                       | 09 + 04/12    | Policy design note + acceptance tests list -> docs/core/pollux/P0-02_POLICY_CHANNEL_LOCK.md             | P0-01        |
+| P0-03 | [Done 2026-04-17] Define settings strategy (experimental.pollux.\* + promotion path)              | 06            | Settings contract note -> docs/core/pollux/P0-03_SETTINGS_STRATEGY.md                                   | G0           |
+| P0-04 | [Done 2026-04-17] Define mandatory CI gates and branch protections                                | 15            | CI checklist + required jobs -> docs/core/pollux/P0-04_CI_GATES_BRANCH_PROTECTIONS.md                   | P0-02/P0-03  |
+| P0-05 | [Done 2026-04-17] Define benchmark fairness controls (router/loop/availability/session isolation) | 14 + 07/10    | Fairness checklist + harness contract -> docs/core/pollux/P0-05_BENCHMARK_FAIRNESS_HARNESS_CONTRACT.md  | G0           |
+| P0-06 | [Done 2026-04-17] Land governance controls (CODEOWNERS + correction ledger process)               | 16 + 15       | Governance PR + review ownership map -> docs/core/pollux/P0-06_GOVERNANCE_CONTROLS_CODEOWNERS_LEDGER.md | G5           |
+| P0-07 | Create implementation PR template keyed to TGs                                                    | 16            | PR template with TG mapping                                                                             | P0-04        |
+| P0-08 | Produce Phase 1 execution board (task issue list with owners)                                     | PM/16         | Tracked issue set                                                                                       | P0-01..P0-07 |
 
 ### Phase 0 completion notes (persistent evidence)
 
@@ -338,6 +338,40 @@ Citations and references:
 3. docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux/report.md
 4. docs/repo-compartment-analysis/reports/14-testing-and-evaluation-architecture/report.md
 5. docs/repo-compartment-analysis/reports/10-sandbox-shell-and-filesystem-substrate/report.md
+
+Change record:
+
+1. Commit reference recorded in task completion report and linked in git
+   history.
+
+#### P0-06 (Done 2026-04-17)
+
+Summary:
+
+1. Landed explicit CODEOWNERS coverage for POLLUX\_\*.md and
+   docs/repo-compartment-analysis governance docs.
+2. Added mandatory correction-ledger operating process to prevent doc/spec
+   governance drift.
+3. Closed governance correction item C-07 and completed deliverable D-04 in
+   POLLUX_DOC_CORRECTIONS.md.
+
+Pointer:
+
+1. Canonical artifact:
+   docs/core/pollux/P0-06_GOVERNANCE_CONTROLS_CODEOWNERS_LEDGER.md
+2. Pointer stub:
+   docs/repo-compartment-analysis/P0-06_GOVERNANCE_CONTROLS_CODEOWNERS_LEDGER.md
+
+Citations and references:
+
+1. IMPLEMENTATION_PLAN.md section 3 (G5 done criteria) and section 6 (TG-10).
+2. POLLUX_SPEC.md section 14 (documentation and governance contract).
+3. docs/repo-compartment-analysis/reports/16-docs-specs-and-governance/report.md
+   (VT-16.4 and R-16.3).
+4. docs/repo-compartment-analysis/reports/15-build-packaging-release-and-ci/report.md
+   (governance linkage in CI/release context).
+5. .github/CODEOWNERS
+6. POLLUX_DOC_CORRECTIONS.md
 
 Change record:
 
