@@ -530,6 +530,24 @@ describe('SettingsSchema', () => {
         'Enable non-interactive agent sessions.',
       );
     });
+
+    it('should have experimental.pollux settings in schema', () => {
+      const pollux = getSettingsSchema().experimental.properties.pollux;
+      expect(pollux).toBeDefined();
+      expect(pollux.type).toBe('object');
+      expect(pollux.mergeStrategy).toBe('shallow_merge');
+      expect(pollux.properties.enabled?.default).toBe(false);
+      expect(pollux.properties.executorModel?.default).toBe('gemini-2.5-flash');
+      expect(pollux.properties.advisorModel?.default).toBe(
+        'gemini-3.1-pro-preview',
+      );
+      expect(pollux.properties.strategy?.type).toBe('enum');
+      expect(pollux.properties.strategy?.default).toBe('hybrid');
+      expect(pollux.properties.maxAdvisorCallsPerTurn?.default).toBe(2);
+      expect(pollux.properties.maxAdvisorCallsPerSession?.default).toBe(20);
+      expect(pollux.properties.confidenceThreshold?.default).toBe(6);
+      expect(pollux.properties.emitAdvisorDebug?.default).toBe(false);
+    });
   });
 
   it('has JSON schema definitions for every referenced ref', () => {

@@ -12,6 +12,7 @@
 import {
   DEFAULT_TRUNCATE_TOOL_OUTPUT_THRESHOLD,
   DEFAULT_MODEL_CONFIGS,
+  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   AuthProviderType,
   type MCPServerConfig,
   type RequiredMcpServerConfig,
@@ -2216,6 +2217,105 @@ const SETTINGS_SCHEMA = {
         description:
           'Enable the experimental Topic & Update communication model for reduced chattiness and structured progress reporting.',
         showInDialog: true,
+      },
+      pollux: {
+        type: 'object',
+        label: 'Pollux',
+        category: 'Experimental',
+        requiresRestart: true,
+        default: {},
+        description:
+          'Pollux adaptive advisor layer: escalate selected turns from the executor model to an advisor model (experimental).',
+        showInDialog: false,
+        mergeStrategy: MergeStrategy.SHALLOW_MERGE,
+        properties: {
+          enabled: {
+            type: 'boolean',
+            label: 'Enable Pollux',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.enabled,
+            description:
+              'Master toggle for Pollux. When false, behavior matches the baseline Gemini CLI path.',
+            showInDialog: false,
+          },
+          executorModel: {
+            type: 'string',
+            label: 'Executor model',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
+            description:
+              'Model alias or id used as the fast executor before escalation.',
+            showInDialog: false,
+          },
+          advisorModel: {
+            type: 'string',
+            label: 'Advisor model',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+            description:
+              'Model alias or id used when Pollux escalates to the advisor.',
+            showInDialog: false,
+          },
+          strategy: {
+            type: 'enum',
+            label: 'Escalation detector strategy',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.strategy,
+            description:
+              'How to decide whether to escalate a turn to the advisor.',
+            showInDialog: false,
+            options: [
+              { value: 'heuristic', label: 'Heuristic' },
+              { value: 'structured', label: 'Structured' },
+              { value: 'hybrid', label: 'Hybrid' },
+            ],
+          },
+          maxAdvisorCallsPerTurn: {
+            type: 'number',
+            label: 'Max advisor calls per turn',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsPerTurn,
+            description:
+              'Upper bound on advisor consultations for a single turn.',
+            showInDialog: false,
+          },
+          maxAdvisorCallsPerSession: {
+            type: 'number',
+            label: 'Max advisor calls per session',
+            category: 'Experimental',
+            requiresRestart: true,
+            default:
+              DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsPerSession,
+            description:
+              'Upper bound on advisor consultations across the session.',
+            showInDialog: false,
+          },
+          confidenceThreshold: {
+            type: 'number',
+            label: 'Structured confidence threshold',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.confidenceThreshold,
+            description:
+              'Minimum structured confidence (1–10) before escalation on structured/hybrid paths.',
+            showInDialog: false,
+          },
+          emitAdvisorDebug: {
+            type: 'boolean',
+            label: 'Emit advisor debug',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.emitAdvisorDebug,
+            description:
+              'When true, emit additional advisor debug output (verbose).',
+            showInDialog: false,
+          },
+        },
       },
     },
   },

@@ -754,3 +754,28 @@ by `PolluxModelRole`; likely concrete ids (`VALID_GEMINI_MODELS` or `gemini-` /
   `models.ts`)
 - Related report:
   [docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux/report.md](docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux/report.md)
+
+### P1-03 — Add experimental.pollux.\* to CLI settings schema and loader
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Added `experimental.pollux` under `SETTINGS_SCHEMA` in
+`packages/cli/src/config/settingsSchema.ts` with `mergeStrategy: SHALLOW_MERGE`
+for the object (scalar fields only; no array/record Pollux keys). Defaults are
+sourced from `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG` in `@google/gemini-cli-core`
+so schema defaults match core. Regenerated `schemas/settings.schema.json` via
+`npm run schema:settings` and settings reference in
+`docs/reference/configuration.md` via `npm run docs:settings`. Loader remains
+schema-driven merged settings — no `loadCliConfig` / `ConfigParameters` mapping
+yet (P1-04). Extended `packages/cli/src/config/settingsSchema.test.ts` for
+Pollux keys.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-03](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-03)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-03)
+- Contract:
+  [docs/core/pollux/P0-03_SETTINGS_STRATEGY.md](docs/core/pollux/P0-03_SETTINGS_STRATEGY.md)

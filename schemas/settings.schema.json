@@ -2959,6 +2959,73 @@
           "markdownDescription": "Enable the experimental Topic & Update communication model for reduced chattiness and structured progress reporting.\n\n- Category: `Experimental`\n- Requires restart: `no`\n- Default: `false`",
           "default": false,
           "type": "boolean"
+        },
+        "pollux": {
+          "title": "Pollux",
+          "description": "Pollux adaptive advisor layer: escalate selected turns from the executor model to an advisor model (experimental).",
+          "markdownDescription": "Pollux adaptive advisor layer: escalate selected turns from the executor model to an advisor model (experimental).\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "title": "Enable Pollux",
+              "description": "Master toggle for Pollux. When false, behavior matches the baseline Gemini CLI path.",
+              "markdownDescription": "Master toggle for Pollux. When false, behavior matches the baseline Gemini CLI path.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+              "default": false,
+              "type": "boolean"
+            },
+            "executorModel": {
+              "title": "Executor model",
+              "description": "Model alias or id used as the fast executor before escalation.",
+              "markdownDescription": "Model alias or id used as the fast executor before escalation.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `gemini-2.5-flash`",
+              "default": "gemini-2.5-flash",
+              "type": "string"
+            },
+            "advisorModel": {
+              "title": "Advisor model",
+              "description": "Model alias or id used when Pollux escalates to the advisor.",
+              "markdownDescription": "Model alias or id used when Pollux escalates to the advisor.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `gemini-3.1-pro-preview`",
+              "default": "gemini-3.1-pro-preview",
+              "type": "string"
+            },
+            "strategy": {
+              "title": "Escalation detector strategy",
+              "description": "How to decide whether to escalate a turn to the advisor.",
+              "markdownDescription": "How to decide whether to escalate a turn to the advisor.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `hybrid`",
+              "default": "hybrid",
+              "type": "string",
+              "enum": ["heuristic", "structured", "hybrid"]
+            },
+            "maxAdvisorCallsPerTurn": {
+              "title": "Max advisor calls per turn",
+              "description": "Upper bound on advisor consultations for a single turn.",
+              "markdownDescription": "Upper bound on advisor consultations for a single turn.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `2`",
+              "default": 2,
+              "type": "number"
+            },
+            "maxAdvisorCallsPerSession": {
+              "title": "Max advisor calls per session",
+              "description": "Upper bound on advisor consultations across the session.",
+              "markdownDescription": "Upper bound on advisor consultations across the session.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `20`",
+              "default": 20,
+              "type": "number"
+            },
+            "confidenceThreshold": {
+              "title": "Structured confidence threshold",
+              "description": "Minimum structured confidence (1–10) before escalation on structured/hybrid paths.",
+              "markdownDescription": "Minimum structured confidence (1–10) before escalation on structured/hybrid paths.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `6`",
+              "default": 6,
+              "type": "number"
+            },
+            "emitAdvisorDebug": {
+              "title": "Emit advisor debug",
+              "description": "When true, emit additional advisor debug output (verbose).",
+              "markdownDescription": "When true, emit additional advisor debug output (verbose).\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

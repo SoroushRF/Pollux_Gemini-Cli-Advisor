@@ -1734,6 +1734,51 @@ their corresponding top-level category object in your `settings.json` file.
     for reduced chattiness and structured progress reporting.
   - **Default:** `false`
 
+- **`experimental.pollux.enabled`** (boolean):
+  - **Description:** Master toggle for Pollux. When false, behavior matches the
+    baseline Gemini CLI path.
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.executorModel`** (string):
+  - **Description:** Model alias or id used as the fast executor before
+    escalation.
+  - **Default:** `"gemini-2.5-flash"`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.advisorModel`** (string):
+  - **Description:** Model alias or id used when Pollux escalates to the
+    advisor.
+  - **Default:** `"gemini-3.1-pro-preview"`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.strategy`** (enum):
+  - **Description:** How to decide whether to escalate a turn to the advisor.
+  - **Default:** `"hybrid"`
+  - **Values:** `"heuristic"`, `"structured"`, `"hybrid"`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.maxAdvisorCallsPerTurn`** (number):
+  - **Description:** Upper bound on advisor consultations for a single turn.
+  - **Default:** `2`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.maxAdvisorCallsPerSession`** (number):
+  - **Description:** Upper bound on advisor consultations across the session.
+  - **Default:** `20`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.confidenceThreshold`** (number):
+  - **Description:** Minimum structured confidence (1–10) before escalation on
+    structured/hybrid paths.
+  - **Default:** `6`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.emitAdvisorDebug`** (boolean):
+  - **Description:** When true, emit additional advisor debug output (verbose).
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
 #### `skills`
 
 - **`skills.enabled`** (boolean):
