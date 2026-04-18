@@ -35,6 +35,7 @@ import {
   Scheduler,
   ROOT_SCHEDULER_ID,
   LegacyAgentSession,
+  PolluxRuntimeSurface,
   ToolErrorType,
   geminiPartsToContentParts,
   debugLogger,
@@ -293,6 +294,8 @@ export async function runNonInteractive({
         scheduler,
         config,
         promptId: prompt_id,
+        polluxRuntimeSurface:
+          PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
       });
 
       // Wire Ctrl+C to session abort

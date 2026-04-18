@@ -534,15 +534,15 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                                | Owner            | Deliverable                         | Depends on   | TG mapping |
-| ----- | ----------------------------------------------------------------------------------- | ---------------- | ----------------------------------- | ------------ | ---------- |
-| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)              | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
-| P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
-| P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions    | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
-| P2-04 | Integrate non-interactive agent-session path and parity assertions                  | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
-| P2-05 | Implement ACP advisor semantics without unexpected permission prompts               | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
-| P2-06 | Add explicit A2A deferred-scope assertions and docs                                 | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
-| P2-07 | Run cross-surface integration matrix and compare observable behavior                | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
+| ID    | Task                                                                                 | Owner            | Deliverable                         | Depends on   | TG mapping |
+| ----- | ------------------------------------------------------------------------------------ | ---------------- | ----------------------------------- | ------------ | ---------- |
+| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)               | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
+| P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks  | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
+| P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions     | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
+| P2-04 | [Done 2026-04-18] Integrate non-interactive agent-session path and parity assertions | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
+| P2-05 | Implement ACP advisor semantics without unexpected permission prompts                | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
+| P2-06 | Add explicit A2A deferred-scope assertions and docs                                  | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
+| P2-07 | Run cross-surface integration matrix and compare observable behavior                 | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
 
 Exit criteria:
 
@@ -595,6 +595,25 @@ Phase 2 implementation evidence update (2026-04-18):
       passed with D3 Cell A-D plus adapter propagation coverage.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
   - Commit evidence: `54af0a45a`.
+
+- P2-04 (D4 non-interactive agent-session) delivered with explicit D4 runtime
+  surface wiring and parity/fail-open coverage:
+  - Non-interactive agent-session caller wiring to D4 surface tag:
+    `packages/cli/src/nonInteractiveCliAgentSession.ts`
+  - Core D4 integration (advisor gate extended to agent-session non-interactive
+    runtime surface): `packages/core/src/core/client.ts`
+  - D4 Cell A-D matrix tests: `packages/core/src/core/client.test.ts`
+  - Non-interactive agent-session output/continuation expectation updates for
+    explicit D4 surface propagation:
+    `packages/cli/src/nonInteractiveCliAgentSession.test.ts`
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts src/agent/legacy-agent-session.test.ts`
+      passed with D4 Cell A-D coverage included.
+    - `npm run test --workspace @google/gemini-cli -- src/nonInteractiveCliAgentSession.test.ts`
+      passed with 50/50 tests green after D4 propagation expectation updates.
+    - `npm run typecheck --workspace @google/gemini-cli-core` and
+      `npm run typecheck --workspace @google/gemini-cli` passed.
+  - Commit evidence: pending (to be filled after commit).
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 

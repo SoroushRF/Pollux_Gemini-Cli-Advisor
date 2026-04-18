@@ -621,7 +621,8 @@ export class GeminiClient {
     if (
       runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE &&
       runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE
+      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE &&
+      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE
     ) {
       return;
     }

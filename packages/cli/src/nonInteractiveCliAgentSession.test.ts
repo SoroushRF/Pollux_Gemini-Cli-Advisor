@@ -21,6 +21,7 @@ import {
   FatalInputError,
   CoreEvent,
   CoreToolCallStatus,
+  PolluxRuntimeSurface,
 } from '@google/gemini-cli-core';
 import type { Part } from '@google/genai';
 import { runNonInteractive } from './nonInteractiveCliAgentSession.js';
@@ -270,6 +271,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       'Test input',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
     expect(getWrittenOutput()).toBe('Hello World\n');
     // Note: Telemetry shutdown is now handled in runExitCleanup() in cleanup.ts
@@ -437,6 +440,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       undefined,
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
     expect(getWrittenOutput()).toBe('Final answer\n');
   });
@@ -597,6 +602,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       undefined,
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
     expect(getWrittenOutput()).toBe('Sorry, let me try again.\n');
   });
@@ -739,6 +746,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       rawInput,
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
 
     // 6. Assert the final output is correct
@@ -775,6 +784,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       'Test input',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
     expect(processStdoutSpy).toHaveBeenCalledWith(
       JSON.stringify(
@@ -981,6 +992,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       'Empty response test',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
 
     // This should output JSON with empty response but include stats
@@ -1118,6 +1131,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       '/testcommand',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
 
     expect(getWrittenOutput()).toBe('Response from command\n');
@@ -1164,6 +1179,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       '/help',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
     expect(getWrittenOutput()).toBe('Response to slash command\n');
     handleSlashCommandSpy.mockRestore();
@@ -1384,6 +1401,8 @@ describe('runNonInteractive', () => {
       undefined,
       false,
       '/unknowncommand',
+      false,
+      PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
     );
 
     expect(getWrittenOutput()).toBe('Response to unknown\n');
