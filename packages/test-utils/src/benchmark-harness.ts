@@ -18,6 +18,21 @@ export interface BenchmarkTask {
   description: string;
   files: Record<string, string>;
   prompt: string;
+  /**
+   * Marks tasks specifically crafted to trip the Pollux escalation detector
+   * (heuristic, structured, or hybrid). The aggregator uses this flag to
+   * compute the escalation confusion matrix in P4-05: a sample becomes an
+   * "expected positive" only when its task is `escalates: true` AND its
+   * condition has Pollux enabled. Defaults to `false`.
+   */
+  escalates?: boolean;
+  /**
+   * Optional task-specific resume prompt. Tasks that intend to exercise the
+   * advisor on every turn (e.g. ESCALATING) override the default resume
+   * prompt with one that also trips the detector so the resume CLI
+   * subprocess consumes the same fixture sequence as the initial run.
+   */
+  resumePrompt?: string;
   oracle: (stdout: string, workspaceDir: string) => boolean | Promise<boolean>;
 }
 
@@ -36,6 +51,51 @@ export interface BenchmarkCheckpointResumeOptions extends BenchmarkRunOptions {
   resumePrompt?: string;
 }
 
+/**
+ * Runtime observables captured from the CLI subprocess that backs a single
+ * benchmark cell. These are the inputs to the per-run fairness pin
+ * evaluation (see {@link evaluatePerRunPins}).
+ *
+ * Critically: this struct intentionally exposes the CLI's actual observed
+ * behavior (utility role telemetry counts, isolated paths) and not just an
+ * echo of the requested settings. Phase 3 of the harness review found that
+ * `_computeFairnessPins` had hardcoded `availabilityReset`, `sessionIsolated`,
+ * and `sandboxIsolated` to the constant `true`, which made the audit
+ * evidentially hollow. The revised contract is: every pin must be either (a)
+ * derived from a runtime observable here, or (b) marked as a documented
+ * settings-derived limitation.
+ */
+export interface BenchmarkRunObservables {
+  /**
+   * Session identifier injected into the CLI's TestRig setup name. Used by
+   * the aggregator to verify cross-run session isolation (FP-05). Always
+   * non-empty; aggregator confirms uniqueness across the matrix.
+   */
+  sessionId: string;
+  /**
+   * Absolute path of the per-run isolated workspace directory created by
+   * TestRig. Used by the aggregator to verify cross-run sandbox isolation
+   * (FP-06). Always non-empty; aggregator confirms uniqueness.
+   */
+  workspaceDir: string;
+  /**
+   * Absolute path of the per-run isolated home directory created by TestRig.
+   * This is where telemetry.log and per-process state (availability cache,
+   * loop-detector windows) live. Used by the aggregator to verify cross-run
+   * availability state reset (FP-03). Always non-empty; aggregator confirms
+   * uniqueness.
+   */
+  homeDir: string;
+  /**
+   * Counts of api_response telemetry events keyed by `LlmRole`. Drives the
+   * AC-03 baseline utility-suppression check: a routerPinned run MUST NOT
+   * emit any `utility_router` events at runtime; a loopDetectionDisabled
+   * run MUST NOT emit any `utility_loop_detector` events at runtime. Empty
+   * when the CLI emitted no api_response events.
+   */
+  utilityRoleCounts: Readonly<Record<string, number>>;
+}
+
 export interface BenchmarkRunMetadata {
   valid: boolean;
   invalidationReason?: string;
@@ -48,6 +108,13 @@ export interface BenchmarkRunMetadata {
     sessionIsolated: boolean;
     sandboxIsolated: boolean;
   };
+  /**
+   * Runtime evidence captured from the CLI subprocess that backs this run.
+   * Exposed so downstream aggregators (full benchmark + fairness audit) can
+   * verify cross-run uniqueness and re-derive pin truths from observable
+   * behavior rather than from settings echoes alone.
+   */
+  observables: BenchmarkRunObservables;
   metrics: {
     accuracyPass: boolean;
     latencyMs: number;
@@ -56,6 +123,13 @@ export interface BenchmarkRunMetadata {
       advisor: number;
       executor: number;
     };
+    /**
+     * Number of advisor (LlmRole.UTILITY_ADVISOR) responses observed in
+     * telemetry for this run. The escalation confusion matrix in P4-05
+     * derives TP/FP/FN purely from this counter and the task's
+     * `escalates` flag.
+     */
+    observedAdvisorCalls: number;
   };
 }
 
@@ -65,7 +139,7 @@ export interface BenchmarkCheckpointResumeMetadata {
   fairnessStateConsistent: boolean;
 }
 
-interface BenchmarkSettingsOverrides {
+export interface BenchmarkSettingsOverrides {
   model: {
     name: string;
     disableLoopDetection: boolean;
@@ -88,6 +162,69 @@ const BENCHMARK_ENV = {
   GEMINI_API_KEY: 'fake-key',
   GOOGLE_API_KEY: 'fake-key',
 } as const;
+
+/**
+ * Telemetry roles that, if observed during a benchmark run, prove a
+ * fairness pin was NOT enforced at runtime regardless of the settings file.
+ * Used by AC-03 (TG-1 baseline utility-call suppression).
+ */
+export const ROUTER_TELEMETRY_ROLE = 'utility_router';
+export const LOOP_DETECTOR_TELEMETRY_ROLE = 'utility_loop_detector';
+export const ADVISOR_TELEMETRY_ROLE = 'utility_advisor';
+
+/**
+ * Pure pin evaluator: given the requested settings AND the runtime
+ * observables captured from the CLI subprocess, return the per-run pin
+ * truth table.
+ *
+ * Per-pin derivation rules (P0-05 contract refined by senior review):
+ *
+ *   - FP-01 routerPinned: requested settings PIN router off AND telemetry
+ *     contains zero `utility_router` api_response events.
+ *   - FP-02 loopDetectionDisabled: requested settings disable loop detection
+ *     AND telemetry contains zero `utility_loop_detector` api_response
+ *     events.
+ *   - FP-03 availabilityReset: this run reports a non-empty isolated home
+ *     directory. Cross-run uniqueness is the aggregator's responsibility
+ *     (see `pollux-benchmark-fairness-audit.ts`).
+ *   - FP-04 dynamicConfigFixed: requested settings disable dynamic model
+ *     configuration. Pure settings-derived; documented limitation.
+ *   - FP-05 sessionIsolated: this run reports a non-empty unique session id.
+ *     Cross-run uniqueness is the aggregator's responsibility.
+ *   - FP-06 sandboxIsolated: this run reports a non-empty workspace
+ *     directory distinct from the home directory. Cross-run uniqueness is
+ *     the aggregator's responsibility.
+ */
+export function evaluatePerRunPins(
+  settings: BenchmarkSettingsOverrides,
+  observables: BenchmarkRunObservables,
+): BenchmarkRunMetadata['fairnessPins'] {
+  const routerSettingsOk =
+    settings.model.name !== 'auto' &&
+    settings.experimental.gemmaModelRouter.enabled === false;
+  const observedRouterCalls =
+    observables.utilityRoleCounts[ROUTER_TELEMETRY_ROLE] ?? 0;
+  const observedLoopDetectorCalls =
+    observables.utilityRoleCounts[LOOP_DETECTOR_TELEMETRY_ROLE] ?? 0;
+
+  return {
+    routerPinned: routerSettingsOk && observedRouterCalls === 0,
+    loopDetectionDisabled:
+      settings.model.disableLoopDetection === true &&
+      observedLoopDetectorCalls === 0,
+    availabilityReset:
+      typeof observables.homeDir === 'string' && observables.homeDir.length > 0,
+    dynamicConfigFixed:
+      settings.experimental.dynamicModelConfiguration === false,
+    sessionIsolated:
+      typeof observables.sessionId === 'string' &&
+      observables.sessionId.length > 0,
+    sandboxIsolated:
+      typeof observables.workspaceDir === 'string' &&
+      observables.workspaceDir.length > 0 &&
+      observables.workspaceDir !== observables.homeDir,
+  };
+}
 
 /**
  * Benchmark Harness for Pollux
@@ -121,6 +258,7 @@ export class BenchmarkHarness {
       const singleRun = await this._executeRun(
         task,
         settingsOverrides,
+        sessionId,
         {
           stdin: task.prompt,
         },
@@ -147,22 +285,31 @@ export class BenchmarkHarness {
       const initialRun = await this._executeRun(
         task,
         settingsOverrides,
+        sessionId,
         {
           args: ['--prompt', task.prompt],
         },
         0,
       );
 
+      // Per-task escalating prompts (e.g. CAL-BM-04-ESCALATING) are honored
+      // here so the resume turn lands on the same detector path as the
+      // initial turn and therefore consumes the same fixture sequence (the
+      // CLI subprocess is fresh and replays fixtures from index 0). Without
+      // this hook, an escalating task's resume turn would silently consume
+      // an advisor-shaped fixture as if it were an executor response and
+      // would never observe a `utility_advisor` telemetry event.
+      const resumePrompt =
+        options.resumePrompt ??
+        task.resumePrompt ??
+        'Confirm benchmark completion.';
+
       const resumedRun = await this._executeRun(
         task,
         settingsOverrides,
+        sessionId,
         {
-          args: [
-            '--resume',
-            'latest',
-            '--prompt',
-            options.resumePrompt ?? 'Confirm benchmark completion.',
-          ],
+          args: ['--resume', 'latest', '--prompt', resumePrompt],
         },
         initialRun.nextTelemetryIndex,
       );
@@ -230,33 +377,16 @@ export class BenchmarkHarness {
     }
   }
 
-  private _computeFairnessPins(
-    settingsOverrides: BenchmarkSettingsOverrides,
-  ): BenchmarkRunMetadata['fairnessPins'] {
-    return {
-      routerPinned:
-        settingsOverrides.model.name !== 'auto' &&
-        settingsOverrides.experimental.gemmaModelRouter.enabled === false,
-      loopDetectionDisabled:
-        settingsOverrides.model.disableLoopDetection === true,
-      availabilityReset: true,
-      dynamicConfigFixed:
-        settingsOverrides.experimental.dynamicModelConfiguration === false,
-      sessionIsolated: true,
-      sandboxIsolated: true,
-    };
-  }
-
   private async _executeRun(
     task: BenchmarkTask,
     settingsOverrides: BenchmarkSettingsOverrides,
+    sessionId: string,
     runOptions: {
       args?: string[];
       stdin?: string;
     },
     telemetryStartIndex: number,
   ): Promise<{ metadata: BenchmarkRunMetadata; nextTelemetryIndex: number }> {
-    const fairnessPins = this._computeFairnessPins(settingsOverrides);
     const startTime = Date.now();
 
     let runStdout = '';
@@ -280,16 +410,33 @@ export class BenchmarkHarness {
     const runTelemetry = telemetry.slice(telemetryStartIndex);
 
     const tokens = { total: 0, advisor: 0, executor: 0 };
+    const utilityRoleCounts: Record<string, number> = {};
+    let observedAdvisorCalls = 0;
     for (const response of runTelemetry) {
-      const role = response.attributes?.['role'];
-      const usageTokens = response.attributes?.['total_token_count'] || 0;
+      const roleAttr = response.attributes?.['role'];
+      const role = typeof roleAttr === 'string' ? roleAttr : undefined;
+      const usageTokens =
+        (response.attributes?.['total_token_count'] as number | undefined) ?? 0;
       tokens.total += usageTokens;
-      if (role === 'utility_advisor') {
+      if (role === ADVISOR_TELEMETRY_ROLE) {
         tokens.advisor += usageTokens;
+        observedAdvisorCalls += 1;
       } else {
         tokens.executor += usageTokens;
       }
+      if (role !== undefined) {
+        utilityRoleCounts[role] = (utilityRoleCounts[role] ?? 0) + 1;
+      }
     }
+
+    const observables: BenchmarkRunObservables = {
+      sessionId,
+      workspaceDir: this.rig.testDir ?? '',
+      homeDir: this.rig.homeDir ?? '',
+      utilityRoleCounts,
+    };
+
+    const fairnessPins = evaluatePerRunPins(settingsOverrides, observables);
 
     const accuracyPass =
       !runError && this.rig.testDir
@@ -306,10 +453,12 @@ export class BenchmarkHarness {
           invalidPin?.[0] ?? (runError ? 'run_error' : undefined),
         executionOutput: runStdout,
         fairnessPins,
+        observables,
         metrics: {
           accuracyPass,
           latencyMs,
           tokens,
+          observedAdvisorCalls,
         },
       },
       nextTelemetryIndex: telemetry.length,
