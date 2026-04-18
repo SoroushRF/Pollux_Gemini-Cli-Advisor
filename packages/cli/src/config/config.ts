@@ -799,13 +799,41 @@ export async function loadCliConfig(
   );
 
   const defaultModel = PREVIEW_GEMINI_MODEL_AUTO;
+  // Pollux precedence: when `experimental.pollux.enabled` is true, the
+  // executor model is sourced from `experimental.pollux.executorModel` rather
+  // than `settings.model.name`. Pollux's whole value proposition is "fast
+  // executor, smart advisor", so when Pollux is enabled the executor must
+  // route to the Pollux executor model (default or explicit). Without this
+  // bridge, `OverrideStrategy` would route the executor against
+  // `settings.model.name` and silently ignore the Pollux config (which is
+  // what caused both advisor and executor to share the same model in live
+  // runs). `argv.model` and `GEMINI_MODEL` still win because explicit
+  // command-line / environment intent trumps any config setting.
+  const polluxSettings = settings.experimental?.pollux;
+  const polluxExecutorOverride =
+    polluxSettings?.enabled === true ? polluxSettings.executorModel : undefined;
   const specifiedModel =
-    argv.model || process.env['GEMINI_MODEL'] || settings.model?.name;
+    argv.model ||
+    process.env['GEMINI_MODEL'] ||
+    polluxExecutorOverride ||
+    settings.model?.name;
 
   const resolvedModel =
     specifiedModel === GEMINI_MODEL_ALIAS_AUTO
       ? defaultModel
       : specifiedModel || defaultModel;
+
+  if (
+    polluxExecutorOverride &&
+    !argv.model &&
+    !process.env['GEMINI_MODEL'] &&
+    settings.model?.name &&
+    settings.model.name !== polluxExecutorOverride
+  ) {
+    debugLogger.log(
+      `Pollux executor override: model.name="${settings.model.name}" superseded by experimental.pollux.executorModel="${polluxExecutorOverride}"`,
+    );
+  }
   const sandboxConfig = await loadSandboxConfig(settings, argv);
   if (sandboxConfig) {
     const existingPaths = sandboxConfig.allowedPaths || [];

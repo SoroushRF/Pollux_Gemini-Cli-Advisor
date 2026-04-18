@@ -1980,6 +1980,100 @@ describe('loadCliConfig model selection', () => {
   });
 });
 
+describe('loadCliConfig pollux executor model precedence', () => {
+  beforeEach(() => {
+    vi.spyOn(ExtensionManager.prototype, 'getExtensions').mockReturnValue([]);
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('keeps settings.model.name when pollux is disabled', async () => {
+    process.argv = ['node', 'script.js'];
+    const argv = await parseArguments(createTestMergedSettings());
+    const config = await loadCliConfig(
+      createTestMergedSettings({
+        model: { name: 'gemini-2.5-pro' },
+        experimental: {
+          pollux: {
+            enabled: false,
+            executorModel: 'gemini-2.5-flash',
+          },
+        },
+      } as unknown as Parameters<typeof createTestMergedSettings>[0]),
+      'test-session',
+      argv,
+    );
+
+    expect(config.getModel()).toBe('gemini-2.5-pro');
+  });
+
+  it('overrides settings.model.name with pollux.executorModel when enabled', async () => {
+    process.argv = ['node', 'script.js'];
+    const argv = await parseArguments(createTestMergedSettings());
+    const config = await loadCliConfig(
+      createTestMergedSettings({
+        model: { name: 'gemini-3.1-pro-preview' },
+        experimental: {
+          pollux: {
+            enabled: true,
+            executorModel: 'gemini-2.5-flash',
+          },
+        },
+      } as unknown as Parameters<typeof createTestMergedSettings>[0]),
+      'test-session',
+      argv,
+    );
+
+    expect(config.getModel()).toBe('gemini-2.5-flash');
+  });
+
+  it('still prefers argv.model over pollux.executorModel', async () => {
+    process.argv = ['node', 'script.js', '--model', 'gemini-2.5-flash-preview'];
+    const argv = await parseArguments(createTestMergedSettings());
+    const config = await loadCliConfig(
+      createTestMergedSettings({
+        model: { name: 'gemini-3.1-pro-preview' },
+        experimental: {
+          pollux: {
+            enabled: true,
+            executorModel: 'gemini-2.5-flash',
+          },
+        },
+      } as unknown as Parameters<typeof createTestMergedSettings>[0]),
+      'test-session',
+      argv,
+    );
+
+    expect(config.getModel()).toBe('gemini-2.5-flash-preview');
+  });
+
+  it('uses the pollux executor schema default when enabled with no explicit executorModel', async () => {
+    process.argv = ['node', 'script.js'];
+    const argv = await parseArguments(createTestMergedSettings());
+    // When Pollux is enabled with no explicit executorModel, the schema default
+    // (gemini-2.5-flash) is the executor. This is by design: enabling Pollux
+    // means opting into "fast executor, smart advisor". A user who pinned
+    // model.name to a different model and then turned Pollux on has created an
+    // internal contradiction; Pollux wins because that is what Pollux means.
+    const config = await loadCliConfig(
+      createTestMergedSettings({
+        model: { name: 'gemini-2.5-pro' },
+        experimental: {
+          pollux: {
+            enabled: true,
+          },
+        },
+      } as unknown as Parameters<typeof createTestMergedSettings>[0]),
+      'test-session',
+      argv,
+    );
+
+    expect(config.getModel()).toBe('gemini-2.5-flash');
+  });
+});
+
 describe('loadCliConfig folderTrust', () => {
   let originalVitest: string | undefined;
   let originalIntegrationTest: string | undefined;
