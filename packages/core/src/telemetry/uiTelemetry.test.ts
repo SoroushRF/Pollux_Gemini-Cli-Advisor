@@ -12,6 +12,7 @@ import {
   EVENT_API_ERROR,
   EVENT_API_RESPONSE,
   EVENT_TOOL_CALL,
+  LlmRole,
   type ApiErrorEvent,
   type ApiResponseEvent,
 } from './types.js';
@@ -387,6 +388,43 @@ describe('UiTelemetryService', () => {
           candidates: 0,
           total: 0,
           cached: 0,
+          thoughts: 0,
+          tool: 0,
+        },
+      });
+    });
+
+    it('should aggregate ApiResponse usage under LlmRole.UTILITY_ADVISOR (Pollux)', () => {
+      const event = {
+        'event.name': EVENT_API_RESPONSE,
+        model: 'gemini-3.1-pro-preview',
+        duration_ms: 120,
+        role: LlmRole.UTILITY_ADVISOR,
+        usage: {
+          input_token_count: 8,
+          output_token_count: 12,
+          total_token_count: 22,
+          cached_content_token_count: 2,
+          thoughts_token_count: 0,
+          tool_token_count: 0,
+        },
+      } as ApiResponseEvent & { 'event.name': typeof EVENT_API_RESPONSE };
+
+      service.addEvent(event);
+
+      const modelMetrics =
+        service.getMetrics().models['gemini-3.1-pro-preview'];
+      expect(modelMetrics.tokens.total).toBe(22);
+      expect(modelMetrics.roles[LlmRole.UTILITY_ADVISOR]).toEqual({
+        totalRequests: 1,
+        totalErrors: 0,
+        totalLatencyMs: 120,
+        tokens: {
+          input: 6,
+          prompt: 8,
+          candidates: 12,
+          total: 22,
+          cached: 2,
           thoughts: 0,
           tool: 0,
         },

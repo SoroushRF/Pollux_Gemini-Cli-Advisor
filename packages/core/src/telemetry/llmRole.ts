@@ -16,4 +16,6 @@ export enum LlmRole {
   UTILITY_EDIT_CORRECTOR = 'utility_edit_corrector',
   UTILITY_AUTOCOMPLETE = 'utility_autocomplete',
   UTILITY_FAST_ACK_HELPER = 'utility_fast_ack_helper',
+  /** Pollux advisor escalation model calls (POLLUX_SPEC §9). */
+  UTILITY_ADVISOR = 'utility_advisor',
 }

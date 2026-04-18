@@ -805,3 +805,25 @@ cover constructor and `loadCliConfig` wiring.
 - Contract:
   [docs/core/pollux/P0-03_SETTINGS_STRATEGY.md](docs/core/pollux/P0-03_SETTINGS_STRATEGY.md)
   §3
+
+### P1-05 — Add LlmRole.UTILITY_ADVISOR and plumb through telemetry
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Extended `LlmRole` in `packages/core/src/telemetry/llmRole.ts` with
+`UTILITY_ADVISOR = 'utility_advisor'` (POLLUX_SPEC §9). No new sinks — existing
+`ApiResponseEvent.role` + `UiTelemetryService` per-role aggregation already keys
+off `LlmRole`. Added `uiTelemetry.test.ts` coverage that an API response tagged
+with `LlmRole.UTILITY_ADVISOR` records token and request stats under that role
+bucket alongside model totals.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-05](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-05)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-05)
+- Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §9 (telemetry and token accounting)
+- Report:
+  [docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals/report.md](docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals/report.md)
