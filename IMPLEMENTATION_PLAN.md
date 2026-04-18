@@ -1009,19 +1009,76 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                                  | Owner      | Deliverable                                                                      | Depends on | TG mapping |
-| ----- | ------------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------- | ---------- | ---------- |
-| P4-01 | Finalize benchmark task corpus with oracle reliability checks                         | 14         | task corpus + oracle docs                                                        | P0-05      | TG-1       |
-| P4-02 | Implement benchmark harness controls (router/loop/availability/session)               | 14 + 07/10 | benchmark harness code                                                           | P4-01      | TG-1       |
-| P4-03 | [Done 2026-04-18] Run smoke benchmark (small matrix) and validate reproducibility     | 14         | smoke run artifact -> docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md  | P4-02      | TG-1       |
-| P4-04 | [Done 2026-04-18] Run full five-condition benchmark with checkpoint/resume            | 14         | full run artifacts -> docs/core/pollux/P4-04_FULL_BENCHMARK_CHECKPOINT_RESUME.md | P4-03      | TG-1       |
-| P4-05 | [Done 2026-04-18] Publish token/latency/accuracy report with CIs and escalation stats | 14 + 11    | benchmark report -> docs/core/pollux/P4-05_BENCHMARK_METRICS_REPORT.md           | P4-04      | TG-1/TG-4  |
-| P4-06 | [Done 2026-04-18] Validate fairness-pin audit trail for each run                      | 14         | fairness audit log -> docs/core/pollux/P4-06_FAIRNESS_AUDIT_LOG.md               | P4-04      | TG-1       |
+| ID    | Task                                                                                                              | Owner      | Deliverable                                                                                                                                                                     | Depends on | TG mapping |
+| ----- | ----------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------- |
+| P4-01 | [Done 2026-04-18] Finalize benchmark task corpus with oracle reliability checks                                   | 14         | task corpus (`packages/core/src/pollux/benchmark/tasks.ts`) + oracle reliability tests (`packages/core/src/pollux/benchmark/tasks.test.ts`)                                     | P0-05      | TG-1       |
+| P4-02 | [Done 2026-04-18] Implement benchmark harness controls (router/loop/availability/session)                         | 14 + 07/10 | benchmark harness code + harness unit tests (`packages/test-utils/src/benchmark-harness.ts`, `packages/test-utils/src/benchmark-harness.test.ts`)                               | P4-01      | TG-1       |
+| P4-03 | [Done 2026-04-18] Run smoke benchmark (small matrix) and validate reproducibility                                 | 14         | smoke run artifact -> `docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md`                                                                                               | P4-02      | TG-1       |
+| P4-04 | [Done 2026-04-18] Run full five-condition benchmark with session-resume continuity                                | 14         | full run artifact -> `docs/core/pollux/P4-04_FULL_BENCHMARK_CHECKPOINT_RESUME.md` (renamed in body to "session-resume continuity"; filename retained for back-compat)           | P4-03      | TG-1       |
+| P4-05 | [Done 2026-04-18] Publish synthetic harness self-test (tokens/latency/accuracy/CIs/escalation stats)              | 14 + 11    | synthetic harness self-test -> `docs/core/pollux/P4-05_BENCHMARK_METRICS_REPORT.md` + real-model methodology contract -> `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md` | P4-04      | TG-1/TG-4  |
+| P4-06 | [Done 2026-04-18] Validate fairness-pin audit trail for each run with telemetry-derived AC-02/AC-03/TG-3 evidence | 14         | fairness audit log -> `docs/core/pollux/P4-06_FAIRNESS_AUDIT_LOG.md`                                                                                                            | P4-04      | TG-1       |
+
+Evidence:
+
+- P4-01 deliverable: `packages/core/src/pollux/benchmark/tasks.ts` defines the
+  four-task corpus including the new `CAL-BM-04-ESCALATING` task (heuristic +
+  structured cues, oracle expects an `escalation-marker.txt` artifact).
+  Reliability is enforced by `packages/core/src/pollux/benchmark/tasks.test.ts`,
+  which runs positive/negative oracle assertions per task and uses
+  `createHybridDetector()` directly to verify that exactly one corpus task
+  escalates and that non-escalating tasks never escalate under any default
+  detector setting.
+- P4-02 deliverable: `packages/test-utils/src/benchmark-harness.ts` exposes
+  `evaluatePerRunPins`, which derives all six fairness pins from a combination
+  of declared settings and per-run runtime observables
+  (`BenchmarkRunObservables`, including telemetry counts of `utility_router`,
+  `utility_loop_detector`, `utility_advisor`, plus `sessionId`, `workspaceDir`,
+  `homeDir`). `packages/test-utils/src/benchmark-harness.test.ts` covers all six
+  pins with positive and negative cases, including AC-02 invalid-run rejection
+  when settings or telemetry contradict an asserted pin.
+- P4-03 deliverable: `docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md`
+  generated by `packages/test-utils/src/pollux-benchmark-smoke.ts` and asserted
+  by `pollux-benchmark-smoke.test.ts`. The smoke matrix now spans conditions A,
+  D, and E across the four-task corpus and publishes `advisorPipelineExercised`
+  (TG-3 evidence: hybrid condition D against the escalating task must observe
+  non-zero advisor calls, while A/E and non-escalating tasks must observe zero).
+- P4-04 deliverable:
+  `docs/core/pollux/P4-04_FULL_BENCHMARK_CHECKPOINT_RESUME.md` generated by
+  `packages/test-utils/src/pollux-benchmark-full.ts` and asserted by
+  `pollux-benchmark-full.test.ts`. The body of the artifact frames the property
+  as session-resume continuity: each initial CLI subprocess run is followed by a
+  fresh CLI subprocess run using `task.resumePrompt` (when set) and the same
+  fixture sequence; the report fingerprint includes `observedAdvisorCalls` so
+  resume parity covers advisor invocation, not just executor output.
+- P4-05 deliverable: `docs/core/pollux/P4-05_BENCHMARK_METRICS_REPORT.md` is now
+  explicitly framed as a synthetic harness self-test. The confusion-matrix
+  `expectedPositive` is `task.escalates && advisorEnabled`, fixing the prior bug
+  that produced 0% recall by counting all Pollux-on cells as positives.
+  `pollux-benchmark-report.test.ts` pins the corrected semantics (TP > 0, FP =
+  0, recall > 0, precision = 1 for the synthetic fixtures). Real-model claims
+  are gated by the contract in
+  `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md`.
+- P4-06 deliverable: `docs/core/pollux/P4-06_FAIRNESS_AUDIT_LOG.md` generated by
+  `packages/test-utils/src/pollux-benchmark-fairness-audit.ts` and asserted by
+  `pollux-benchmark-fairness-audit.test.ts`. The audit records observed router /
+  loop-detector / advisor call counts per run (AC-03 evidence), cross-run
+  uniqueness for sessionId / workspaceDir / homeDir (FP-03/FP-05/FP-06
+  evidence), and `advisorPipelineExercised` (TG-3 evidence). The negative-path
+  contract for AC-02 is exercised by the harness unit tests on
+  `evaluatePerRunPins`.
 
 Exit criteria:
 
 - TG-1 green.
-- Benchmark outputs reproducible from checkpoints with fairness audit trail.
+- Benchmark outputs reproducible from session-resume runs with a fairness audit
+  trail derived from runtime telemetry, not from settings echoes.
+- TG-3 covered: at least one cell observes a non-zero `utility_advisor` count
+  (synthetic harness self-test).
+- TG-4 covered: token reconciliation `total = advisor + executor` holds across
+  every cell of the synthetic harness self-test.
+- Real-model executor-vs.-advisor benchmark claims remain explicitly out of
+  scope until the contract in
+  `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md` is satisfied.
 
 ## Phase 5: Command surface, docs, and ship readiness (Week 8)
 
