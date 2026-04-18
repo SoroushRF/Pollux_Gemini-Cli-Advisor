@@ -20,6 +20,7 @@ import { CoreToolCallStatus } from '../scheduler/types.js';
 import type { GeminiClient } from '../core/client.js';
 import type { Scheduler } from '../scheduler/scheduler.js';
 import type { Config } from '../config/config.js';
+import { PolluxRuntimeSurface } from '../pollux/types.js';
 
 // ---------------------------------------------------------------------------
 // Mock helpers
@@ -56,6 +57,7 @@ function createMockDeps(
     config: mockConfig as unknown as Config,
     promptId: 'test-prompt',
     streamId: 'test-stream',
+    polluxRuntimeSurface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
     getPreferredEditor: vi.fn().mockReturnValue(undefined),
     ...overrides,
   } as Required<LegacyAgentSessionDeps>;
@@ -202,9 +204,44 @@ describe('LegacyAgentSession', () => {
         undefined,
         false,
         'raw input',
+        false,
+        PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
       );
 
       await collectEvents(session, { streamId: streamId ?? undefined });
+    });
+
+    it('passes configured runtime surface through to GeminiClient.sendMessageStream', async () => {
+      const interactiveDeps = createMockDeps({
+        polluxRuntimeSurface: PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+      });
+      const sendMock = interactiveDeps.client.sendMessageStream as ReturnType<
+        typeof vi.fn
+      >;
+      sendMock.mockReturnValue(
+        makeStream([
+          {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          },
+        ]),
+      );
+
+      const session = new LegacyAgentSession(interactiveDeps);
+
+      await session.send(makeMessageSend('hi'));
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sendMock).toHaveBeenCalledWith(
+        [{ text: 'hi' }],
+        expect.any(AbortSignal),
+        'test-prompt',
+        undefined,
+        false,
+        undefined,
+        false,
+        PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+      );
     });
 
     it('returns streamId before emitting agent_start', async () => {

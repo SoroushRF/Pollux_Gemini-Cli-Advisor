@@ -90,6 +90,7 @@ import {
   logBillingEvent,
   ApiKeyUpdatedEvent,
   LegacyAgentProtocol,
+  PolluxRuntimeSurface,
   type InjectionSource,
   startMemoryService,
 } from '@google/gemini-cli-core';
@@ -1178,7 +1179,12 @@ Logging in with Google... Restarting Gemini CLI to continue.
   const streamAgent = useMemo(
     () =>
       config?.getAgentSessionInteractiveEnabled()
-        ? new LegacyAgentProtocol({ config, getPreferredEditor })
+        ? new LegacyAgentProtocol({
+            config,
+            getPreferredEditor,
+            polluxRuntimeSurface:
+              PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+          })
         : undefined,
     [config, getPreferredEditor],
   );

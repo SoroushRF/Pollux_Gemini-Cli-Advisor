@@ -538,7 +538,7 @@ Task breakdown:
 | ----- | ----------------------------------------------------------------------------------- | ---------------- | ----------------------------------- | ------------ | ---------- |
 | P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)              | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
 | P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
-| P2-03 | Integrate interactive agent-session path and parity assertions                      | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
+| P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions    | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
 | P2-04 | Integrate non-interactive agent-session path and parity assertions                  | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
 | P2-05 | Implement ACP advisor semantics without unexpected permission prompts               | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
 | P2-06 | Add explicit A2A deferred-scope assertions and docs                                 | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
@@ -580,6 +580,21 @@ Phase 2 implementation evidence update (2026-04-18):
       passed with D2 Cell A-D coverage.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
   - Commit evidence: `97a67416f`.
+
+- P2-03 (D3 interactive agent-session) delivered with explicit runtime-surface
+  wiring and parity/fail-open coverage:
+  - Interactive agent-session caller wiring to D3 surface tag:
+    `packages/cli/src/ui/AppContainer.tsx`
+  - Agent-session adapter runtime-surface propagation to core client:
+    `packages/core/src/agent/legacy-agent-session.ts`
+  - Adapter propagation regression test:
+    `packages/core/src/agent/legacy-agent-session.test.ts`
+  - D3 Cell A-D matrix tests: `packages/core/src/core/client.test.ts`
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts src/agent/legacy-agent-session.test.ts`
+      passed with D3 Cell A-D plus adapter propagation coverage.
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+  - Commit evidence: pending (to be filled after commit).
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 

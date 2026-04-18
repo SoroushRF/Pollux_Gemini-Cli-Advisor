@@ -1214,6 +1214,198 @@ describe('Gemini Client (client.ts)', () => {
       expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps interactive agent-session output baseline-identical when Pollux is disabled (D3 Cell A)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: false,
+      });
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-a-baseline',
+        ),
+      );
+
+      const agentSessionInteractiveWithPolluxDisabled = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-a-agent-session-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        ),
+      );
+
+      expect(agentSessionInteractiveWithPolluxDisabled).toEqual(baseline);
+      expect(mockPolicyCheck).not.toHaveBeenCalled();
+    });
+
+    it('runs advisor internally on allow and preserves interactive agent-session stream events (D3 Cell B)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-b-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Continue with executor"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const polluxOn = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-b-agent-session-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOn).toEqual(baseline);
+      expect(mockPolicyCheck).toHaveBeenCalled();
+      expect(mockPolicyCheck.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ name: 'advisor_consultation' }),
+      );
+      expect(advisorSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(Object),
+        LlmRole.UTILITY_ADVISOR,
+      );
+    });
+
+    it('fails open for interactive agent-session when advisor policy denies (D3 Cell C)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-c-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.DENY,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      const polluxOnDenied = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-c-agent-session-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOnDenied).toEqual(baseline);
+      expect(advisorSpy).not.toHaveBeenCalled();
+    });
+
+    it('fails open on advisor timeout and keeps interactive agent-session executor stream stable (D3 Cell D)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-d-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const timeoutError = new Error('advisor timeout');
+      timeoutError.name = 'AbortError';
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockRejectedValue(timeoutError);
+
+      const polluxOnTimeout = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d3-cell-d-agent-session-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOnTimeout).toEqual(baseline);
+      expect(
+        polluxOnTimeout.some(
+          (event) => event.type === GeminiEventType.UserCancelled,
+        ),
+      ).toBe(false);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('yields UserCancelled when processTurn throws AbortError', async () => {
       const abortError = new Error('Aborted');
       abortError.name = 'AbortError';

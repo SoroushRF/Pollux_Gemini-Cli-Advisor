@@ -32,6 +32,10 @@ import {
   translateEvent,
   type TranslationState,
 } from './event-translator.js';
+import {
+  PolluxRuntimeSurface,
+  type PolluxRuntimeSurface as PolluxRuntimeSurfaceType,
+} from '../pollux/types.js';
 import type {
   AgentEvent,
   AgentProtocol,
@@ -51,6 +55,7 @@ export interface LegacyAgentSessionDeps {
   scheduler?: Scheduler;
   promptId?: string;
   streamId?: string;
+  polluxRuntimeSurface?: PolluxRuntimeSurfaceType;
   getPreferredEditor?: () => EditorType | undefined;
 }
 
@@ -69,6 +74,7 @@ export class LegacyAgentProtocol implements AgentProtocol {
   private readonly _scheduler: Scheduler;
   private readonly _config: Config;
   private readonly _promptId: string;
+  private readonly _polluxRuntimeSurface: PolluxRuntimeSurfaceType;
 
   constructor(deps: LegacyAgentSessionDeps) {
     this._translationState = createTranslationState(deps.streamId);
@@ -76,6 +82,8 @@ export class LegacyAgentProtocol implements AgentProtocol {
     this._config = deps.config;
     this._client = deps.client ?? deps.config.getGeminiClient();
     this._promptId = deps.promptId ?? deps.config.promptId ?? '';
+    this._polluxRuntimeSurface =
+      deps.polluxRuntimeSurface ?? PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE;
     if (deps.scheduler) {
       this._scheduler = deps.scheduler;
     } else {
@@ -198,6 +206,8 @@ export class LegacyAgentProtocol implements AgentProtocol {
         undefined,
         false,
         currentDisplayContent,
+        false,
+        this._polluxRuntimeSurface,
       );
       currentDisplayContent = undefined;
 

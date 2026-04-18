@@ -612,7 +612,7 @@ export class GeminiClient {
     );
   }
 
-  private async maybeRunPolluxLegacyAdvisorConsultation(
+  private async maybeRunPolluxAdvisorConsultation(
     request: PartListUnion,
     signal: AbortSignal,
     prompt_id: string,
@@ -620,7 +620,8 @@ export class GeminiClient {
   ): Promise<void> {
     if (
       runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE
+      runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE &&
+      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE
     ) {
       return;
     }
@@ -829,7 +830,7 @@ export class GeminiClient {
       this.forceFullIdeContext = false;
     }
 
-    await this.maybeRunPolluxLegacyAdvisorConsultation(
+    await this.maybeRunPolluxAdvisorConsultation(
       request,
       signal,
       prompt_id,
