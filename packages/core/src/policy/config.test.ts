@@ -15,6 +15,8 @@ import {
   InProcessCheckerType,
   type PolicySettings,
 } from './types.js';
+import { PolicyEngine } from './policy-engine.js';
+import { ADVISOR_CONSULTATION_TOOL_NAME } from '../pollux/types.js';
 import { isDirectorySecure } from '../utils/security.js';
 import {
   createPolicyEngineConfig,
@@ -209,6 +211,60 @@ describe('createPolicyEngineConfig', () => {
     );
     expect(rule).toBeDefined();
     expect(rule?.priority).toBeCloseTo(4.3, 5); // Command line allow
+  });
+
+  it('should add the packaged Pollux advisor allow rule only when enabled', async () => {
+    vi.mocked(
+      fs.readdir as (path: PathLike) => Promise<string[]>,
+    ).mockResolvedValue([]);
+
+    const enabledConfig = await createPolicyEngineConfig(
+      { pollux: { enabled: true } },
+      ApprovalMode.DEFAULT,
+      MOCK_DEFAULT_DIR,
+      false,
+    );
+    const enabledRule = enabledConfig.rules?.find(
+      (r) =>
+        r.toolName === ADVISOR_CONSULTATION_TOOL_NAME &&
+        r.decision === PolicyDecision.ALLOW,
+    );
+    expect(enabledRule).toBeDefined();
+    expect(enabledRule?.priority).toBeCloseTo(1.999, 3);
+    expect(enabledRule?.source).toBe(
+      'Built-in Default Policy (Pollux Packaged Allow)',
+    );
+
+    const enabledEngine = new PolicyEngine(enabledConfig);
+    expect(
+      (
+        await enabledEngine.check(
+          { name: ADVISOR_CONSULTATION_TOOL_NAME },
+          undefined,
+        )
+      ).decision,
+    ).toBe(PolicyDecision.ALLOW);
+
+    const disabledConfig = await createPolicyEngineConfig(
+      { pollux: { enabled: false } },
+      ApprovalMode.DEFAULT,
+      MOCK_DEFAULT_DIR,
+      false,
+    );
+    const disabledRule = disabledConfig.rules?.find(
+      (r) => r.toolName === ADVISOR_CONSULTATION_TOOL_NAME,
+    );
+    expect(disabledRule).toBeUndefined();
+
+    const disabledEngine = new PolicyEngine(disabledConfig);
+    expect(
+      (
+        await disabledEngine.check(
+          { name: ADVISOR_CONSULTATION_TOOL_NAME },
+          undefined,
+        )
+      ).decision,
+    ).toBe(PolicyDecision.DENY);
   });
 
   it('should deny tools in tools.exclude', async () => {

@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   ApprovalMode,
+  ADVISOR_CONSULTATION_TOOL_NAME,
   PolicyDecision,
   PolicyEngine,
 } from '@google/gemini-cli-core';
@@ -72,6 +73,38 @@ describe('Policy Engine Integration Tests', () => {
       expect(
         (await engine.check({ name: 'invoke_agent' }, undefined)).decision,
       ).toBe(PolicyDecision.ALLOW);
+    });
+
+    it('should expose the packaged Pollux advisor allow rule when enabled', async () => {
+      const settings: Settings = {
+        experimental: {
+          pollux: {
+            enabled: true,
+          },
+        },
+      };
+
+      const config = await createPolicyEngineConfig(
+        settings,
+        ApprovalMode.DEFAULT,
+        undefined,
+        false,
+      );
+      const engine = new PolicyEngine(config);
+
+      const advisorDecision = await engine.check(
+        { name: ADVISOR_CONSULTATION_TOOL_NAME },
+        undefined,
+      );
+
+      expect(advisorDecision.decision).toBe(PolicyDecision.ALLOW);
+      expect(
+        config.rules?.some(
+          (rule) =>
+            rule.toolName === ADVISOR_CONSULTATION_TOOL_NAME &&
+            rule.decision === PolicyDecision.ALLOW,
+        ),
+      ).toBe(true);
     });
 
     it('should handle MCP server wildcard patterns correctly', async () => {

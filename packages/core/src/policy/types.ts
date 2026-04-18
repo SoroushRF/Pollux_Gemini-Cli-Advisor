@@ -6,6 +6,7 @@
 
 import type { SafetyCheckInput } from '../safety/protocol.js';
 import type { SandboxManager } from '../services/sandboxManager.js';
+import type { PolluxExperimentalConfig } from '../pollux/types.js';
 
 export enum PolicyDecision {
   ALLOW = 'allow',
@@ -345,6 +346,7 @@ export interface PolicySettings {
   adminPolicyPaths?: string[];
   workspacePoliciesDir?: string;
   disableAlwaysAllow?: boolean;
+  pollux?: Partial<PolluxExperimentalConfig>;
 }
 
 export interface CheckResult {

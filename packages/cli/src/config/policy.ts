@@ -67,6 +67,7 @@ export async function createPolicyEngineConfig(
     disableAlwaysAllow:
       settings.security?.disableAlwaysAllow ||
       settings.admin?.secureModeEnabled,
+    pollux: settings.experimental?.pollux,
   };
 
   return createCorePolicyEngineConfig(

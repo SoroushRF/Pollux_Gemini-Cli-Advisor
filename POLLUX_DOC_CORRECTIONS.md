@@ -48,21 +48,21 @@ Rules:
 
 | Item | Description                                               | Owner    | Due phase |
 | ---- | --------------------------------------------------------- | -------- | --------- |
-| D-01 | Packaged advisor ALLOW rule implementation (P1-08)        | 09       | Phase 1   |
 | D-02 | schema:settings CI guard wired as required PR job (P1-09) | 06/15    | Phase 1   |
 | D-03 | Pollux command registration map and tests                 | 05/12/13 | Phase 5   |
 
-Note: D-01 and D-02 were originally scoped as Phase 0 deliverables but are
-implementation items. Phase 0 contract lock (G2, G3) is achieved by the
-corresponding P0-02 and P0-03 control artifacts; the runtime/CI landings are
-carried into Phase 1 per IMPLEMENTATION_PLAN.md section 3 "Implementation
-carry-over".
+Note: D-02 was originally scoped as a Phase 0 deliverable but is an
+implementation item. Phase 0 contract lock (G3) is achieved by the P0-03 control
+artifact; the runtime/CI landing is carried into Phase 1 per
+IMPLEMENTATION_PLAN.md section 3 "Implementation carry-over". D-01 is closed via
+P1-08.
 
 ## 4a) Completed deliverables
 
-| Item | Description                           | Owner | Closed     | Verification                                                                           |
-| ---- | ------------------------------------- | ----- | ---------- | -------------------------------------------------------------------------------------- |
-| D-05 | A2A deferred-scope documentation note | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 row D6 + BP-06 deferred bypass. |
+| Item | Description                                | Owner | Closed     | Verification                                                                                                                                                              |
+| ---- | ------------------------------------------ | ----- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-01 | Packaged advisor ALLOW rule implementation | 09/16 | 2026-04-17 | IMPLEMENTATION_PLAN.md §12 P1-08; packages/core/src/policy/config.ts; packages/core/src/policy/config.test.ts; packages/cli/src/config/policy-engine.integration.test.ts. |
+| D-05 | A2A deferred-scope documentation note      | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 row D6 + BP-06 deferred bypass.                                                                                    |
 
 ---
 
@@ -113,3 +113,5 @@ surfaces.
    docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md. Filed automated pre-review
    signoff for compartments 01/02/06/09/14/16; human countersign still required
    before any Phase 1 task may move from not_started.
+10. Closed D-01 after P1-08 shipped the packaged advisor ALLOW rule and
+    associated policy tests; D-02 remains open and mapped to P1-09.

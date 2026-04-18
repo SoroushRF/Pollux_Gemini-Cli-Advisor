@@ -487,17 +487,17 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                              | Owner   | Deliverable                         | Depends on  | TG mapping |
-| ----- | --------------------------------------------------------------------------------- | ------- | ----------------------------------- | ----------- | ---------- |
-| P1-01 | Define types and interfaces (turn context, detector contracts, advisor contracts) | 02      | types.ts + unit tests               | P0-08       | TG-6       |
-| P1-02 | Implement model registry and alias resolver contract                              | 07 + 02 | models.ts + validation tests        | P1-01       | TG-6       |
-| P1-03 | Add experimental.pollux.\* to CLI settings schema and loader                      | 06      | settings schema + loader mapping    | P0-03       | TG-5       |
-| P1-04 | Map config into core ConfigParameters and accessors                               | 06 + 02 | config mapping + invariant tests    | P1-03       | TG-5       |
-| P1-05 | Add LlmRole.UTILITY_ADVISOR and role-plumb through existing telemetry path        | 11 + 02 | role enum + wiring tests            | P1-01       | TG-4       |
-| P1-06 | Implement advisor prompt builder/parser with strict schema validation             | 02      | prompts/advisor parser + unit tests | P1-01       | TG-6       |
-| P1-07 | Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
-| P1-08 | Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
-| P1-09 | Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)  | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
+| ID    | Task                                                                                                | Owner   | Deliverable                         | Depends on  | TG mapping |
+| ----- | --------------------------------------------------------------------------------------------------- | ------- | ----------------------------------- | ----------- | ---------- |
+| P1-01 | [Done 2026-04-18] Define types and interfaces (turn context, detector contracts, advisor contracts) | 02      | types.ts + unit tests               | P0-08       | TG-6       |
+| P1-02 | [Done 2026-04-18] Implement model registry and alias resolver contract                              | 07 + 02 | models.ts + validation tests        | P1-01       | TG-6       |
+| P1-03 | [Done 2026-04-18] Add experimental.pollux.\* to CLI settings schema and loader                      | 06      | settings schema + loader mapping    | P0-03       | TG-5       |
+| P1-04 | [Done 2026-04-18] Map config into core ConfigParameters and accessors                               | 06 + 02 | config mapping + invariant tests    | P1-03       | TG-5       |
+| P1-05 | [Done 2026-04-18] Add LlmRole.UTILITY_ADVISOR and role-plumb through existing telemetry path        | 11 + 02 | role enum + wiring tests            | P1-01       | TG-4       |
+| P1-06 | [Done 2026-04-18] Implement advisor prompt builder/parser with strict schema validation             | 02      | prompts/advisor parser + unit tests | P1-01       | TG-6       |
+| P1-07 | [Done 2026-04-17] Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
+| P1-08 | [Done 2026-04-17] Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
+| P1-09 | Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)                    | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
 
 Exit criteria:
 
@@ -870,3 +870,48 @@ extended `types.test.ts` and `settingsSchema.test.ts`. Exported from
   [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
   §3 (POLLUX-P1-07)
 - Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §5.2, §8.2
+
+### P1-08 — Packaged default ALLOW rule for advisor_consultation
+
+**Status:** Done (2026-04-17).
+
+**Summary:** Added the packaged Pollux advisor allow rule behind
+`pollux.enabled` in policy config, so `advisor_consultation` now resolves to
+ALLOW in non-interactive paths when Pollux is enabled. Threaded
+`experimental.pollux` through the CLI policy-settings bridge, extended the core
+policy-settings contract, and added tests covering both the enabled and disabled
+cases.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-08](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-08)
+- Execution board row:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-08)
+- Policy config:
+  [packages/core/src/policy/config.ts](packages/core/src/policy/config.ts)
+- CLI bridge:
+  [packages/cli/src/config/policy.ts](packages/cli/src/config/policy.ts)
+- Tests:
+  [packages/core/src/policy/config.test.ts](packages/core/src/policy/config.test.ts)
+  and
+  [packages/cli/src/config/policy-engine.integration.test.ts](packages/cli/src/config/policy-engine.integration.test.ts)
+
+### P1-09 — Wire schema:settings --check as required PR CI job
+
+**Status:** Not started (as of 2026-04-17).
+
+**Summary:** Still pending. Existing CI verifies docs settings generation via
+`npm run docs:settings -- --check`, but the required
+`npm run schema:settings -- --check` PR-gate wiring (CG-02 / D-02) has not yet
+been recorded in this plan's implementation log.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-09](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-09)
+- Execution board row:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-09)
+- CI baseline: [.github/workflows/ci.yml](.github/workflows/ci.yml)

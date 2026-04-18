@@ -19,6 +19,7 @@ import {
   ALWAYS_ALLOW_PRIORITY_OFFSET,
 } from './types.js';
 import type { PolicyEngine } from './policy-engine.js';
+import { ADVISOR_CONSULTATION_TOOL_NAME } from '../pollux/types.js';
 import { loadPoliciesFromToml, type PolicyFileError } from './toml-loader.js';
 import { buildArgsPatterns, isSafeRegExp } from './utils.js';
 import toml from '@iarna/toml';
@@ -82,6 +83,13 @@ export const ALLOWED_MCP_SERVER_PRIORITY = USER_POLICY_TIER + 0.1;
 // Workspace tier (3) + high priority (950/1000) = ALWAYS_ALLOW_PRIORITY
 export const ALWAYS_ALLOW_PRIORITY =
   WORKSPACE_POLICY_TIER + ALWAYS_ALLOW_PRIORITY_OFFSET;
+
+/**
+ * Priority for the packaged Pollux advisor allow rule.
+ * Kept in the default tier so built-in policy remains below user/admin policy.
+ */
+export const POLLUX_PACKAGED_DEFAULT_ALLOW_PRIORITY =
+  DEFAULT_POLICY_TIER + 0.999;
 
 /**
  * Returns the fractional priority of ALWAYS_ALLOW_PRIORITY scaled to 1000.
@@ -390,6 +398,8 @@ export async function createPolicyEngineConfig(
   //   MCP_EXCLUDED_PRIORITY:        MCP servers excluded list (security: persistent server blocks)
   //   EXCLUDE_TOOLS_FLAG_PRIORITY:  Command line flag --exclude-tools (explicit temporary blocks)
   //   ALLOWED_TOOLS_FLAG_PRIORITY:  Command line flag --allowed-tools (explicit temporary allows)
+  //   POLLUX_PACKAGED_DEFAULT_ALLOW_PRIORITY:
+  //                                 Packaged advisor_consultation allow rule
   //   TRUSTED_MCP_SERVER_PRIORITY:  MCP servers with trust=true (persistent trusted servers)
   //   ALLOWED_MCP_SERVER_PRIORITY:  MCP servers allowed list (persistent general server allows)
   //   ALWAYS_ALLOW_PRIORITY:        Tools that the user has selected as "Always Allow" in the interactive UI
@@ -484,6 +494,18 @@ export async function createPolicyEngineConfig(
         });
       }
     }
+  }
+
+  // Packaged default advisor allow rule for Pollux.
+  // This ensures advisor_consultation remains available in non-interactive
+  // paths when Pollux is enabled, without elevating it above user/admin policy.
+  if (settings.pollux?.enabled) {
+    rules.push({
+      toolName: ADVISOR_CONSULTATION_TOOL_NAME,
+      decision: PolicyDecision.ALLOW,
+      priority: POLLUX_PACKAGED_DEFAULT_ALLOW_PRIORITY,
+      source: 'Built-in Default Policy (Pollux Packaged Allow)',
+    });
   }
 
   // MCP servers that are trusted in the settings.
