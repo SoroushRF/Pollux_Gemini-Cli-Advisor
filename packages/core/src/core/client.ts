@@ -57,7 +57,7 @@ import type {
 import {
   ContentRetryFailureEvent,
   NextSpeakerCheckEvent,
-  type LlmRole,
+  LlmRole,
 } from '../telemetry/types.js';
 import { uiTelemetryService } from '../telemetry/uiTelemetry.js';
 import type { IdeContext, File } from '../ide/types.js';
@@ -72,8 +72,28 @@ import {
   createAvailabilityContextProvider,
 } from '../availability/policyHelpers.js';
 import { getDisplayString, resolveModel } from '../config/models.js';
-import { partToString } from '../utils/partUtils.js';
+import { getResponseText, partToString } from '../utils/partUtils.js';
 import { coreEvents, CoreEvent } from '../utils/events.js';
+import { PolicyDecision } from '../policy/types.js';
+import {
+  ADVISOR_CONSULTATION_TOOL_NAME,
+  PolluxRuntimeSurface,
+  type PolluxTurnContext,
+} from '../pollux/types.js';
+import {
+  checkAdvisorInvocationBudget,
+  getAdvisorRequestTimeoutMs,
+  resolveAdvisorPathFailure,
+} from '../pollux/safeguards.js';
+import {
+  buildAdvisorConsultationPrompt,
+  parseAdvisorModelResponse,
+} from '../pollux/prompts.js';
+import {
+  PolluxModelRegistry,
+  PolluxModelRole,
+  resolvePolluxModel,
+} from '../pollux/models.js';
 
 const MAX_TURNS = 100;
 
@@ -99,6 +119,8 @@ export class GeminiClient {
   private readonly toolOutputMaskingService: ToolOutputMaskingService;
   private lastPromptId: string;
   private currentSequenceModel: string | null = null;
+  private readonly polluxModelRegistry = new PolluxModelRegistry([]);
+  private polluxAdvisorCallsThisSession = 0;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -590,6 +612,128 @@ export class GeminiClient {
     );
   }
 
+  private async maybeRunPolluxLegacyInteractiveAdvisorConsultation(
+    request: PartListUnion,
+    signal: AbortSignal,
+    prompt_id: string,
+    runtimeSurface: PolluxRuntimeSurface,
+  ): Promise<void> {
+    if (runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE) {
+      return;
+    }
+
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (!experimental.enabled) {
+      return;
+    }
+
+    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+      callsCompletedThisTurn: 0,
+      callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
+    });
+    if (!budgetCheck.allowed) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
+        );
+      }
+      return;
+    }
+
+    const policyResult = await this.config.getPolicyEngine().check(
+      {
+        name: ADVISOR_CONSULTATION_TOOL_NAME,
+        args: {},
+      },
+      undefined,
+    );
+
+    if (policyResult.decision !== PolicyDecision.ALLOW) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (policy): ${policyResult.decision}`,
+        );
+      }
+      return;
+    }
+
+    const turnContext: PolluxTurnContext = {
+      surface: runtimeSurface,
+      sessionId: this.config.getSessionId(),
+      turnId: `${prompt_id}:${this.sessionTurnCount}`,
+      experimental,
+      advisorCallsThisTurn: 0,
+      advisorCallsThisSession: this.polluxAdvisorCallsThisSession,
+    };
+
+    const advisorPrompt = buildAdvisorConsultationPrompt({
+      context: turnContext,
+      toolName: ADVISOR_CONSULTATION_TOOL_NAME,
+      body: partListUnionToString(request),
+    });
+
+    const timeoutSignal = AbortSignal.timeout(
+      getAdvisorRequestTimeoutMs(experimental),
+    );
+    const advisorSignal = AbortSignal.any([signal, timeoutSignal]);
+    let failOpenKind: 'parse_error' | 'timeout' | 'empty_response' | undefined;
+
+    try {
+      const advisorModel = resolvePolluxModel(experimental.advisorModel, {
+        registry: this.polluxModelRegistry,
+        role: PolluxModelRole.ADVISOR,
+        experimental,
+      });
+
+      const advisorResponse = await this.generateContent(
+        {
+          model: advisorModel.canonicalModelId,
+          isChatModel: true,
+        },
+        [createUserContent(advisorPrompt)],
+        advisorSignal,
+        LlmRole.UTILITY_ADVISOR,
+      );
+
+      const rawAdvisorResponse = getResponseText(advisorResponse);
+      if (!rawAdvisorResponse) {
+        failOpenKind = 'empty_response';
+        return;
+      }
+
+      const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
+      if (!parsedResponse.ok) {
+        failOpenKind = 'parse_error';
+        return;
+      }
+
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor consulted (confidence=${parsedResponse.structuredConfidence ?? 'n/a'})`,
+        );
+      }
+    } catch (error) {
+      if (signal.aborted) {
+        throw error;
+      }
+
+      if (isAbortError(error) || timeoutSignal.aborted) {
+        failOpenKind = 'timeout';
+      } else {
+        failOpenKind = 'parse_error';
+      }
+    } finally {
+      this.polluxAdvisorCallsThisSession++;
+
+      if (failOpenKind && experimental.emitAdvisorDebug) {
+        const failOpenOutcome = resolveAdvisorPathFailure(failOpenKind);
+        debugLogger.warn(
+          `Pollux advisor fail-open (${failOpenOutcome.failureKind}); continuing executor path.`,
+        );
+      }
+    }
+  }
+
   private async *processTurn(
     request: PartListUnion,
     signal: AbortSignal,
@@ -597,6 +741,7 @@ export class GeminiClient {
     boundedTurns: number,
     isInvalidStreamRetry: boolean,
     displayContent?: PartListUnion,
+    runtimeSurface: PolluxRuntimeSurface = PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
   ): AsyncGenerator<ServerGeminiStreamEvent, Turn> {
     // Re-initialize turn (it was empty before if in loop, or new instance)
     let turn = new Turn(this.getChat(), prompt_id);
@@ -681,6 +826,13 @@ export class GeminiClient {
       this.forceFullIdeContext = false;
     }
 
+    await this.maybeRunPolluxLegacyInteractiveAdvisorConsultation(
+      request,
+      signal,
+      prompt_id,
+      runtimeSurface,
+    );
+
     // Re-initialize turn with fresh history
     turn = new Turn(this.getChat(), prompt_id);
 
@@ -703,6 +855,7 @@ export class GeminiClient {
         boundedTurns,
         isInvalidStreamRetry,
         displayContent,
+        runtimeSurface,
       );
     }
 
@@ -795,6 +948,7 @@ export class GeminiClient {
         boundedTurns,
         isInvalidStreamRetry,
         displayContent,
+        runtimeSurface,
         controller,
       );
     }
@@ -839,6 +993,8 @@ export class GeminiClient {
           boundedTurns - 1,
           true,
           displayContent,
+          false,
+          runtimeSurface,
         );
         return turn;
       }
@@ -872,6 +1028,8 @@ export class GeminiClient {
             boundedTurns - 1,
             false, // isInvalidStreamRetry is false
             displayContent,
+            false,
+            runtimeSurface,
           );
           return turn;
         }
@@ -888,6 +1046,7 @@ export class GeminiClient {
     isInvalidStreamRetry: boolean = false,
     displayContent?: PartListUnion,
     stopHookActive: boolean = false,
+    runtimeSurface: PolluxRuntimeSurface = PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
   ): AsyncGenerator<ServerGeminiStreamEvent, Turn> {
     if (!isInvalidStreamRetry) {
       this.config.resetTurn();
@@ -945,6 +1104,7 @@ export class GeminiClient {
         boundedTurns,
         isInvalidStreamRetry,
         displayContent,
+        runtimeSurface,
       );
 
       // Fire AfterAgent hook if we have a turn and no pending tools
@@ -1008,6 +1168,7 @@ export class GeminiClient {
             false,
             displayContent,
             true, // stopHookActive: signal retry to AfterAgent hooks
+            runtimeSurface,
           );
         }
       }
@@ -1252,6 +1413,7 @@ export class GeminiClient {
     boundedTurns: number,
     isInvalidStreamRetry: boolean,
     displayContent?: PartListUnion,
+    runtimeSurface: PolluxRuntimeSurface = PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
     controllerToAbort?: AbortController,
   ): AsyncGenerator<ServerGeminiStreamEvent, Turn> {
     controllerToAbort?.abort();
@@ -1277,6 +1439,8 @@ export class GeminiClient {
       boundedTurns - 1,
       isInvalidStreamRetry,
       displayContent,
+      false,
+      runtimeSurface,
     );
   }
 }

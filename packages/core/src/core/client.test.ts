@@ -50,6 +50,11 @@ import type {
 import { ClearcutLogger } from '../telemetry/clearcut-logger/clearcut-logger.js';
 import * as policyCatalog from '../availability/policyCatalog.js';
 import { LlmRole, LoopType } from '../telemetry/types.js';
+import { PolicyDecision } from '../policy/types.js';
+import {
+  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  PolluxRuntimeSurface,
+} from '../pollux/types.js';
 import { partToString } from '../utils/partUtils.js';
 import { coreEvents, CoreEvent } from '../utils/events.js';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
@@ -168,6 +173,7 @@ describe('Gemini Client (client.ts)', () => {
   let client: GeminiClient;
   let mockGenerateContentFn: Mock;
   let mockRouterService: { route: Mock };
+  let mockPolicyCheck: Mock;
   beforeEach(async () => {
     vi.resetAllMocks();
     ClearcutLogger.clearInstance();
@@ -185,6 +191,11 @@ describe('Gemini Client (client.ts)', () => {
         .fn()
         .mockResolvedValue({ model: 'default-routed-model', reason: 'test' }),
     };
+
+    mockPolicyCheck = vi.fn().mockResolvedValue({
+      decision: PolicyDecision.ALLOW,
+      rule: undefined,
+    });
 
     mockContentGenerator = {
       generateContent: mockGenerateContentFn,
@@ -254,7 +265,11 @@ describe('Gemini Client (client.ts)', () => {
         .fn()
         .mockReturnValue(mockRouterService as unknown as ModelRouterService),
       getMessageBus: vi.fn().mockReturnValue(undefined),
+      getPolicyEngine: vi.fn().mockReturnValue({ check: mockPolicyCheck }),
       getEnableHooks: vi.fn().mockReturnValue(false),
+      getPolluxExperimentalConfig: vi
+        .fn()
+        .mockReturnValue(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG),
       getChatCompression: vi.fn().mockReturnValue(undefined),
       getCompressionThreshold: vi.fn().mockReturnValue(undefined),
       getSkipNextSpeakerCheck: vi.fn().mockReturnValue(false),
@@ -813,6 +828,198 @@ describe('Gemini Client (client.ts)', () => {
           type: GeminiEventType.ModelInfo,
         }),
       );
+    });
+
+    it('keeps legacy interactive output baseline-identical when Pollux is disabled (Cell A)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: false,
+      });
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-a-baseline',
+        ),
+      );
+
+      const interactiveWithPolluxDisabled = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-a-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(interactiveWithPolluxDisabled).toEqual(baseline);
+      expect(mockPolicyCheck).not.toHaveBeenCalled();
+    });
+
+    it('runs advisor internally on allow and preserves visible stream events (Cell B)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-b-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Continue with executor"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const polluxOn = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-b-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOn).toEqual(baseline);
+      expect(mockPolicyCheck).toHaveBeenCalled();
+      expect(mockPolicyCheck.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ name: 'advisor_consultation' }),
+      );
+      expect(advisorSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(Object),
+        LlmRole.UTILITY_ADVISOR,
+      );
+    });
+
+    it('fails open when advisor policy denies (Cell C)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-c-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.DENY,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      const polluxOnDenied = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-c-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOnDenied).toEqual(baseline);
+      expect(advisorSpy).not.toHaveBeenCalled();
+    });
+
+    it('fails open on advisor timeout and keeps executor stream stable (Cell D)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-d-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const timeoutError = new Error('advisor timeout');
+      timeoutError.name = 'AbortError';
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockRejectedValue(timeoutError);
+
+      const polluxOnTimeout = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-cell-d-interactive',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(polluxOnTimeout).toEqual(baseline);
+      expect(
+        polluxOnTimeout.some(
+          (event) => event.type === GeminiEventType.UserCancelled,
+        ),
+      ).toBe(false);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
     it('yields UserCancelled when processTurn throws AbortError', async () => {

@@ -53,6 +53,7 @@ import {
   GeminiCliOperation,
   getPlanModeExitMessage,
   UPDATE_TOPIC_TOOL_NAME,
+  PolluxRuntimeSurface,
 } from '@google/gemini-cli-core';
 import type { Part, PartListUnion } from '@google/genai';
 import type { UseHistoryManagerReturn } from './useHistoryManager.js';
@@ -807,6 +808,8 @@ describe('useGeminiStream', () => {
       undefined,
       false,
       expectedMergedResponse,
+      false,
+      PolluxRuntimeSurface.LEGACY_INTERACTIVE,
     );
   });
 
@@ -1534,6 +1537,8 @@ describe('useGeminiStream', () => {
         undefined,
         false,
         toolCallResponseParts,
+        false,
+        PolluxRuntimeSurface.LEGACY_INTERACTIVE,
       );
     });
 
@@ -2029,6 +2034,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           '/my-custom-command',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
 
         expect(mockScheduleToolCalls).not.toHaveBeenCalled();
@@ -2058,6 +2065,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           '/emptycmd',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
       });
     });
@@ -2079,6 +2088,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           '// This is a line comment',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
       });
     });
@@ -2100,6 +2111,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           '/* This is a block comment */',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
       });
     });
@@ -3060,6 +3073,8 @@ describe('useGeminiStream', () => {
       undefined,
       false,
       rawQuery,
+      false,
+      PolluxRuntimeSurface.LEGACY_INTERACTIVE,
     );
   });
 
@@ -3692,7 +3707,9 @@ describe('useGeminiStream', () => {
       );
 
       // Verify confirmation request was cleared
-      expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      await waitFor(() => {
+        expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      });
 
       // Verify appropriate message was added
       expect(mockAddItem).toHaveBeenCalledWith({
@@ -3711,6 +3728,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           'test query',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
       });
     });
@@ -3755,7 +3774,9 @@ describe('useGeminiStream', () => {
       expect(mockLoopDetectionService.disableForSession).not.toHaveBeenCalled();
 
       // Verify confirmation request was cleared
-      expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      await waitFor(() => {
+        expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      });
 
       // Verify appropriate message was added
       expect(mockAddItem).toHaveBeenCalledWith({
@@ -3795,7 +3816,9 @@ describe('useGeminiStream', () => {
         });
       });
 
-      expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      await waitFor(() => {
+        expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      });
 
       // Verify first message was added
       expect(mockAddItem).toHaveBeenCalledWith({
@@ -3842,7 +3865,9 @@ describe('useGeminiStream', () => {
         });
       });
 
-      expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      await waitFor(() => {
+        expect(result.current.loopDetectionConfirmationRequest).toBeNull();
+      });
 
       // Verify second message was added
       expect(mockAddItem).toHaveBeenCalledWith({
@@ -3861,6 +3886,8 @@ describe('useGeminiStream', () => {
           undefined,
           false,
           'second query',
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         );
       });
     });
@@ -4006,6 +4033,8 @@ describe('useGeminiStream', () => {
             undefined,
             false,
             'test query',
+            false,
+            PolluxRuntimeSurface.LEGACY_INTERACTIVE,
           );
         });
       });

@@ -43,6 +43,7 @@ import {
   buildToolVisibilityContext,
   UPDATE_TOPIC_TOOL_NAME,
   UPDATE_TOPIC_DISPLAY_NAME,
+  PolluxRuntimeSurface,
 } from '@google/gemini-cli-core';
 import type {
   Config,
@@ -1640,6 +1641,8 @@ export const useGeminiStream = (
                 undefined,
                 false,
                 query,
+                false,
+                PolluxRuntimeSurface.LEGACY_INTERACTIVE,
               );
               const processingStatus = await processGeminiStreamEvents(
                 stream,
