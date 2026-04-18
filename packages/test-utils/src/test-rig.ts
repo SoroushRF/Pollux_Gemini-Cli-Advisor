@@ -211,6 +211,13 @@ export interface ParsedLog {
     error?: string;
     error_type?: string;
     prompt_id?: string;
+    role?: string;
+    input_token_count?: number;
+    output_token_count?: number;
+    cached_content_token_count?: number;
+    thoughts_token_count?: number;
+    tool_token_count?: number;
+    total_token_count?: number;
   };
   scopeMetrics?: {
     metrics: {
@@ -1410,6 +1417,16 @@ export class TestRig {
         logData.attributes['event.name'] === `gemini_cli.api_request`,
     );
     return apiRequests;
+  }
+
+  readAllApiResponse(): ParsedLog[] {
+    const logs = this._readAndParseTelemetryLog();
+    const apiResponses = logs.filter(
+      (logData) =>
+        logData.attributes &&
+        logData.attributes['event.name'] === `gemini_cli.api_response`,
+    );
+    return apiResponses;
   }
 
   readLastApiRequest(): ParsedLog | null {
