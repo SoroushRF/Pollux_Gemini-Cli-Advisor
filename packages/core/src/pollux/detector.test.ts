@@ -10,8 +10,11 @@ import {
   DEFAULT_HEURISTIC_RULES,
   DETECTOR_MAX_FIELD_LENGTH,
   createHeuristicDetector,
+  createStructuredDetector,
   evaluateHeuristicSignals,
+  evaluateStructuredConfidenceSignal,
   isHeuristicPathEligible,
+  isStructuredPathEligible,
 } from './detector.js';
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
@@ -31,6 +34,11 @@ const enabledHeuristic = mergePolluxExperimentalConfig({
 const enabledHybrid = mergePolluxExperimentalConfig({
   enabled: true,
   strategy: PolluxDetectorStrategy.HYBRID,
+});
+
+const enabledStructured = mergePolluxExperimentalConfig({
+  enabled: true,
+  strategy: PolluxDetectorStrategy.STRUCTURED,
 });
 
 function ctx(overrides: Partial<PolluxTurnContext> = {}): PolluxTurnContext {
@@ -416,6 +424,290 @@ describe('pollux/detector heuristic', () => {
       await det.shouldEscalate(input);
       expect(input).toEqual(snapshot);
       expect(input.experimental).toBe(experimental);
+    });
+  });
+});
+
+describe('pollux/detector structured', () => {
+  describe('gate: isStructuredPathEligible', () => {
+    it('returns CONFIG_DISABLED when Pollux is off', () => {
+      const gate = isStructuredPathEligible(
+        ctx({ experimental: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.CONFIG_DISABLED,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('returns DEFERRED_SURFACE for A2A even when Pollux is enabled', () => {
+      const gate = isStructuredPathEligible(
+        ctx({
+          experimental: enabledStructured,
+          surface: PolluxRuntimeSurface.A2A_DEFERRED,
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.DEFERRED_SURFACE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('returns NONE when heuristic-only strategy is active', () => {
+      const gate = isStructuredPathEligible(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.HEURISTIC,
+          }),
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('returns BUDGET_EXHAUSTED at the per-turn cap', () => {
+      const gate = isStructuredPathEligible(
+        ctx({
+          experimental: enabledStructured,
+          advisorCallsThisTurn: enabledStructured.maxAdvisorCallsPerTurn,
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.BUDGET_EXHAUSTED,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('returns null when structured path is eligible', () => {
+      expect(
+        isStructuredPathEligible(
+          ctx({
+            experimental: enabledStructured,
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it('returns null for hybrid strategy (composable with P3-03)', () => {
+      expect(
+        isStructuredPathEligible(
+          ctx({
+            experimental: enabledHybrid,
+          }),
+        ),
+      ).toBeNull();
+    });
+  });
+
+  describe('evaluateStructuredConfidenceSignal', () => {
+    it('extracts confidence and strips tags from both fields', () => {
+      const evaluation = evaluateStructuredConfidenceSignal(
+        ctx({
+          userContentDigest:
+            'Need help <!-- pollux:confidence:8 --> debugging this',
+          pendingToolContext:
+            '<pollux:confidence value="5"/> tool stderr snippet',
+        }),
+      );
+
+      expect(evaluation.structuredConfidence).toBe(8);
+      expect(evaluation.strippedUserContentDigest).toBe(
+        'Need help debugging this',
+      );
+      expect(evaluation.strippedPendingToolContext).toBe('tool stderr snippet');
+    });
+
+    it('fails open when tags are missing', () => {
+      const evaluation = evaluateStructuredConfidenceSignal(
+        ctx({
+          userContentDigest: 'No confidence marker here.',
+          pendingToolContext: 'Tool output without markers.',
+        }),
+      );
+      expect(evaluation.structuredConfidence).toBeUndefined();
+      expect(evaluation.strippedUserContentDigest).toBe(
+        'No confidence marker here.',
+      );
+      expect(evaluation.strippedPendingToolContext).toBe(
+        'Tool output without markers.',
+      );
+    });
+
+    it('fails open and strips malformed confidence tags', () => {
+      const evaluation = evaluateStructuredConfidenceSignal(
+        ctx({
+          userContentDigest:
+            'Guidance <!-- pollux:confidence:abc --> remains valid',
+          pendingToolContext:
+            '<pollux:confidence value="bogus"/> stderr context',
+        }),
+      );
+
+      expect(evaluation.structuredConfidence).toBeUndefined();
+      expect(evaluation.strippedUserContentDigest).toBe(
+        'Guidance remains valid',
+      );
+      expect(evaluation.strippedPendingToolContext).toBe('stderr context');
+    });
+
+    it('ignores out-of-range tags and keeps searching for valid ones', () => {
+      const evaluation = evaluateStructuredConfidenceSignal(
+        ctx({
+          userContentDigest:
+            'A <!-- pollux:confidence:11 --> B <!-- pollux:confidence:7 --> C',
+        }),
+      );
+
+      expect(evaluation.structuredConfidence).toBe(7);
+      expect(evaluation.strippedUserContentDigest).toBe('A B C');
+    });
+
+    it('does not detect tags outside the configured field-length clamp window', () => {
+      const filler = 'x'.repeat(DETECTOR_MAX_FIELD_LENGTH);
+      const hiddenTag = `${filler}<!-- pollux:confidence:9 -->`;
+      const evaluation = evaluateStructuredConfidenceSignal(
+        ctx({ userContentDigest: hiddenTag }),
+      );
+
+      expect(evaluation.structuredConfidence).toBeUndefined();
+      expect(evaluation.strippedUserContentDigest).toBe(filler);
+    });
+  });
+
+  describe('createStructuredDetector().shouldEscalate', () => {
+    it('short-circuits to CONFIG_DISABLED when Pollux is off', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({ experimental: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.CONFIG_DISABLED,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('short-circuits to DEFERRED_SURFACE for A2A turns', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledStructured,
+          surface: PolluxRuntimeSurface.A2A_DEFERRED,
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.DEFERRED_SURFACE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('short-circuits to BUDGET_EXHAUSTED at the turn cap', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledStructured,
+          advisorCallsThisTurn: enabledStructured.maxAdvisorCallsPerTurn,
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.BUDGET_EXHAUSTED,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('escalates with STRUCTURED_TAG when confidence meets threshold', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.STRUCTURED,
+            confidenceThreshold: 6,
+          }),
+          userContentDigest: 'x <!-- pollux:confidence:8 --> y',
+        }),
+      );
+
+      expect(r).toEqual({
+        escalate: true,
+        reasonCode: PolluxEscalationReasonCode.STRUCTURED_TAG,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+        structuredConfidence: 8,
+      });
+    });
+
+    it('does not escalate when confidence is below threshold', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.STRUCTURED,
+            confidenceThreshold: 8,
+          }),
+          userContentDigest: 'x <!-- pollux:confidence:7 --> y',
+        }),
+      );
+
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+        structuredConfidence: 7,
+      });
+    });
+
+    it('fails open on missing confidence tags', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledStructured,
+          userContentDigest: 'No marker available.',
+        }),
+      );
+
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('fails open on malformed confidence tags', async () => {
+      const det = createStructuredDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledStructured,
+          userContentDigest: 'x <!-- pollux:confidence:abc --> y',
+        }),
+      );
+
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.STRUCTURED,
+      });
+    });
+
+    it('is deterministic for repeated calls with identical input', async () => {
+      const det = createStructuredDetector();
+      const input = ctx({
+        experimental: enabledStructured,
+        userContentDigest: 'x <!-- pollux:confidence:9 --> y',
+      });
+
+      const first = await det.shouldEscalate(input);
+      const second = await det.shouldEscalate(input);
+      expect(first).toEqual(second);
     });
   });
 });

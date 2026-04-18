@@ -725,7 +725,7 @@ Task breakdown:
 | ID    | Task                                                                          | Owner   | Deliverable                      | Depends on   | TG mapping |
 | ----- | ----------------------------------------------------------------------------- | ------- | -------------------------------- | ------------ | ---------- |
 | P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
-| P3-02 | Implement structured detector with confidence tag stripping                   | 02      | structured detector + leak tests | P3-01        | TG-6       |
+| P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping | 02      | structured detector + leak tests | P3-01        | TG-6       |
 | P3-03 | Implement hybrid detector precedence and tie-break semantics                  | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
 | P3-04 | Implement advisor timeout/malformed response fail-open behavior               | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
 | P3-05 | Add escalation calibration set and threshold tuning guide                     | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
@@ -789,6 +789,38 @@ Phase 3 implementation evidence update (2026-04-18):
       35 passed.
     - `npx vitest run src/pollux` in `packages/core` → 5 files / 70 passed
       (detector + existing types/models/prompts/safeguards suites all green).
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+
+- P3-02 (Structured detector) delivered with deterministic confidence-tag
+  extraction, confidence-tag stripping, and threshold-driven escalation logic
+  aligned to POLLUX_SPEC §7.2 / §7.3:
+  - Extended `packages/core/src/pollux/detector.ts` with
+    `createStructuredDetector`, `evaluateStructuredConfidenceSignal`, and
+    `isStructuredPathEligible`.
+  - Added structured gate semantics mirroring existing Pollux safeguards:
+    `CONFIG_DISABLED`, `DEFERRED_SURFACE`, `BUDGET_EXHAUSTED`, and strategy
+    gating (`HEURISTIC` path returns `NONE` for structured detector).
+  - Added deterministic structured escalation outcomes:
+    - Escalate only when parsed structured confidence is valid (1-10) and
+      `>= experimental.pollux.confidenceThreshold`.
+    - Use `PolluxEscalationReasonCode.STRUCTURED_TAG` on escalate and `NONE` on
+      fail-open/non-match.
+    - Preserve `structuredConfidence` in decision output when parsed but below
+      threshold.
+  - Implemented leak prevention in structured evaluation by returning stripped
+    bounded context fields and removing both valid and malformed
+    `pollux:confidence` markers before downstream use.
+  - Expanded `packages/core/src/pollux/detector.test.ts` with structured-path
+    TG-6 coverage (19 new tests) for:
+    - Eligibility gates across disabled/deferred/budget/strategy scenarios.
+    - Confidence extraction + stripping in both user/tool fields.
+    - Fail-open behavior for missing/malformed tags.
+    - Out-of-range tag handling and bounded-field clamp behavior.
+    - Threshold-driven escalation (`STRUCTURED_TAG`) and deterministic repeated
+      evaluation.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/pollux/detector.test.ts`
+      passed (1 file / 54 tests) and post-test core build completed.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
 
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)
