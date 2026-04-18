@@ -827,3 +827,24 @@ bucket alongside model totals.
 - Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §9 (telemetry and token accounting)
 - Report:
   [docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals/report.md](docs/repo-compartment-analysis/reports/11-telemetry-observability-and-billing-signals/report.md)
+
+### P1-06 — Advisor prompt builder and parser (strict schema validation)
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Added `packages/core/src/pollux/prompts.ts`:
+`POLLUX_ADVISOR_RESPONSE_SCHEMA`, `buildAdvisorConsultationPrompt`,
+`parseAdvisorModelResponse` (fail-closed on bad JSON or Ajv schema errors via
+`SchemaValidator`), `stripPolluxConfidenceTags` and
+`extractPolluxConfidenceTagValues` for §7.3 tag handling. Tags inside `guidance`
+are stripped after validation. Tests in
+`packages/core/src/pollux/prompts.test.ts`. Exported from `pollux/index.js`.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-06](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-06)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-06)
+- Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §§6–7
