@@ -594,7 +594,7 @@ Phase 2 implementation evidence update (2026-04-18):
     - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts src/agent/legacy-agent-session.test.ts`
       passed with D3 Cell A-D plus adapter propagation coverage.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
-  - Commit evidence: pending (to be filled after commit).
+  - Commit evidence: `54af0a45a`.
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 
