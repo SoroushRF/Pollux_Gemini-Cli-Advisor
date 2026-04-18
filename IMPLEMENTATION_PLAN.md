@@ -520,10 +520,17 @@ Phase 1 remediation evidence update (2026-04-18):
 Goal: integrate Pollux across in-scope surfaces without violating stream or
 policy invariants.
 
+Required reading before any P2-xx PR is opened:
+docs/core/pollux/PHASE2_GUARDRAILS.md. The guardrails document carries the
+pre-flight checklist, session-start prompt for AI agents, per-surface failure
+modes, invariants, banned patterns, required patterns, and PR discipline
+specific to Phase 2.
+
 Entry criteria:
 
 - Phase 1 exit criteria met.
 - P0 policy and seam contracts signed off.
+- PHASE2_GUARDRAILS.md §1 Golden Rule acknowledged by the implementer.
 
 Task breakdown:
 
