@@ -495,8 +495,8 @@ Task breakdown:
 | P1-04 | [Done 2026-04-18] Map config into core ConfigParameters and accessors                               | 06 + 02 | config mapping + invariant tests    | P1-03       | TG-5       |
 | P1-05 | [Done 2026-04-18] Add LlmRole.UTILITY_ADVISOR and role-plumb through existing telemetry path        | 11 + 02 | role enum + wiring tests            | P1-01       | TG-4       |
 | P1-06 | [Done 2026-04-18] Implement advisor prompt builder/parser with strict schema validation             | 02      | prompts/advisor parser + unit tests | P1-01       | TG-6       |
-| P1-07 | [Done 2026-04-17] Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
-| P1-08 | [Done 2026-04-17] Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
+| P1-07 | [Done 2026-04-18] Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
+| P1-08 | [Done 2026-04-18] Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
 | P1-09 | [Done 2026-04-17] Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)  | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
 
 Exit criteria:
@@ -505,6 +505,15 @@ Exit criteria:
 - Foundation tests green with Pollux disabled and enabled (no runtime
   integration yet).
 - Ledger items D-01 and D-02 closed with evidence via P1-08 and P1-09.
+
+Phase 1 remediation evidence update (2026-04-18):
+
+- P1-08 acceptance coverage backfilled for AT-03/AT-04/AT-05 (ACP permission
+  behavior, no duplicate confirmation chain, and policy decision invariants).
+- P1-07 numeric hardening completed for Pollux finite out-of-range values
+  (advisor budget floors and confidence threshold bounds).
+- P1-03/P1-04 precedence evidence expanded with Pollux-specific merge and
+  config-mapping tests.
 
 ## Phase 2: Runtime integration by surface (Weeks 3-4)
 

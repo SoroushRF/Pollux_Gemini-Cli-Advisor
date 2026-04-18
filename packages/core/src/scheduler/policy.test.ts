@@ -236,6 +236,29 @@ describe('policy.ts', () => {
       const result = await checkPolicy(toolCall, mockConfig);
       expect(result.decision).toBe(PolicyDecision.DENY);
     });
+
+    it('should reject unsupported policy decision values', async () => {
+      const mockPolicyEngine = {
+        check: vi.fn().mockResolvedValue({
+          decision: 'unsupported_decision',
+        }),
+      } as unknown as Mocked<PolicyEngine>;
+
+      const mockConfig = {
+        getApprovalMode: vi.fn().mockReturnValue(ApprovalMode.DEFAULT),
+        getPolicyEngine: vi.fn().mockReturnValue(mockPolicyEngine),
+        isInteractive: vi.fn().mockReturnValue(true),
+      } as unknown as Mocked<Config>;
+
+      const toolCall = {
+        request: { name: 'test-tool', args: {} },
+        tool: { name: 'test-tool' },
+      } as ValidatingToolCall;
+
+      await expect(checkPolicy(toolCall, mockConfig)).rejects.toThrow(
+        /Unsupported policy decision/,
+      );
+    });
   });
 
   describe('updatePolicy', () => {

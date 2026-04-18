@@ -67,6 +67,23 @@ describe('pollux/safeguards', () => {
         reasonCode: PolluxEscalationReasonCode.BUDGET_EXHAUSTED,
       });
     });
+
+    it('normalizes invalid finite budget settings before evaluating limits', () => {
+      const normalized = mergePolluxExperimentalConfig({
+        enabled: true,
+        maxAdvisorCallsPerTurn: -1,
+        maxAdvisorCallsPerSession: -1,
+      });
+
+      const r = checkAdvisorInvocationBudget(normalized, {
+        callsCompletedThisTurn: 0,
+        callsCompletedThisSession: 0,
+      });
+
+      expect(normalized.maxAdvisorCallsPerTurn).toBe(1);
+      expect(normalized.maxAdvisorCallsPerSession).toBe(1);
+      expect(r).toEqual({ allowed: true });
+    });
   });
 
   describe('resolveAdvisorPathFailure', () => {

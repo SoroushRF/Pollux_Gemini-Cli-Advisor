@@ -107,6 +107,50 @@ describe('Policy Engine Integration Tests', () => {
       ).toBe(true);
     });
 
+    it('should preserve baseline non-advisor decisions and valid decision types when Pollux is enabled', async () => {
+      const baseConfig = await createPolicyEngineConfig(
+        {},
+        ApprovalMode.DEFAULT,
+      );
+      const polluxConfig = await createPolicyEngineConfig(
+        {
+          experimental: {
+            pollux: {
+              enabled: true,
+            },
+          },
+        },
+        ApprovalMode.DEFAULT,
+      );
+
+      const validDecisions = new Set(Object.values(PolicyDecision));
+      for (const rule of polluxConfig.rules ?? []) {
+        expect(validDecisions.has(rule.decision)).toBe(true);
+      }
+
+      const baseEngine = new PolicyEngine(baseConfig);
+      const polluxEngine = new PolicyEngine(polluxConfig);
+
+      for (const toolName of ['run_shell_command', 'replace', 'unknown_tool']) {
+        const baseDecision = (
+          await baseEngine.check({ name: toolName }, undefined)
+        ).decision;
+        const polluxDecision = (
+          await polluxEngine.check({ name: toolName }, undefined)
+        ).decision;
+        expect(polluxDecision).toBe(baseDecision);
+      }
+
+      expect(
+        (
+          await polluxEngine.check(
+            { name: ADVISOR_CONSULTATION_TOOL_NAME },
+            undefined,
+          )
+        ).decision,
+      ).toBe(PolicyDecision.ALLOW);
+    });
+
     it('should handle MCP server wildcard patterns correctly', async () => {
       const settings: Settings = {
         mcp: {

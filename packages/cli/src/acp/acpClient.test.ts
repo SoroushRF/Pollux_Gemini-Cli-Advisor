@@ -1060,6 +1060,40 @@ describe('Session', () => {
     expect(result).toMatchObject({ stopReason: 'end_turn' });
   });
 
+  it('should not request ACP permission for advisor_consultation when no confirmation is required', async () => {
+    const stream1 = createMockStream([
+      {
+        type: StreamEventType.CHUNK,
+        value: {
+          functionCalls: [{ name: 'advisor_consultation', args: {} }],
+        },
+      },
+    ]);
+    const stream2 = createMockStream([
+      {
+        type: StreamEventType.CHUNK,
+        value: {
+          candidates: [{ content: { parts: [{ text: 'Advisor response' }] } }],
+        },
+      },
+    ]);
+
+    mockChat.sendMessageStream
+      .mockResolvedValueOnce(stream1)
+      .mockResolvedValueOnce(stream2);
+
+    const result = await session.prompt({
+      sessionId: 'session-1',
+      prompt: [{ type: 'text', text: 'Consult advisor' }],
+    });
+
+    expect(mockToolRegistry.getTool).toHaveBeenCalledWith(
+      'advisor_consultation',
+    );
+    expect(mockConnection.requestPermission).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ stopReason: 'end_turn' });
+  });
+
   it('should handle tool call permission request', async () => {
     const confirmationDetails = {
       type: 'info',

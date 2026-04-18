@@ -76,6 +76,7 @@ import {
   type AnyToolInvocation,
 } from '../tools/tools.js';
 import { UPDATE_TOPIC_TOOL_NAME } from '../tools/tool-names.js';
+import { ADVISOR_CONSULTATION_TOOL_NAME } from '../pollux/types.js';
 import {
   CoreToolCallStatus,
   ROOT_SCHEDULER_ID,
@@ -876,6 +877,38 @@ describe('Scheduler (Orchestrator)', () => {
       expect(updatePolicy).toHaveBeenCalled();
       // execute called TWICE
       expect(mockExecutor.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('should resolve advisor ASK_USER confirmation exactly once for a single call', async () => {
+      vi.mocked(checkPolicy).mockResolvedValue({
+        decision: PolicyDecision.ASK_USER,
+        rule: undefined,
+      });
+
+      const advisorRequest: ToolCallRequestInfo = {
+        ...req1,
+        name: ADVISOR_CONSULTATION_TOOL_NAME,
+        callId: 'advisor-call-1',
+      };
+
+      vi.mocked(resolveConfirmation).mockResolvedValue({
+        outcome: ToolConfirmationOutcome.ProceedOnce,
+        lastDetails: {
+          type: 'info',
+          title: 'Advisor confirmation',
+          prompt: 'Allow advisor consultation?',
+        },
+      });
+
+      mockExecutor.execute.mockResolvedValue({
+        status: CoreToolCallStatus.Success,
+      } as unknown as SuccessfulToolCall);
+
+      await scheduler.schedule(advisorRequest, signal);
+
+      expect(resolveConfirmation).toHaveBeenCalledTimes(1);
+      expect(updatePolicy).toHaveBeenCalledTimes(1);
+      expect(mockExecutor.execute).toHaveBeenCalledTimes(1);
     });
 
     it('should call resolveConfirmation and updatePolicy when ASK_USER', async () => {

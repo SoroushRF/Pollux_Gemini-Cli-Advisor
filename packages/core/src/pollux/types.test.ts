@@ -49,6 +49,22 @@ describe('pollux/types', () => {
       ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs);
     });
 
+    it('clamps bounded numeric fields to safe ranges', () => {
+      const clampedLow = mergePolluxExperimentalConfig({
+        maxAdvisorCallsPerTurn: -5,
+        maxAdvisorCallsPerSession: 0,
+        confidenceThreshold: -1,
+      });
+      expect(clampedLow.maxAdvisorCallsPerTurn).toBe(1);
+      expect(clampedLow.maxAdvisorCallsPerSession).toBe(1);
+      expect(clampedLow.confidenceThreshold).toBe(1);
+
+      const clampedHigh = mergePolluxExperimentalConfig({
+        confidenceThreshold: 99,
+      });
+      expect(clampedHigh.confidenceThreshold).toBe(10);
+    });
+
     it('clamps advisorRequestTimeoutMs to minimum', () => {
       expect(
         mergePolluxExperimentalConfig({

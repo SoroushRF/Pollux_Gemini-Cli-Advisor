@@ -76,6 +76,7 @@ import {
   LoadedSettings,
   sanitizeEnvVar,
   createTestMergedSettings,
+  mergeSettings,
   resetSettingsCacheForTesting,
 } from './settings.js';
 import {
@@ -2799,6 +2800,93 @@ describe('Settings Loading and Merging', () => {
       expect(loadedSettings.merged.admin?.secureModeEnabled).toBe(false);
       expect(loadedSettings.merged.admin?.mcp?.enabled).toBe(true);
       expect(loadedSettings.merged.admin?.extensions?.enabled).toBe(true);
+    });
+  });
+
+  describe('mergeSettings Pollux precedence', () => {
+    it('should apply system > workspace > user > defaults precedence for Pollux fields when trusted', () => {
+      const merged = mergeSettings(
+        {
+          experimental: {
+            pollux: {
+              enabled: false,
+              maxAdvisorCallsPerTurn: 9,
+            },
+          },
+        } as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              enabled: true,
+              strategy: 'hybrid',
+              maxAdvisorCallsPerTurn: 2,
+              maxAdvisorCallsPerSession: 20,
+              confidenceThreshold: 6,
+            },
+          },
+        } as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              enabled: true,
+              strategy: 'heuristic',
+              confidenceThreshold: 4,
+            },
+          },
+        } as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              strategy: 'structured',
+              maxAdvisorCallsPerSession: 11,
+            },
+          },
+        } as unknown as Settings,
+        true,
+      );
+
+      expect(merged.experimental.pollux.enabled).toBe(false);
+      expect(merged.experimental.pollux.strategy).toBe('structured');
+      expect(merged.experimental.pollux.maxAdvisorCallsPerTurn).toBe(9);
+      expect(merged.experimental.pollux.maxAdvisorCallsPerSession).toBe(11);
+      expect(merged.experimental.pollux.confidenceThreshold).toBe(4);
+    });
+
+    it('should ignore workspace Pollux overrides when workspace is untrusted', () => {
+      const merged = mergeSettings(
+        {} as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              enabled: false,
+              strategy: 'hybrid',
+              maxAdvisorCallsPerTurn: 2,
+            },
+          },
+        } as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              enabled: true,
+              strategy: 'heuristic',
+              maxAdvisorCallsPerTurn: 6,
+            },
+          },
+        } as unknown as Settings,
+        {
+          experimental: {
+            pollux: {
+              strategy: 'structured',
+              maxAdvisorCallsPerTurn: 99,
+            },
+          },
+        } as unknown as Settings,
+        false,
+      );
+
+      expect(merged.experimental.pollux.enabled).toBe(true);
+      expect(merged.experimental.pollux.strategy).toBe('heuristic');
+      expect(merged.experimental.pollux.maxAdvisorCallsPerTurn).toBe(6);
     });
   });
 

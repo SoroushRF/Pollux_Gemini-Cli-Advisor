@@ -214,6 +214,7 @@ describe('confirmation.ts', () => {
           correlationId: '123e4567-e89b-12d3-a456-426614174000',
         }),
       );
+      expect(mockState.updateStatus).toHaveBeenCalledTimes(1);
     });
 
     it('should fire hooks if enabled', async () => {

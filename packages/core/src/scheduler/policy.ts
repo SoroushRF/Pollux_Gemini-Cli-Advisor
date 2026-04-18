@@ -31,6 +31,16 @@ import { EDIT_TOOL_NAMES } from '../tools/tool-names.js';
 import type { ValidatingToolCall } from './types.js';
 import type { AgentLoopContext } from '../config/agent-loop-context.js';
 
+function isSupportedPolicyDecision(
+  decision: unknown,
+): decision is PolicyDecision {
+  return (
+    decision === PolicyDecision.ALLOW ||
+    decision === PolicyDecision.DENY ||
+    decision === PolicyDecision.ASK_USER
+  );
+}
+
 /**
  * Helper to format the policy denial error.
  */
@@ -72,6 +82,12 @@ export async function checkPolicy(
     );
 
   const { decision } = result;
+
+  if (!isSupportedPolicyDecision(decision)) {
+    throw new Error(
+      `Unsupported policy decision "${String(decision)}" for tool "${toolCall.request.name}".`,
+    );
+  }
 
   // If the tool call was initiated by the client (e.g. via a slash command),
   // we treat it as implicitly confirmed by the user and bypass the

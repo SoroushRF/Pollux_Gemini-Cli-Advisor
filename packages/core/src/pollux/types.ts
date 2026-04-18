@@ -61,6 +61,13 @@ export type PolluxEscalationReasonCode =
 /** Lower bound for {@link PolluxExperimentalConfig.advisorRequestTimeoutMs} after merge. */
 export const POLLUX_MIN_ADVISOR_TIMEOUT_MS = 1000;
 
+/** Lower bound for per-turn/session advisor call budgets. */
+export const POLLUX_MIN_ADVISOR_CALLS = 1;
+
+/** Lower and upper bounds for structured confidence threshold (1-10). */
+export const POLLUX_MIN_CONFIDENCE_THRESHOLD = 1;
+export const POLLUX_MAX_CONFIDENCE_THRESHOLD = 10;
+
 /**
  * experimental.pollux.* shape (POLLUX_SPEC §8.2).
  * Wired through CLI schema / ConfigParameters in later tasks (P1-03, P1-04).
@@ -109,9 +116,26 @@ function polluxFiniteNumber(
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function polluxFiniteNumberInRange(
+  value: number | undefined,
+  fallback: number,
+  bounds: { min?: number; max?: number },
+): number {
+  const numeric = polluxFiniteNumber(value, fallback);
+  let bounded = numeric;
+  if (typeof bounds.min === 'number') {
+    bounded = Math.max(bounds.min, bounded);
+  }
+  if (typeof bounds.max === 'number') {
+    bounded = Math.min(bounds.max, bounded);
+  }
+  return bounded;
+}
+
 /**
  * Merge CLI/settings partial values with Pollux defaults (P1-04, P0-03).
- * Invalid `strategy` or non-finite numbers fall back to defaults.
+ * Invalid `strategy` or non-finite numbers fall back to defaults. Numeric
+ * fields with policy-safety ranges are clamped to safe bounds.
  */
 export function mergePolluxExperimentalConfig(
   partial?: Partial<PolluxExperimentalConfig> | undefined,
@@ -130,17 +154,23 @@ export function mergePolluxExperimentalConfig(
     executorModel: partial?.executorModel ?? d.executorModel,
     advisorModel: partial?.advisorModel ?? d.advisorModel,
     strategy,
-    maxAdvisorCallsPerTurn: polluxFiniteNumber(
+    maxAdvisorCallsPerTurn: polluxFiniteNumberInRange(
       partial?.maxAdvisorCallsPerTurn,
       d.maxAdvisorCallsPerTurn,
+      { min: POLLUX_MIN_ADVISOR_CALLS },
     ),
-    maxAdvisorCallsPerSession: polluxFiniteNumber(
+    maxAdvisorCallsPerSession: polluxFiniteNumberInRange(
       partial?.maxAdvisorCallsPerSession,
       d.maxAdvisorCallsPerSession,
+      { min: POLLUX_MIN_ADVISOR_CALLS },
     ),
-    confidenceThreshold: polluxFiniteNumber(
+    confidenceThreshold: polluxFiniteNumberInRange(
       partial?.confidenceThreshold,
       d.confidenceThreshold,
+      {
+        min: POLLUX_MIN_CONFIDENCE_THRESHOLD,
+        max: POLLUX_MAX_CONFIDENCE_THRESHOLD,
+      },
     ),
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
     advisorRequestTimeoutMs: Math.max(

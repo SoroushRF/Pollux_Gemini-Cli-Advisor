@@ -41,8 +41,11 @@ Runtime feature behavior is out of scope for this artifact.
 
 ### 2.4 Precedence contract
 
-1. argv > environment > settings > defaults.
-2. Pollux settings must follow the same precedence as other feature settings.
+1. Global precedence remains argv > environment > settings > defaults.
+2. In Phase 1, experimental.pollux.\* is sourced from settings/default tiers (no
+   Pollux-specific argv/env keys yet).
+3. For Pollux settings tiers, precedence is system > workspace (trusted only)
+   > user > systemDefaults > schema defaults.
 
 ### 2.5 Merge strategy contract
 
@@ -121,9 +124,10 @@ Objective: Verify Pollux settings obey precedence and merge semantics.
 
 Assertions:
 
-1. argv overrides env/settings/defaults for Pollux keys.
-2. env overrides settings/defaults for Pollux keys.
-3. array/record fields honor explicit mergeStrategy behavior.
+1. Pollux settings tiers apply system > workspace > user > defaults.
+2. Untrusted workspace settings do not override Pollux values.
+3. If Pollux-specific argv/env keys are introduced later, they must follow
+   global precedence (argv > env > settings > defaults).
 
 TG mapping: TG-5.
 
