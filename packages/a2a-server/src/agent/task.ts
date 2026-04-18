@@ -9,6 +9,7 @@ import {
   Scheduler,
   type GeminiClient,
   GeminiEventType,
+  PolluxRuntimeSurface,
   ToolConfirmationOutcome,
   ApprovalMode,
   getAllMCPServerStatuses,
@@ -1087,10 +1088,20 @@ export class Task {
     // Set task state to working as we are about to call LLM
     this.setTaskStateAndPublishUpdate('working', stateChange);
     this.currentAgentMessageId = uuidv4();
+    // D6 (A2A) is explicitly deferred from Pollux Phase 1/2 scope
+    // (P0-01 §D6, POLLUX_SPEC.md §3). We tag every A2A turn with the
+    // A2A_DEFERRED surface so the advisor seam in GeminiClient is a
+    // no-op bypass regardless of the Pollux feature flag. This is the
+    // explicit-bypass contract required by P2-06 / BP-06.
     yield* this.geminiClient.sendMessageStream(
       llmParts,
       aborted,
       completedToolCalls[0]?.request.prompt_id ?? '',
+      undefined,
+      false,
+      undefined,
+      false,
+      PolluxRuntimeSurface.A2A_DEFERRED,
     );
   }
 
@@ -1133,10 +1144,19 @@ export class Task {
       };
       // Set task state to working as we are about to call LLM
       this.setTaskStateAndPublishUpdate('working', stateChange);
+      // D6 (A2A) deferred-scope bypass: explicitly tag the A2A turn with
+      // the A2A_DEFERRED surface so the Pollux advisor seam in
+      // GeminiClient remains a no-op regardless of the Pollux flag
+      // (P0-01 §D6, P2-06 / BP-06).
       yield* this.geminiClient.sendMessageStream(
         llmParts,
         aborted,
         this.currentPromptId,
+        undefined,
+        false,
+        undefined,
+        false,
+        PolluxRuntimeSurface.A2A_DEFERRED,
       );
     } else if (anyConfirmationHandled) {
       logger.info(

@@ -541,7 +541,7 @@ Task breakdown:
 | P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions        | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
 | P2-04 | [Done 2026-04-18] Integrate non-interactive agent-session path and parity assertions    | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
 | P2-05 | [Done 2026-04-18] Implement ACP advisor semantics without unexpected permission prompts | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
-| P2-06 | Add explicit A2A deferred-scope assertions and docs                                     | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
+| P2-06 | [Done 2026-04-18] Add explicit A2A deferred-scope assertions and docs                   | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
 | P2-07 | Run cross-surface integration matrix and compare observable behavior                    | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
 
 Exit criteria:
@@ -645,6 +645,36 @@ Phase 2 implementation evidence update (2026-04-18):
       6494 tests).
     - `npm run typecheck --workspace @google/gemini-cli-core` and
       `npm run typecheck --workspace @google/gemini-cli` passed.
+
+- P2-06 (D6 A2A deferred-scope bypass) delivered with explicit call-site
+  tagging, BP-06 assertion tests, and a dedicated deferred-scope contract
+  document closing the P0-01 §D6 requirement that A2A remain an explicit bypass
+  in Phase 1/Phase 2:
+  - Every A2A `GeminiClient.sendMessageStream` invocation is now tagged with
+    `PolluxRuntimeSurface.A2A_DEFERRED` (both call sites in
+    `packages/a2a-server/src/agent/task.ts`: `sendCompletedToolsToLlm` and
+    `acceptUserMessage`). This removes the default `LEGACY_NON_INTERACTIVE`
+    fallback that would otherwise have engaged the advisor seam on A2A when
+    `pollux.enabled=true`.
+  - BP-06 assertion tests added as `Pollux A2A deferred bypass (P2-06 / BP-06)`
+    in `packages/a2a-server/src/agent/task.test.ts`, covering (a)
+    `acceptUserMessage` call-site tagging, (b) `sendCompletedToolsToLlm`
+    call-site tagging, and (c) explicit negative assertion that the A2A path
+    never uses the `LEGACY_NON_INTERACTIVE` surface.
+  - Seam-level no-op guard for `A2A_DEFERRED` is already covered by
+    `runPolluxAdvisorConsultation is a no-op for unknown runtime surfaces (P2-05 guard)`
+    in `packages/core/src/core/client.test.ts`.
+  - Deferred-scope contract document
+    `docs/core/pollux/P2-06_A2A_DEFERRED_BYPASS.md` specifying the reason for
+    deferral, the bypass contract, the reason marker
+    (`PolluxRuntimeSurface.A2A_DEFERRED`), BP-06 acceptance tests, and the
+    reactivation preconditions.
+  - Validation evidence:
+    - `npx vitest run src/agent/task.test.ts` passed (13 tests including the 3
+      new BP-06 tests).
+    - `npm run test` for `@google/gemini-cli-a2a-server` passed (13 test files /
+      127 tests).
+    - `npm run typecheck` passed for core, cli, and a2a-server workspaces.
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 

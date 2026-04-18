@@ -460,4 +460,118 @@ describe('Task', () => {
       expect(task.currentPromptId).toBe(expectedPromptId2);
     });
   });
+
+  // BP-06 A2A deferred bypass assertion (P2-06).
+  //
+  // D6 (A2A CoderAgentExecutor) is explicitly out of scope for Pollux Phase 1
+  // and Phase 2 per P0-01 §D6 and POLLUX_SPEC.md §3. Each A2A turn MUST
+  // explicitly tag its GeminiClient.sendMessageStream invocation with the
+  // A2A_DEFERRED surface marker so the advisor seam never engages on this
+  // path regardless of the Pollux feature-flag state. These tests pin that
+  // contract at the call-site level; the corresponding core-level guard
+  // (A2A_DEFERRED is absent from the seam allow-list) is covered by the
+  // `runPolluxAdvisorConsultation is a no-op for unknown runtime surfaces`
+  // test in packages/core/src/core/client.test.ts.
+  describe('Pollux A2A deferred bypass (P2-06 / BP-06)', () => {
+    const A2A_DEFERRED_SURFACE = 'a2a_deferred' as const;
+
+    function makeTaskWithSendMessageStreamSpy(): {
+      task: Task;
+      sendMessageStream: Mock;
+    } {
+      const mockConfig = createMockConfig();
+      const sendMessageStream = vi
+        .fn()
+        .mockReturnValue((async function* () {})());
+      mockConfig.getGeminiClient = vi.fn().mockReturnValue({
+        sendMessageStream,
+      });
+      mockConfig.getSessionId = () => 'a2a-deferred-session';
+
+      const mockEventBus: ExecutionEventBus = {
+        publish: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
+        once: vi.fn(),
+        removeAllListeners: vi.fn(),
+        finished: vi.fn(),
+      };
+
+      // @ts-expect-error - Calling private constructor
+      const task = new Task(
+        'task-id',
+        'context-id',
+        mockConfig as Config,
+        mockEventBus,
+      );
+
+      return { task, sendMessageStream };
+    }
+
+    it('tags acceptUserMessage turns with the A2A_DEFERRED runtime surface', async () => {
+      const { task, sendMessageStream } = makeTaskWithSendMessageStreamSpy();
+
+      const userMessage = {
+        userMessage: {
+          parts: [{ kind: 'text', text: 'hello from a2a' }],
+        },
+      } as RequestContext;
+      const aborted = new AbortController().signal;
+
+      for await (const _ of task.acceptUserMessage(userMessage, aborted)) {
+        // drain generator
+      }
+
+      expect(sendMessageStream).toHaveBeenCalledTimes(1);
+      const callArgs = sendMessageStream.mock.calls[0];
+      // Positional args: [request, signal, prompt_id, turns, isInvalidStreamRetry,
+      //                   displayContent, stopHookActive, runtimeSurface].
+      expect(callArgs.length).toBeGreaterThanOrEqual(8);
+      expect(callArgs[7]).toBe(A2A_DEFERRED_SURFACE);
+    });
+
+    it('tags sendCompletedToolsToLlm turns with the A2A_DEFERRED runtime surface', async () => {
+      const { task, sendMessageStream } = makeTaskWithSendMessageStreamSpy();
+
+      const completedTool = {
+        request: { callId: 'tool-a2a', prompt_id: 'a2a-prompt' },
+        response: { responseParts: [{ text: 'tool output' }] },
+      } as CompletedToolCall;
+      const aborted = new AbortController().signal;
+
+      for await (const _ of task.sendCompletedToolsToLlm(
+        [completedTool],
+        aborted,
+      )) {
+        // drain generator
+      }
+
+      expect(sendMessageStream).toHaveBeenCalledTimes(1);
+      const callArgs = sendMessageStream.mock.calls[0];
+      expect(callArgs.length).toBeGreaterThanOrEqual(8);
+      expect(callArgs[7]).toBe(A2A_DEFERRED_SURFACE);
+    });
+
+    it('never engages legacy-non-interactive Pollux routing on A2A turns', async () => {
+      const { task, sendMessageStream } = makeTaskWithSendMessageStreamSpy();
+
+      const userMessage = {
+        userMessage: {
+          parts: [{ kind: 'text', text: 'a2a deferred marker check' }],
+        },
+      } as RequestContext;
+      const aborted = new AbortController().signal;
+
+      for await (const _ of task.acceptUserMessage(userMessage, aborted)) {
+        // drain generator
+      }
+
+      const callArgs = sendMessageStream.mock.calls[0];
+      // Deferred-scope reason marker: the A2A executor must never fall back to
+      // the default LEGACY_NON_INTERACTIVE surface tag because that would
+      // engage the Pollux advisor seam when pollux.enabled=true.
+      expect(callArgs[7]).not.toBe('legacy_non_interactive');
+      expect(callArgs[7]).toBe(A2A_DEFERRED_SURFACE);
+    });
+  });
 });
