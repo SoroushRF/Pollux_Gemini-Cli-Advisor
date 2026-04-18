@@ -922,6 +922,23 @@ describe('loadCliConfig', () => {
 
     expect(config.isInteractive()).toBe(false);
   });
+
+  it('should map merged experimental.pollux settings into Config', async () => {
+    process.argv = ['node', 'script.js'];
+    const argv = await parseArguments(createTestMergedSettings());
+    const settings = createTestMergedSettings({
+      experimental: {
+        pollux: {
+          enabled: true,
+          strategy: 'heuristic',
+        },
+      },
+    });
+    const config = await loadCliConfig(settings, 'test-session', argv);
+    const p = config.getPolluxExperimentalConfig();
+    expect(p.enabled).toBe(true);
+    expect(p.strategy).toBe('heuristic');
+  });
 });
 
 describe('Hierarchical Memory Loading (config.ts) - Placeholder Suite', () => {

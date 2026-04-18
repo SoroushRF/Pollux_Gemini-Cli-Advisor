@@ -84,6 +84,10 @@ import {
   PREVIEW_GEMINI_MODEL_AUTO,
   resolveModel,
 } from './models.js';
+import {
+  mergePolluxExperimentalConfig,
+  type PolluxExperimentalConfig,
+} from '../pollux/types.js';
 import { shouldAttemptBrowserLaunch } from '../utils/browser.js';
 import type { MCPOAuthConfig } from '../mcp/oauth-provider.js';
 import { ideContextStore } from '../ide/ideContext.js';
@@ -705,6 +709,8 @@ export interface ConfigParameters {
   experimentalAgentHistorySummarization?: boolean;
   memoryBoundaryMarkers?: string[];
   topicUpdateNarration?: boolean;
+  /** Resolved Pollux settings; partial values are merged in the Config constructor. */
+  pollux?: Partial<PolluxExperimentalConfig>;
 
   disableLLMCorrection?: boolean;
   plan?: boolean;
@@ -943,6 +949,7 @@ export class Config implements McpContext, AgentLoopContext {
   private readonly experimentalMemoryManager: boolean;
   private readonly memoryBoundaryMarkers: readonly string[];
   private readonly topicUpdateNarration: boolean;
+  private readonly pollux: PolluxExperimentalConfig;
   private readonly disableLLMCorrection: boolean;
   private readonly planEnabled: boolean;
   private readonly trackerEnabled: boolean;
@@ -1193,6 +1200,7 @@ export class Config implements McpContext, AgentLoopContext {
       },
     };
     this.topicUpdateNarration = params.topicUpdateNarration ?? false;
+    this.pollux = mergePolluxExperimentalConfig(params.pollux);
     this.modelSteering = params.modelSteering ?? false;
     this.injectionService = new InjectionService(() =>
       this.isModelSteeringEnabled(),
@@ -2444,6 +2452,10 @@ export class Config implements McpContext, AgentLoopContext {
 
   isTopicUpdateNarrationEnabled(): boolean {
     return this.topicUpdateNarration;
+  }
+
+  getPolluxExperimentalConfig(): Readonly<PolluxExperimentalConfig> {
+    return this.pollux;
   }
 
   isModelSteeringEnabled(): boolean {

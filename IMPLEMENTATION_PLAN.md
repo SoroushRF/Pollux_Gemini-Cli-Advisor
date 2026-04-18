@@ -765,10 +765,10 @@ for the object (scalar fields only; no array/record Pollux keys). Defaults are
 sourced from `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG` in `@google/gemini-cli-core`
 so schema defaults match core. Regenerated `schemas/settings.schema.json` via
 `npm run schema:settings` and settings reference in
-`docs/reference/configuration.md` via `npm run docs:settings`. Loader remains
-schema-driven merged settings — no `loadCliConfig` / `ConfigParameters` mapping
-yet (P1-04). Extended `packages/cli/src/config/settingsSchema.test.ts` for
-Pollux keys.
+`docs/reference/configuration.md` via `npm run docs:settings`. Loader is
+schema-driven merged settings. Extended
+`packages/cli/src/config/settingsSchema.test.ts` for Pollux keys.
+`ConfigParameters` / `loadCliConfig` mapping is P1-04.
 
 **References:**
 
@@ -779,3 +779,29 @@ Pollux keys.
   §3 (POLLUX-P1-03)
 - Contract:
   [docs/core/pollux/P0-03_SETTINGS_STRATEGY.md](docs/core/pollux/P0-03_SETTINGS_STRATEGY.md)
+
+### P1-04 — Map Pollux config into core ConfigParameters and accessors
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Added `mergePolluxExperimentalConfig` in
+`packages/core/src/pollux/types.ts` (defaults, strategy validation, finite
+numbers). Extended `ConfigParameters` with optional
+`pollux?: Partial<PolluxExperimentalConfig>`; `Config` stores merged
+`PolluxExperimentalConfig` and exposes `getPolluxExperimentalConfig()`.
+`loadCliConfig` in `packages/cli/src/config/config.ts` passes
+`pollux: mergePolluxExperimentalConfig(settings.experimental?.pollux)`. TG-5
+drift guard: `packages/cli/src/config/polluxConfigMapping.test.ts` asserts every
+`experimental.pollux` schema key appears in merge output; core and CLI tests
+cover constructor and `loadCliConfig` wiring.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-04](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-04)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-04)
+- Contract:
+  [docs/core/pollux/P0-03_SETTINGS_STRATEGY.md](docs/core/pollux/P0-03_SETTINGS_STRATEGY.md)
+  §3

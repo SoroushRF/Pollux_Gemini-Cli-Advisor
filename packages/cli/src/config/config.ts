@@ -47,6 +47,7 @@ import {
   type OutputFormat,
   detectIdeFromEnv,
   generalistProfile,
+  mergePolluxExperimentalConfig,
 } from '@google/gemini-cli-core';
 import {
   type Settings,
@@ -993,6 +994,7 @@ export async function loadCliConfig(
     contextManagement,
     modelSteering: settings.experimental?.modelSteering,
     topicUpdateNarration: settings.experimental?.topicUpdateNarration,
+    pollux: mergePolluxExperimentalConfig(settings.experimental?.pollux),
     noBrowser: !!process.env['NO_BROWSER'],
     summarizeToolOutput: settings.model?.summarizeToolOutput,
     ideMode,

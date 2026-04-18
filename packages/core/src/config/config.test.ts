@@ -19,6 +19,10 @@ import {
   type ConfigParameters,
   type SandboxConfig,
 } from './config.js';
+import {
+  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  PolluxDetectorStrategy,
+} from '../pollux/types.js';
 import { createMockSandboxConfig } from '@google/gemini-cli-test-utils';
 import { DEFAULT_MAX_ATTEMPTS } from '../utils/retry.js';
 import { ExperimentFlags } from '../code_assist/experiments/flagNames.js';
@@ -301,6 +305,24 @@ describe('Server Config (config.ts)', () => {
         maxAttempts: 20,
       });
       expect(config.getMaxAttempts()).toBe(DEFAULT_MAX_ATTEMPTS);
+    });
+  });
+
+  describe('Pollux (ConfigParameters.pollux)', () => {
+    it('merges partial pollux parameters in the constructor', () => {
+      const config = new Config({
+        ...baseParams,
+        pollux: {
+          enabled: true,
+          strategy: PolluxDetectorStrategy.HEURISTIC,
+        },
+      });
+      const p = config.getPolluxExperimentalConfig();
+      expect(p.enabled).toBe(true);
+      expect(p.strategy).toBe(PolluxDetectorStrategy.HEURISTIC);
+      expect(p.executorModel).toBe(
+        DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
+      );
     });
   });
 

@@ -93,6 +93,50 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   emitAdvisorDebug: false,
 } as const satisfies PolluxExperimentalConfig;
 
+function polluxFiniteNumber(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Merge CLI/settings partial values with Pollux defaults (P1-04, P0-03).
+ * Invalid `strategy` or non-finite numbers fall back to defaults.
+ */
+export function mergePolluxExperimentalConfig(
+  partial?: Partial<PolluxExperimentalConfig> | undefined,
+): PolluxExperimentalConfig {
+  const d = DEFAULT_POLLUX_EXPERIMENTAL_CONFIG;
+  const s = partial?.strategy;
+  const strategy: PolluxDetectorStrategy =
+    s === PolluxDetectorStrategy.HEURISTIC ||
+    s === PolluxDetectorStrategy.STRUCTURED ||
+    s === PolluxDetectorStrategy.HYBRID
+      ? s
+      : d.strategy;
+
+  return {
+    enabled: partial?.enabled ?? d.enabled,
+    executorModel: partial?.executorModel ?? d.executorModel,
+    advisorModel: partial?.advisorModel ?? d.advisorModel,
+    strategy,
+    maxAdvisorCallsPerTurn: polluxFiniteNumber(
+      partial?.maxAdvisorCallsPerTurn,
+      d.maxAdvisorCallsPerTurn,
+    ),
+    maxAdvisorCallsPerSession: polluxFiniteNumber(
+      partial?.maxAdvisorCallsPerSession,
+      d.maxAdvisorCallsPerSession,
+    ),
+    confidenceThreshold: polluxFiniteNumber(
+      partial?.confidenceThreshold,
+      d.confidenceThreshold,
+    ),
+    emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
+  };
+}
+
 /**
  * Bounded context passed to shouldEscalate and advisor consultation
  * (POLLUX_SPEC §5.1–5.2 interceptor flow).

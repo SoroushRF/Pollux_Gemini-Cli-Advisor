@@ -9,6 +9,7 @@ import {
   ADVISOR_CONSULTATION_TOOL_NAME,
   AdvisorConsultationStatus,
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  mergePolluxExperimentalConfig,
   PolluxDetectorStrategy,
   PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
@@ -22,6 +23,28 @@ import {
 } from './types.js';
 
 describe('pollux/types', () => {
+  describe('mergePolluxExperimentalConfig', () => {
+    it('fills defaults for empty partial', () => {
+      expect(mergePolluxExperimentalConfig({})).toEqual({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+      });
+    });
+
+    it('falls back numeric fields when non-finite', () => {
+      expect(
+        mergePolluxExperimentalConfig({
+          maxAdvisorCallsPerTurn: Number.NaN,
+          confidenceThreshold: Number.POSITIVE_INFINITY,
+        }).maxAdvisorCallsPerTurn,
+      ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsPerTurn);
+      expect(
+        mergePolluxExperimentalConfig({
+          confidenceThreshold: Number.NaN,
+        }).confidenceThreshold,
+      ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.confidenceThreshold);
+    });
+  });
+
   describe('DEFAULT_POLLUX_EXPERIMENTAL_CONFIG', () => {
     it('matches POLLUX_SPEC §8.2 field set with safe feature default', () => {
       const cfg: PolluxExperimentalConfig = {
