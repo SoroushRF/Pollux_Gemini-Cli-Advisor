@@ -30,7 +30,24 @@ describe('Pollux P4-05 benchmark metrics report', () => {
     expect(report.overallAccuracy.n).toBe(report.sampleCount);
     expect(report.tokenReconciliation.passCount).toBe(report.sampleCount);
     expect(report.tokenReconciliation.passRate.value).toBe(1);
+
+    // P4-05 senior review fix: confusion matrix must now include real
+    // expected positives drawn from the ESCALATING task under
+    // Pollux-enabled conditions (B/C/D), and recall MUST be non-null
+    // and strictly positive. Previously this test only required
+    // expectedPositive > 0 which was satisfied by the
+    // advisorEnabled-as-positive bug.
     expect(report.escalation.expectedPositive).toBeGreaterThan(0);
     expect(report.escalation.recall).not.toBeNull();
-  }, 480000);
+    expect(report.escalation.truePositive).toBeGreaterThan(0);
+    expect(report.escalation.recall!.value).toBeGreaterThan(0);
+
+    // Also pin: the precision matrix counts every observed advisor call
+    // as a predicted positive. With the new corpus and confusion-matrix
+    // semantics, advisor calls only occur for ESCALATING task under B/C/D
+    // (true positives), so precision should be 100%.
+    expect(report.escalation.falsePositive).toBe(0);
+    expect(report.escalation.precision).not.toBeNull();
+    expect(report.escalation.precision!.value).toBe(1);
+  }, 600000);
 });

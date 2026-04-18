@@ -41,6 +41,8 @@ interface MeanWithCi {
 }
 
 interface BenchmarkSample {
+  taskId: string;
+  taskEscalates: boolean;
   conditionId: string;
   advisorEnabled: boolean;
   accuracyPass: boolean;
@@ -48,7 +50,23 @@ interface BenchmarkSample {
   tokensTotal: number;
   tokensAdvisor: number;
   tokensExecutor: number;
+  observedAdvisorCalls: number;
+  /**
+   * Did the advisor actually fire on this run? True iff at least one
+   * `utility_advisor` api_response was observed in telemetry. Replaces the
+   * previous heuristic of `tokensAdvisor > 0`, which conflated tokens with
+   * call presence.
+   */
   escalated: boolean;
+  /**
+   * Did this sample meet the conditions to be an "expected positive" for
+   * the escalation matrix? True iff the task is marked `escalates: true`
+   * AND the condition has Pollux enabled. Without this filter the matrix
+   * counts every Pollux-on cell as expected positive — including
+   * non-escalating tasks, which can never legitimately trigger the
+   * detector — and recall collapses to 0 by construction.
+   */
+  expectedPositive: boolean;
   tokenReconciled: boolean;
 }
 
@@ -211,7 +229,11 @@ function flattenSamples(source: PolluxFullBenchmarkReport): BenchmarkSample[] {
 
     for (const run of [cell.initialRun, cell.resumedRun]) {
       const tokens = run.metrics.tokens;
+      const observedAdvisorCalls = run.metrics.observedAdvisorCalls;
+      const escalated = observedAdvisorCalls > 0;
       samples.push({
+        taskId: cell.taskId,
+        taskEscalates: cell.taskEscalates,
         conditionId: cell.conditionId,
         advisorEnabled,
         accuracyPass: run.metrics.accuracyPass,
@@ -219,7 +241,9 @@ function flattenSamples(source: PolluxFullBenchmarkReport): BenchmarkSample[] {
         tokensTotal: tokens.total,
         tokensAdvisor: tokens.advisor,
         tokensExecutor: tokens.executor,
-        escalated: tokens.advisor > 0,
+        observedAdvisorCalls,
+        escalated,
+        expectedPositive: cell.taskEscalates && advisorEnabled,
         tokenReconciled: tokens.total === tokens.advisor + tokens.executor,
       });
     }
@@ -273,17 +297,23 @@ export function buildPolluxP405BenchmarkReport(
     (sample) => sample.tokenReconciled,
   ).length;
 
+  // Confusion matrix uses task-level escalation expectation rather than
+  // "Pollux-enabled-condition implies expected positive". Pollux-on for a
+  // non-escalating task is correctly TN (advisor allowed but never had a
+  // legitimate reason to fire); Pollux-off for an escalating task is
+  // correctly TN (no advisor available to fire). See expectedPositive
+  // derivation in flattenSamples for the rationale.
   let truePositive = 0;
   let falsePositive = 0;
   let falseNegative = 0;
   let trueNegative = 0;
 
   for (const sample of samples) {
-    if (sample.escalated && sample.advisorEnabled) {
+    if (sample.escalated && sample.expectedPositive) {
       truePositive += 1;
-    } else if (sample.escalated && !sample.advisorEnabled) {
+    } else if (sample.escalated && !sample.expectedPositive) {
       falsePositive += 1;
-    } else if (!sample.escalated && sample.advisorEnabled) {
+    } else if (!sample.escalated && sample.expectedPositive) {
       falseNegative += 1;
     } else {
       trueNegative += 1;
@@ -342,19 +372,26 @@ export function renderPolluxP405BenchmarkReport(
 ): string {
   const lines: string[] = [];
 
-  lines.push('# P4-05 Benchmark Metrics Report (Token/Latency/Accuracy + CIs)');
+  lines.push(
+    '# P4-05 Synthetic Harness Self-Test (Tokens / Latency / Accuracy / CIs)',
+  );
   lines.push('');
-  lines.push('Version: 1.0');
+  lines.push('Version: 2.0');
   lines.push(`Generated: ${report.generatedAt}`);
-  lines.push('Status: Done');
+  lines.push('Status: Done (synthetic self-test)');
   lines.push('TG mapping: TG-1, TG-4');
   lines.push('');
   lines.push('---');
   lines.push('');
+  lines.push('> **Disclaimer (P4-05 senior review fix).**');
+  lines.push(
+    '> The numbers in this report are produced from deterministic fake-response fixtures replayed by `BenchmarkHarness` against the CLI. They validate the harness plumbing — token accounting, latency measurement, accuracy oracle wiring, fairness pin enforcement, escalation telemetry attribution, and 95% CI math — and they DO NOT constitute a model performance benchmark. Any comparison of executor vs. advisor model quality, token cost, or wall-clock latency from these numbers is invalid by construction. The contract a real model-run benchmark must satisfy lives in `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md`.',
+  );
+  lines.push('');
   lines.push('## 1) Scope');
   lines.push('');
   lines.push(
-    'This artifact publishes condition-level and overall benchmark metrics from the full A-E checkpoint/resume run, including 95% confidence intervals and escalation statistics.',
+    'This artifact publishes condition-level and overall numbers from the synthetic A-E session-resume continuity run, including 95% confidence intervals on accuracy / tokens / latency and an escalation confusion matrix derived from observed `utility_advisor` telemetry events. It serves as a regression gate on the harness, not as a model evaluation.',
   );
   lines.push('');
   lines.push('## 2) Source data');
@@ -389,7 +426,11 @@ export function renderPolluxP405BenchmarkReport(
   lines.push('## 5) Escalation statistics');
   lines.push('');
   lines.push(
-    `- Confusion counts (advisor-enabled condition as expected positive): TP=${report.escalation.truePositive}, FP=${report.escalation.falsePositive}, FN=${report.escalation.falseNegative}, TN=${report.escalation.trueNegative}`,
+    'Confusion matrix uses task-level escalation expectation: a sample is an expected positive iff the task is marked `escalates: true` AND the condition has Pollux enabled. This is the senior-review fix for the original report, which used `advisorEnabled` as the expected-positive label and forced recall to 0 by construction whenever no escalating task was in the corpus.',
+  );
+  lines.push('');
+  lines.push(
+    `- Confusion counts: TP=${report.escalation.truePositive}, FP=${report.escalation.falsePositive}, FN=${report.escalation.falseNegative}, TN=${report.escalation.trueNegative}`,
   );
   lines.push(
     `- Precision: ${report.escalation.precision ? formatRateWithCi(report.escalation.precision) : 'N/A (no predicted positives)'}`,
@@ -401,7 +442,7 @@ export function renderPolluxP405BenchmarkReport(
   lines.push('## 6) Conclusion');
   lines.push('');
   lines.push(
-    'The P4-05 benchmark metrics report is complete, with confidence intervals for accuracy, token usage, and latency, plus escalation precision/recall and TG-4 token reconciliation evidence.',
+    'The harness self-test is complete. All accounting plumbing reports stable values across repeated runs (see P4-03 smoke), token reconciliation holds (TG-4), and the escalation confusion matrix exposes a non-degenerate TP/TN distribution driven by a real corpus task whose prompt trips the detector. A real model-run benchmark must follow the protocol in `P4-05_REAL_BENCHMARK_METHODOLOGY.md` before any executor vs. advisor performance claim is published.',
   );
   lines.push('');
 
