@@ -695,3 +695,62 @@ Pollux is done only when all of the following are true:
 5. Land doc governance controls (G5).
 
 No runtime feature code before checklist completion.
+
+---
+
+## 12) Phase 1 implementation log (task completion notes)
+
+Short entries added after each completed Phase 1 task: what landed, with
+pointers to files and to the canonical issue draft.
+
+### P1-01 — Define types/interfaces (turn context, detector contracts, advisor contracts)
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Introduced the core Pollux type surface under
+`packages/core/src/pollux/`: runtime surfaces, detector strategy and reason
+codes, `PolluxExperimentalConfig` with `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG`
+(`enabled` defaults false per flag-first rollout), `PolluxTurnContext`,
+`PolluxDetector` / `ShouldEscalateResult`, and `PolluxAdvisor` /
+`AdvisorConsultationInput` / `AdvisorConsultationResult`. Exported from
+`@google/gemini-cli-core` via `packages/core/src/pollux/index.ts` and
+`packages/core/src/index.ts`. Unit tests in
+`packages/core/src/pollux/types.test.ts`.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-01](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-01)
+- Execution board row:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-01)
+- Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §§4–8 (component list, interceptor
+  flow, detector, settings)
+
+### P1-02 — Model registry and alias resolver contract
+
+**Status:** Done (2026-04-18).
+
+**Summary:** Added `packages/core/src/pollux/models.ts`: `PolluxModelRegistry`
+with normalized-alias deduplication (throws `PolluxDuplicateAliasError` on
+collisions), `normalizePolluxModelAlias`, and `resolvePolluxModel` with
+deterministic resolution — when Pollux is **disabled**, trimmed passthrough (no
+registry use); when **enabled**, registry hit → canonical; empty or unknown
+short alias → `executorModel` / `advisorModel` from `PolluxExperimentalConfig`
+by `PolluxModelRole`; likely concrete ids (`VALID_GEMINI_MODELS` or `gemini-` /
+`auto-gemini-` prefixes) passthrough. Reuses `VALID_GEMINI_MODELS` from
+`packages/core/src/config/models.ts`. Tests in
+`packages/core/src/pollux/models.test.ts`. Re-exported via
+`packages/core/src/pollux/index.ts`.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-02](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-02)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-02)
+- Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §4 (Pollux module list includes
+  `models.ts`)
+- Related report:
+  [docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux/report.md](docs/repo-compartment-analysis/reports/07-routing-availability-loop-and-pollux/report.md)

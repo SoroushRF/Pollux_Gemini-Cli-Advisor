@@ -7,4 +7,5 @@
 // Pollux — Adaptive advisor layer for Gemini CLI
 // Public exports
 
-export {};
+export * from './types.js';
+export * from './models.js';
