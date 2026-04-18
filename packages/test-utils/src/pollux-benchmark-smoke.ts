@@ -29,11 +29,21 @@ export const POLLUX_SMOKE_ARTIFACT_PATH = join(
 
 export interface PolluxSmokeCellRun {
   taskId: string;
+  taskEscalates: boolean;
   conditionId: string;
   fakeResponsesPath: string;
   runs: BenchmarkRunMetadata[];
   stableFingerprint: string;
   reproducible: boolean;
+  /**
+   * Maximum observed advisor call count across the repeated runs in this
+   * cell. Non-zero values prove the advisor pipeline was actually invoked
+   * by the smoke matrix (P4-03 senior review fix: the old smoke matrix
+   * deliberately excluded advisor-enabled conditions and could never
+   * exercise utility_advisor telemetry). Reproducibility requires this
+   * value to be identical across all repeats.
+   */
+  maxObservedAdvisorCalls: number;
 }
 
 export interface PolluxSmokeBenchmarkReport {
@@ -41,14 +51,31 @@ export interface PolluxSmokeBenchmarkReport {
   repeatCount: number;
   cells: PolluxSmokeCellRun[];
   reproducible: boolean;
+  /** True when at least one cell observed an advisor call (TG-3 evidence). */
+  advisorPipelineExercised: boolean;
 }
 
-const SMOKE_TASK_IDS = ['CAL-BM-01-SIMPLE', 'CAL-BM-02-MODERATE'] as const;
+// Smoke matrix is intentionally minimal but MUST exercise both the
+// Pollux-off baseline (A) and at least one Pollux-on hybrid path (D) so the
+// advisor pipeline is actually verified by the smoke gate. Including the
+// ESCALATING task ensures the D cell observes a non-zero
+// `utility_advisor` telemetry count (P4-03 senior review fix).
+const SMOKE_TASK_IDS = [
+  'CAL-BM-01-SIMPLE',
+  'CAL-BM-02-MODERATE',
+  'CAL-BM-04-ESCALATING',
+] as const;
 
 const SMOKE_CONDITIONS: BenchmarkCondition[] = [
   {
     id: 'A',
     executorModel: 'gemini-2.5-flash',
+  },
+  {
+    id: 'D',
+    executorModel: 'gemini-2.5-flash',
+    advisorModel: 'gemini-3-pro-preview',
+    strategy: 'hybrid',
   },
   {
     id: 'E',
@@ -59,7 +86,45 @@ const SMOKE_CONDITIONS: BenchmarkCondition[] = [
 const SMOKE_FIXTURES: Record<string, string> = {
   'CAL-BM-01-SIMPLE': join(fixtureDirectory, 'CAL-BM-01-SIMPLE.responses'),
   'CAL-BM-02-MODERATE': join(fixtureDirectory, 'CAL-BM-02-MODERATE.responses'),
+  'CAL-BM-04-ESCALATING': join(
+    fixtureDirectory,
+    'CAL-BM-04-ESCALATING.responses',
+  ),
 };
+
+/**
+ * Pollux-enabled fixture overrides. When a smoke condition has an advisor
+ * model configured AND the task escalates the detector, the harness must
+ * replay an advisor `generateContent` response BEFORE the executor's
+ * `generateContentStream` responses, otherwise the executor consumes the
+ * advisor JSON as plain text and the run silently degrades to the
+ * Pollux-off path. Only the ESCALATING task currently needs this override
+ * because no other smoke task trips the detector.
+ */
+const SMOKE_FIXTURES_ADVISOR: Record<string, string> = {
+  'CAL-BM-04-ESCALATING': join(
+    fixtureDirectory,
+    'CAL-BM-04-ESCALATING.advisor.responses',
+  ),
+};
+
+function resolveSmokeFixturePath(
+  task: BenchmarkTask,
+  condition: BenchmarkCondition,
+): string {
+  if (
+    task.escalates === true &&
+    condition.advisorModel !== undefined &&
+    SMOKE_FIXTURES_ADVISOR[task.id]
+  ) {
+    return SMOKE_FIXTURES_ADVISOR[task.id]!;
+  }
+  const baseline = SMOKE_FIXTURES[task.id];
+  if (!baseline) {
+    throw new Error(`Missing smoke fixture mapping for task: ${task.id}`);
+  }
+  return baseline;
+}
 
 function getSmokeTask(taskId: string): BenchmarkTask {
   const task = BENCHMARK_CORPUS.find((entry) => entry.id === taskId);
@@ -76,6 +141,7 @@ function normalizeRun(result: BenchmarkRunMetadata) {
     fairnessPins: result.fairnessPins,
     accuracyPass: result.metrics.accuracyPass,
     tokens: result.metrics.tokens,
+    observedAdvisorCalls: result.metrics.observedAdvisorCalls,
   };
 }
 
@@ -101,13 +167,14 @@ export async function runPolluxSmokeBenchmark(
 
   for (const taskId of SMOKE_TASK_IDS) {
     const task = getSmokeTask(taskId);
-    const fakeResponsesPath = SMOKE_FIXTURES[task.id];
-
-    if (!existsSync(fakeResponsesPath)) {
-      throw new Error(`Missing smoke response fixture: ${fakeResponsesPath}`);
-    }
 
     for (const condition of SMOKE_CONDITIONS) {
+      const fakeResponsesPath = resolveSmokeFixturePath(task, condition);
+
+      if (!existsSync(fakeResponsesPath)) {
+        throw new Error(`Missing smoke response fixture: ${fakeResponsesPath}`);
+      }
+
       const runs: BenchmarkRunMetadata[] = [];
 
       for (let index = 0; index < repeatCount; index++) {
@@ -126,11 +193,16 @@ export async function runPolluxSmokeBenchmark(
 
       cells.push({
         taskId: task.id,
+        taskEscalates: task.escalates === true,
         conditionId: condition.id,
         fakeResponsesPath,
         runs,
         stableFingerprint: fingerprintRun(runs[0]!),
         reproducible,
+        maxObservedAdvisorCalls: runs.reduce(
+          (max, run) => Math.max(max, run.metrics.observedAdvisorCalls),
+          0,
+        ),
       });
     }
   }
@@ -140,6 +212,9 @@ export async function runPolluxSmokeBenchmark(
     repeatCount,
     cells,
     reproducible: cells.every((cell) => cell.reproducible),
+    advisorPipelineExercised: cells.some(
+      (cell) => cell.maxObservedAdvisorCalls > 0,
+    ),
   };
 }
 
@@ -149,28 +224,28 @@ export function renderPolluxSmokeBenchmarkReport(
   const lines: string[] = [];
   lines.push('# P4-03 Smoke Benchmark Reproducibility Report');
   lines.push('');
-  lines.push('Version: 1.0');
+  lines.push('Version: 2.0');
   lines.push(`Generated: ${report.generatedAt}`);
   lines.push('Status: Done');
-  lines.push('TG mapping: TG-1');
+  lines.push('TG mapping: TG-1, TG-3');
   lines.push('');
   lines.push('---');
   lines.push('');
   lines.push('## 1) Scope');
   lines.push('');
   lines.push(
-    'This artifact records the P4-03 smoke benchmark run over a small A/E matrix using deterministic fake responses. The benchmark validates reproducibility by comparing stable run projections across repeated executions.',
+    'This artifact records the P4-03 smoke benchmark over a small A / D / E matrix using deterministic fake responses. The matrix MUST include at least one Pollux-enabled condition (D, hybrid strategy) and at least one task whose prompt deliberately trips the detector (`CAL-BM-04-ESCALATING`) so the smoke gate actually exercises the advisor pipeline (TG-3) and not just the executor path.',
   );
   lines.push('');
   lines.push('## 2) Smoke matrix');
   lines.push('');
   lines.push(
-    '| Task | Condition | Repeats | Reproducible | Stable fingerprint |',
+    '| Task | Esc? | Cond | Repeats | Reproducible | Advisor calls (max) | Stable fingerprint |',
   );
-  lines.push('| --- | --- | ---: | --- | --- |');
+  lines.push('| --- | --- | --- | ---: | --- | ---: | --- |');
   for (const cell of report.cells) {
     lines.push(
-      `| ${cell.taskId} | ${cell.conditionId} | ${cell.runs.length} | ${cell.reproducible ? 'yes' : 'no'} | ${cell.stableFingerprint} |`,
+      `| ${cell.taskId} | ${cell.taskEscalates ? 'yes' : 'no'} | ${cell.conditionId} | ${cell.runs.length} | ${cell.reproducible ? 'yes' : 'no'} | ${cell.maxObservedAdvisorCalls} | ${cell.stableFingerprint} |`,
     );
   }
   lines.push('');
@@ -183,9 +258,10 @@ export function renderPolluxSmokeBenchmarkReport(
     lines.push(
       `- Stable reproducibility: ${cell.reproducible ? 'passed' : 'failed'}`,
     );
+    lines.push(`- Max observed advisor calls: ${cell.maxObservedAdvisorCalls}`);
     cell.runs.forEach((run, index) => {
       lines.push(
-        `- Run ${index + 1}: valid=${run.valid}, accuracy=${run.metrics.accuracyPass}, tokens(total/advisor/executor)=${run.metrics.tokens.total}/${run.metrics.tokens.advisor}/${run.metrics.tokens.executor}, latencyMs=${run.metrics.latencyMs.toFixed(1)}`,
+        `- Run ${index + 1}: valid=${run.valid}, accuracy=${run.metrics.accuracyPass}, tokens(total/advisor/executor)=${run.metrics.tokens.total}/${run.metrics.tokens.advisor}/${run.metrics.tokens.executor}, advisorCalls=${run.metrics.observedAdvisorCalls}, latencyMs=${run.metrics.latencyMs.toFixed(1)}`,
       );
     });
     lines.push('');
@@ -194,14 +270,20 @@ export function renderPolluxSmokeBenchmarkReport(
   lines.push('');
   lines.push(
     report.reproducible
-      ? 'The smoke matrix is reproducible: every repeated run produced the same stable projection for validity, fairness pins, accuracy, and token accounting.'
+      ? 'The smoke matrix is reproducible: every repeated run produced the same stable projection for validity, fairness pins, accuracy, token accounting, and observed advisor call count.'
       : 'The smoke matrix is not reproducible: at least one cell changed its stable projection across repeated executions.',
+  );
+  lines.push('');
+  lines.push(
+    report.advisorPipelineExercised
+      ? 'Advisor pipeline exercised: at least one Pollux-enabled cell observed a `utility_advisor` telemetry event (TG-3 evidence).'
+      : 'WARNING: advisor pipeline NOT exercised. Every cell observed zero advisor telemetry events; the smoke gate is collapsing to an executor-only test and provides no Pollux coverage.',
   );
   lines.push('');
   lines.push('## 5) Reproducibility rule');
   lines.push('');
   lines.push(
-    'Stable projection = valid flag, invalidation reason, fairness pins, accuracy result, and token totals. Latency is recorded for observability but excluded from reproducibility comparison because it is expected to vary.',
+    'Stable projection = valid flag, invalidation reason, fairness pins, accuracy result, token totals, and observed advisor call count. Latency is recorded for observability but excluded from reproducibility comparison because it is expected to vary.',
   );
   lines.push('');
 

@@ -20,6 +20,10 @@ const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..', '..', '..');
 const fixtureDirectory = join(__dirname, 'fixtures', 'pollux-benchmark');
 
+// Note: filename retained from the original P4-04 deliverable
+// ("checkpoint/resume") to avoid churning external references; the document
+// title and scope have been corrected to "session-resume continuity" per the
+// senior review. See section 1 of the rendered report for the rationale.
 export const POLLUX_FULL_ARTIFACT_PATH = join(
   repoRoot,
   'docs',
@@ -67,10 +71,49 @@ const FULL_FIXTURES: Record<string, string> = {
     fixtureDirectory,
     'CAL-BM-03-COMPLEX.full.responses',
   ),
+  'CAL-BM-04-ESCALATING': join(
+    fixtureDirectory,
+    'CAL-BM-04-ESCALATING.full.responses',
+  ),
 };
+
+/**
+ * Pollux-enabled fixture overrides for the full benchmark. See the smoke
+ * benchmark for the rationale: tasks that escalate the detector under
+ * advisor-enabled conditions need an advisor-shaped fixture so the
+ * Pollux runtime can consume the advisor JSON via `generateContent`
+ * BEFORE the executor consumes the streamed responses.
+ */
+const FULL_FIXTURES_ADVISOR: Record<string, string> = {
+  'CAL-BM-04-ESCALATING': join(
+    fixtureDirectory,
+    'CAL-BM-04-ESCALATING.full.advisor.responses',
+  ),
+};
+
+function resolveFullFixturePath(
+  task: BenchmarkTask,
+  condition: BenchmarkCondition,
+): string {
+  if (
+    task.escalates === true &&
+    condition.advisorModel !== undefined &&
+    FULL_FIXTURES_ADVISOR[task.id]
+  ) {
+    return FULL_FIXTURES_ADVISOR[task.id]!;
+  }
+  const baseline = FULL_FIXTURES[task.id];
+  if (!baseline) {
+    throw new Error(
+      `Missing full benchmark fixture mapping for task: ${task.id}`,
+    );
+  }
+  return baseline;
+}
 
 export interface PolluxFullCellRun {
   taskId: string;
+  taskEscalates: boolean;
   conditionId: string;
   executorModel: string;
   advisorModel: string | null;
@@ -88,6 +131,13 @@ export interface PolluxFullBenchmarkReport {
   generatedAt: string;
   cells: PolluxFullCellRun[];
   allValid: boolean;
+  /**
+   * Per-cell session-resume continuity flag. The original P4-04 deliverable
+   * was titled "checkpoint/resume" but the harness does not implement
+   * partial-run state persistence; what it does implement and what this flag
+   * captures is "the resume CLI subprocess produces a fairness-consistent
+   * stable projection identical in shape to the initial subprocess."
+   */
   checkpointResumeConsistent: boolean;
 }
 
@@ -98,6 +148,7 @@ function normalizeRun(result: BenchmarkRunMetadata) {
     fairnessPins: result.fairnessPins,
     accuracyPass: result.metrics.accuracyPass,
     tokens: result.metrics.tokens,
+    observedAdvisorCalls: result.metrics.observedAdvisorCalls,
   };
 }
 
@@ -117,34 +168,33 @@ function getBenchmarkTask(taskId: string): BenchmarkTask {
 }
 
 export async function runPolluxFullBenchmark(
-  resumePrompt = 'Confirm benchmark completion.',
+  resumePrompt?: string,
 ): Promise<PolluxFullBenchmarkReport> {
   const cells: PolluxFullCellRun[] = [];
 
   for (const taskEntry of BENCHMARK_CORPUS) {
     const task = getBenchmarkTask(taskEntry.id);
-    const fakeResponsesPath = FULL_FIXTURES[task.id];
-
-    if (!fakeResponsesPath) {
-      throw new Error(
-        `Missing full benchmark fixture mapping for task: ${task.id}`,
-      );
-    }
-
-    if (!existsSync(fakeResponsesPath)) {
-      throw new Error(
-        `Missing full benchmark response fixture: ${fakeResponsesPath}`,
-      );
-    }
 
     for (const condition of FULL_CONDITIONS) {
+      const fakeResponsesPath = resolveFullFixturePath(task, condition);
+
+      if (!existsSync(fakeResponsesPath)) {
+        throw new Error(
+          `Missing full benchmark response fixture: ${fakeResponsesPath}`,
+        );
+      }
+
       const harness = new BenchmarkHarness();
       const result = await harness.runBenchmarkWithCheckpointResume(
         task,
         condition,
         {
           fakeResponsesPath,
-          resumePrompt,
+          // Pass the caller's override only when supplied; otherwise let the
+          // harness honor `task.resumePrompt` (e.g. the ESCALATING task
+          // overrides with an escalating resume prompt so the resume turn
+          // exercises the same advisor pipeline as the initial turn).
+          ...(resumePrompt !== undefined ? { resumePrompt } : {}),
         },
       );
 
@@ -157,6 +207,7 @@ export async function runPolluxFullBenchmark(
 
       cells.push({
         taskId: task.id,
+        taskEscalates: task.escalates === true,
         conditionId: condition.id,
         executorModel: condition.executorModel,
         advisorModel: condition.advisorModel ?? null,
@@ -189,19 +240,23 @@ export function renderPolluxFullBenchmarkReport(
 ): string {
   const lines: string[] = [];
 
-  lines.push('# P4-04 Full Benchmark Checkpoint/Resume Report');
+  lines.push('# P4-04 Full Benchmark Session-Resume Continuity Report');
   lines.push('');
-  lines.push('Version: 1.0');
+  lines.push('Version: 2.0');
   lines.push(`Generated: ${report.generatedAt}`);
   lines.push('Status: Done');
   lines.push('TG mapping: TG-1');
   lines.push('');
   lines.push('---');
   lines.push('');
-  lines.push('## 1) Scope');
+  lines.push('## 1) Scope and naming');
   lines.push('');
   lines.push(
-    'This artifact records the full Pollux benchmark matrix across conditions A-E for all corpus tasks, including checkpoint/resume validation per cell.',
+    'This artifact records the full Pollux benchmark matrix across conditions A-E for all corpus tasks. The harness invokes the CLI twice per cell — an initial subprocess and a resume subprocess (`--resume latest --prompt <resumePrompt>`) — and asserts that both subprocesses produce a stable, fairness-pin-consistent projection.',
+  );
+  lines.push('');
+  lines.push(
+    '**Naming clarification (P4-04 senior review fix):** the original deliverable was titled "checkpoint/resume", which implied mid-run state persistence. The harness does not implement partial-run persistence; the resume subprocess is a fresh process that re-reads the saved chat session via the CLI `--resume` flag and replays the fake-response fixture from index 0. This is correctly described as **session-resume continuity**, not checkpoint/resume. See `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md` for the contract a real model-run benchmark would have to satisfy.',
   );
   lines.push('');
   lines.push('## 2) Condition matrix');
@@ -217,29 +272,31 @@ export function renderPolluxFullBenchmarkReport(
   lines.push('## 3) Full run summary');
   lines.push('');
   lines.push(
-    '| Task | Condition | Initial valid | Resume valid | Fairness consistent | Checkpoint/resume pass | Initial tokens | Resume tokens |',
+    '| Task | Esc? | Cond | Init valid | Resume valid | Fair consistent | Continuity pass | Init tokens | Resume tokens | Init advisor calls | Resume advisor calls |',
   );
-  lines.push('| --- | --- | --- | --- | --- | --- | ---: | ---: |');
+  lines.push(
+    '| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |',
+  );
   for (const cell of report.cells) {
     lines.push(
-      `| ${cell.taskId} | ${cell.conditionId} | ${cell.initialRun.valid ? 'yes' : 'no'} | ${cell.resumedRun.valid ? 'yes' : 'no'} | ${cell.fairnessStateConsistent ? 'yes' : 'no'} | ${cell.checkpointResumeConsistent ? 'yes' : 'no'} | ${cell.initialRun.metrics.tokens.total} | ${cell.resumedRun.metrics.tokens.total} |`,
+      `| ${cell.taskId} | ${cell.taskEscalates ? 'yes' : 'no'} | ${cell.conditionId} | ${cell.initialRun.valid ? 'yes' : 'no'} | ${cell.resumedRun.valid ? 'yes' : 'no'} | ${cell.fairnessStateConsistent ? 'yes' : 'no'} | ${cell.checkpointResumeConsistent ? 'yes' : 'no'} | ${cell.initialRun.metrics.tokens.total} | ${cell.resumedRun.metrics.tokens.total} | ${cell.initialRun.metrics.observedAdvisorCalls} | ${cell.resumedRun.metrics.observedAdvisorCalls} |`,
     );
   }
   lines.push('');
-  lines.push('## 4) Checkpoint/resume details');
+  lines.push('## 4) Continuity details');
   lines.push('');
   for (const cell of report.cells) {
     lines.push(`### ${cell.taskId} / ${cell.conditionId}`);
     lines.push('');
     lines.push(`- Fake responses: ${cell.fakeResponsesPath}`);
     lines.push(
-      `- Initial run: valid=${cell.initialRun.valid}, accuracy=${cell.initialRun.metrics.accuracyPass}, fingerprint=${cell.initialFingerprint}`,
+      `- Initial run: valid=${cell.initialRun.valid}, accuracy=${cell.initialRun.metrics.accuracyPass}, advisorCalls=${cell.initialRun.metrics.observedAdvisorCalls}, fingerprint=${cell.initialFingerprint}`,
     );
     lines.push(
-      `- Resumed run: valid=${cell.resumedRun.valid}, accuracy=${cell.resumedRun.metrics.accuracyPass}, fingerprint=${cell.resumedFingerprint}`,
+      `- Resumed run: valid=${cell.resumedRun.valid}, accuracy=${cell.resumedRun.metrics.accuracyPass}, advisorCalls=${cell.resumedRun.metrics.observedAdvisorCalls}, fingerprint=${cell.resumedFingerprint}`,
     );
     lines.push(
-      `- Fairness pin consistency across checkpoint/resume: ${cell.fairnessStateConsistent ? 'passed' : 'failed'}`,
+      `- Fairness pin consistency across resume: ${cell.fairnessStateConsistent ? 'passed' : 'failed'}`,
     );
     if (cell.initialRun.invalidationReason) {
       lines.push(
@@ -258,8 +315,8 @@ export function renderPolluxFullBenchmarkReport(
   lines.push('');
   lines.push(
     report.checkpointResumeConsistent
-      ? 'Checkpoint/resume fairness validation passed for all A-E cells. Fairness pins remained consistent and runs stayed valid across resume boundaries.'
-      : 'Checkpoint/resume fairness validation failed for one or more A-E cells. Review run details before using these outputs for comparison.',
+      ? 'Session-resume continuity validation passed for all A-E cells. Fairness pins remained consistent and runs stayed valid across resume boundaries.'
+      : 'Session-resume continuity validation failed for one or more A-E cells. Review run details before using these outputs for comparison.',
   );
   lines.push('');
 
@@ -278,8 +335,8 @@ async function main() {
   // eslint-disable-next-line no-console
   console.log(
     report.checkpointResumeConsistent
-      ? 'Full benchmark checkpoint/resume: PASS'
-      : 'Full benchmark checkpoint/resume: FAIL',
+      ? 'Full benchmark session-resume continuity: PASS'
+      : 'Full benchmark session-resume continuity: FAIL',
   );
 }
 
