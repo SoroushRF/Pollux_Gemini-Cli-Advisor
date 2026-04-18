@@ -722,19 +722,74 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                            | Owner   | Deliverable                      | Depends on   | TG mapping |
-| ----- | --------------------------------------------------------------- | ------- | -------------------------------- | ------------ | ---------- |
-| P3-01 | Implement heuristic detector and deterministic reason codes     | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
-| P3-02 | Implement structured detector with confidence tag stripping     | 02      | structured detector + leak tests | P3-01        | TG-6       |
-| P3-03 | Implement hybrid detector precedence and tie-break semantics    | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
-| P3-04 | Implement advisor timeout/malformed response fail-open behavior | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
-| P3-05 | Add escalation calibration set and threshold tuning guide       | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
-| P3-06 | Verify telemetry reconciliation under escalation load           | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
+| ID    | Task                                                                          | Owner   | Deliverable                      | Depends on   | TG mapping |
+| ----- | ----------------------------------------------------------------------------- | ------- | -------------------------------- | ------------ | ---------- |
+| P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
+| P3-02 | Implement structured detector with confidence tag stripping                   | 02      | structured detector + leak tests | P3-01        | TG-6       |
+| P3-03 | Implement hybrid detector precedence and tie-break semantics                  | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
+| P3-04 | Implement advisor timeout/malformed response fail-open behavior               | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
+| P3-05 | Add escalation calibration set and threshold tuning guide                     | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
+| P3-06 | Verify telemetry reconciliation under escalation load                         | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
 
 Exit criteria:
 
 - Detector calibration and fail-open behavior documented.
 - TG-4 and TG-6 green under stress scenarios.
+
+Phase 3 implementation evidence update (2026-04-18):
+
+- P3-01 (Heuristic detector) delivered with a pure, deterministic detector
+  module honoring every property required by POLLUX_SPEC §7.2 / §7.4 and the
+  Phase 2 baseline-purity invariants:
+  - New module `packages/core/src/pollux/detector.ts` exporting
+    `createHeuristicDetector` (factory implementing `PolluxDetector`),
+    `evaluateHeuristicSignals` (pure signal evaluator),
+    `isHeuristicPathEligible` (shared gate usable by P3-03 hybrid composer),
+    `DEFAULT_HEURISTIC_RULES` (six deterministic signal rules:
+    `EXPLICIT_BLOCKED`, `HELP_REQUEST`, `COMPLEXITY`, `DEBUG_INTENT`,
+    `ERROR_MARKER`, `RETRY_LOOP`), plus the `DEFAULT_HEURISTIC_MIN_SCORE` and
+    `DETECTOR_MAX_FIELD_LENGTH` constants.
+  - Deterministic reason codes wired end-to-end via
+    `PolluxEscalationReasonCode`: `CONFIG_DISABLED` (Pollux off),
+    `DEFERRED_SURFACE` (A2A bypass), `BUDGET_EXHAUSTED` (per-turn / per-session
+    caps), `HEURISTIC_MATCH` (score ≥ threshold), `NONE` (enabled but no rule
+    fired or strategy is structured-only). Every return path carries
+    `strategy: HEURISTIC`.
+  - Baseline purity: detector is synchronous at evaluation time (the Promise is
+    only the contract shape), performs no I/O or LLM calls, bounds both
+    inspected fields to 4 096 characters, and does not mutate the turn context.
+    Verified by two dedicated invariant tests.
+  - New module exposed from `packages/core/src/pollux/index.ts` alongside the
+    existing types/models/prompts/safeguards surface.
+  - Test evidence in `packages/core/src/pollux/detector.test.ts` (35 tests):
+    - Constants/defaults surface tests (non-empty rule ids, unique ids, valid
+      fields, input clamp at `DETECTOR_MAX_FIELD_LENGTH`).
+    - Gate tests for `isHeuristicPathEligible` covering CONFIG_DISABLED,
+      DEFERRED_SURFACE, NONE (structured strategy), BUDGET_EXHAUSTED for both
+      turn and session caps, and eligibility under heuristic + hybrid
+      strategies.
+    - Explicit false-negative table-driven coverage (`it.each` × 6 positive
+      scenarios) for EXPLICIT_BLOCKED, ERROR_MARKER, RETRY_LOOP, HELP_REQUEST
+      - COMPLEXITY accumulation, DEBUG_INTENT + ERROR_MARKER across fields, and
+        tool-side matches for `field=both` rules.
+    - Explicit false-positive table-driven coverage (`it.each` × 7 negative
+      scenarios) for neutral code requests, documentation questions, single weak
+      keywords under threshold, `exit code 0`, the word "error" outside an error
+      prefix, lone architectural vocabulary, and empty inputs.
+    - Determinism tests: repeated evaluations identical; matched rule id order
+      is rule-set order regardless of field origin.
+    - Factory tests covering short-circuit behavior on every gate, HEURISTIC
+      escalation on match, NONE on no match, `minScore` override, custom rule
+      set (empty-rule-equivalent), and minScore clamping for malformed input.
+    - Baseline-purity invariant tests: resolves synchronously within 50 ms with
+      no scheduled timers, and does not mutate the input context or its
+      experimental config.
+  - Validation evidence:
+    - `npx vitest run src/pollux/detector.test.ts` in `packages/core` → 1 file /
+      35 passed.
+    - `npx vitest run src/pollux` in `packages/core` → 5 files / 70 passed
+      (detector + existing types/models/prompts/safeguards suites all green).
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
 
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)
 
