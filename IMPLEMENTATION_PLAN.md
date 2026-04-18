@@ -1080,6 +1080,36 @@ Exit criteria:
   scope until the contract in
   `docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md` is satisfied.
 
+### Phase 4 closeout addenda (pre-Phase-5 hardening)
+
+Live verification of `LEGACY_INTERACTIVE` (executed 2026-04-18) surfaced two
+defects that block Phase 5 entry. Both were resolved as a single hardening batch
+tracked as PRE-5-01..PRE-5-04. They are recorded here rather than as new P4
+tasks because they correct existing P4 work without expanding its scope.
+
+- PRE-5-01: `experimental.pollux.executorModel` is now load-bearing in routing.
+  `packages/cli/src/config/config.ts` (`loadCliConfig`) sources the resolved
+  executor model from `experimental.pollux.executorModel` (when
+  `experimental.pollux.enabled` is true) ahead of `settings.model.name`,
+  matching Pollux's "fast executor, smart advisor" contract. `argv.model` and
+  `GEMINI_MODEL` continue to win over both. The override emits a single
+  `debugLogger` line at startup when it shadows a different
+  `settings.model.name` so users can discover it.
+- PRE-5-02: Precedence is pinned by four new tests in
+  `packages/cli/src/config/config.test.ts`
+  (`describe('loadCliConfig pollux executor model precedence')`) covering Pollux
+  disabled, Pollux enabled with executor override, `argv.model` precedence over
+  Pollux, and the schema-default behavior under Pollux.
+- PRE-5-03: `POLLUX_SPEC.md` §8.2 and §8.3 now document the explicit five-level
+  precedence rule (argv > env > pollux executor when enabled >
+  settings.model.name > built-in default) so spec and runtime agree.
+- PRE-5-04: `docs/core/pollux/PHASE5_PRE_FLIGHT.md` records the live walkthrough
+  contract for the three remaining surfaces (`LEGACY_NON_INTERACTIVE`,
+  `AGENT_SESSION_INTERACTIVE`, `AGENT_SESSION_NON_INTERACTIVE`) plus the
+  already-validated `LEGACY_INTERACTIVE` evidence. ACP coverage stays on the
+  existing `agent-session.test.ts` automated path; live ACP exercise is deferred
+  to post-Phase-5.
+
 ## Phase 5: Command surface, docs, and ship readiness (Week 8)
 
 Goal: finalize user surface, governance, and release safety.
@@ -1087,6 +1117,13 @@ Goal: finalize user surface, governance, and release safety.
 Entry criteria:
 
 - Phase 4 exit criteria met.
+- Phase 4 closeout addenda (PRE-5-01..PRE-5-04) merged.
+- Phase 5 entry gate: `experimental.pollux.executorModel` is load-bearing
+  (PRE-5-01) and the three operator-driven sections of
+  `docs/core/pollux/PHASE5_PRE_FLIGHT.md` §5 each report `Outcome: PASS`. The
+  pre-flight is the live precondition for P5-01 because `/pollux` command
+  registration assumes the underlying advisor seam is observable on every
+  surface where the command will be exposed.
 
 Task breakdown:
 
