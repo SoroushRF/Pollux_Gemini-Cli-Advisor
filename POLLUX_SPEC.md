@@ -204,6 +204,11 @@ Phase 1 uses experimental.pollux.\* through CLI schema and loader.
 
 ### 8.2 Example settings block
 
+When `experimental.pollux.enabled` is `true`,
+`experimental.pollux.executorModel` is the source of truth for the executor
+model — it supersedes `settings.model.name`. See §8.3 for the full precedence
+rule.
+
 ```json
 {
   "experimental": {
@@ -223,8 +228,29 @@ Phase 1 uses experimental.pollux.\* through CLI schema and loader.
 
 ### 8.3 Precedence and migration
 
-1. argv > environment > settings > defaults.
-2. Migration to top-level pollux.\* is a post-stability milestone.
+The CLI resolves the executor model from the following sources, highest priority
+first:
+
+1. `argv.model` (i.e. `--model <name>` on the command line).
+2. `GEMINI_MODEL` environment variable.
+3. `experimental.pollux.executorModel`, but only when
+   `experimental.pollux.enabled === true`. When Pollux is enabled the executor
+   model is sourced from this field (or its schema default) rather than from
+   `settings.model.name`, because Pollux's contract is "fast executor, smart
+   advisor" and the executor model must be Pollux-controlled. When the override
+   fires and `settings.model.name` was set to a different value, the CLI emits a
+   single `debugLogger` startup line so users can discover why their pinned
+   model was bypassed.
+4. `settings.model.name`.
+5. Built-in default (`PREVIEW_GEMINI_MODEL_AUTO`).
+
+When `experimental.pollux.enabled` is `false`,
+`experimental.pollux.executorModel` has no effect on routing and rule 4 wins
+over rule 3. The advisor model is always sourced from
+`experimental.pollux.advisorModel`; it is never affected by
+`settings.model.name` or `argv.model`.
+
+Migration to top-level `pollux.\*` is a post-stability milestone.
 
 ### 8.4 Required quality gates
 
