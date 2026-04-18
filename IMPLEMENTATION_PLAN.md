@@ -534,15 +534,15 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                                 | Owner            | Deliverable                         | Depends on   | TG mapping |
-| ----- | ------------------------------------------------------------------------------------ | ---------------- | ----------------------------------- | ------------ | ---------- |
-| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)               | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
-| P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks  | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
-| P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions     | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
-| P2-04 | [Done 2026-04-18] Integrate non-interactive agent-session path and parity assertions | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
-| P2-05 | Implement ACP advisor semantics without unexpected permission prompts                | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
-| P2-06 | Add explicit A2A deferred-scope assertions and docs                                  | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
-| P2-07 | Run cross-surface integration matrix and compare observable behavior                 | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
+| ID    | Task                                                                                    | Owner            | Deliverable                         | Depends on   | TG mapping |
+| ----- | --------------------------------------------------------------------------------------- | ---------------- | ----------------------------------- | ------------ | ---------- |
+| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)                  | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
+| P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks     | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
+| P2-03 | [Done 2026-04-18] Integrate interactive agent-session path and parity assertions        | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
+| P2-04 | [Done 2026-04-18] Integrate non-interactive agent-session path and parity assertions    | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
+| P2-05 | [Done 2026-04-18] Implement ACP advisor semantics without unexpected permission prompts | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
+| P2-06 | Add explicit A2A deferred-scope assertions and docs                                     | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
+| P2-07 | Run cross-surface integration matrix and compare observable behavior                    | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
 
 Exit criteria:
 
@@ -614,6 +614,37 @@ Phase 2 implementation evidence update (2026-04-18):
     - `npm run typecheck --workspace @google/gemini-cli-core` and
       `npm run typecheck --workspace @google/gemini-cli` passed.
   - Commit evidence: `7abf26911`.
+
+- P2-05 (D5 ACP) delivered with a dedicated per-surface advisor seam that
+  preserves ACP observable behavior and enforces the P0-02 §2.4 no-redundant-
+  permission-prompt contract:
+  - Core public per-surface wrapper `runPolluxAdvisorConsultation` on
+    `GeminiClient` and allow-list extension to include
+    `PolluxRuntimeSurface.ACP` (`packages/core/src/core/client.ts`). The
+    existing `maybeRunPolluxAdvisorConsultation` helper continues to own the
+    policy check (packaged default ALLOW rule from P1-08), budget gate,
+    `LlmRole.UTILITY_ADVISOR` telemetry tag, and internal fail-open.
+  - ACP seam wiring in `Session.prompt` that invokes the advisor before
+    `GeminiChat.sendMessageStream` and guards it with a defense-in-depth
+    try/catch so any future regression in the seam cannot surface to the ACP
+    client or emit a permission prompt: `packages/cli/src/acp/acpClient.ts`.
+  - D5 Cell A-D matrix tests plus P2-05 public-wrapper guards (A2A_DEFERRED
+    no-op and ACP surface invocation) in
+    `packages/core/src/core/client.test.ts`.
+  - ACP integration tests covering advisor-before-stream ordering, absence of
+    `connection.requestPermission` on the advisor-only path, fail-open on
+    advisor rejection, and backwards-compatible no-op when the public wrapper is
+    absent: `packages/cli/src/acp/acpClient.test.ts`.
+  - Validation evidence:
+    - `npx vitest run src/core/client.test.ts` passed (104 tests) with D5 Cell
+      A-D plus public-wrapper coverage in
+      `packages/core/src/core/client.test.ts`.
+    - `npx vitest run src/acp/acpClient.test.ts` passed (64 tests) including the
+      new `Pollux ACP advisor seam (P2-05)` block.
+    - `npm run test --workspace @google/gemini-cli` passed (440 test files /
+      6494 tests).
+    - `npm run typecheck --workspace @google/gemini-cli-core` and
+      `npm run typecheck --workspace @google/gemini-cli` passed.
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 

@@ -684,6 +684,9 @@ describe('Session', () => {
       }),
       getToolRegistry: vi.fn().mockReturnValue(mockToolRegistry),
       getMcpServers: vi.fn(),
+      getGeminiClient: vi.fn().mockReturnValue({
+        runPolluxAdvisorConsultation: vi.fn().mockResolvedValue(undefined),
+      }),
       getFileService: vi.fn().mockReturnValue({
         shouldIgnoreFile: vi.fn().mockReturnValue(false),
       }),
@@ -2290,5 +2293,98 @@ describe('Session', () => {
     });
 
     expect(handleCommandSpy).toHaveBeenCalledWith('/memory', expect.anything());
+  });
+
+  describe('Pollux ACP advisor seam (P2-05)', () => {
+    it('invokes runPolluxAdvisorConsultation with ACP surface before chat.sendMessageStream', async () => {
+      const advisorSpy = vi.fn().mockResolvedValue(undefined);
+      mockConfig.getGeminiClient = vi.fn().mockReturnValue({
+        runPolluxAdvisorConsultation: advisorSpy,
+      });
+
+      const stream = createMockStream([
+        {
+          type: StreamEventType.CHUNK,
+          value: {
+            candidates: [{ content: { parts: [{ text: 'Hello' }] } }],
+          },
+        },
+      ]);
+      mockChat.sendMessageStream.mockResolvedValue(stream);
+
+      await session.prompt({
+        sessionId: 'session-1',
+        prompt: [{ type: 'text', text: 'Hi' }],
+      });
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      // Argument 4 is the PolluxRuntimeSurface. The string literal is the
+      // canonical ACP surface id from packages/core/src/pollux/types.ts.
+      expect(advisorSpy.mock.calls[0][3]).toBe('acp');
+      // Advisor seam must run before the user-visible stream is opened.
+      const advisorOrder = advisorSpy.mock.invocationCallOrder[0];
+      const sendOrder = (mockChat.sendMessageStream as Mock).mock
+        .invocationCallOrder[0];
+      expect(advisorOrder).toBeLessThan(sendOrder);
+      // Advisor-only consultation must NEVER trigger an ACP permission prompt
+      // (P0-02 §2.4, PHASE2_GUARDRAILS §3.4).
+      expect(mockConnection.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('fails open when advisor seam throws and keeps the executor stream stable', async () => {
+      const advisorSpy = vi
+        .fn()
+        .mockRejectedValue(new Error('advisor unavailable'));
+      mockConfig.getGeminiClient = vi.fn().mockReturnValue({
+        runPolluxAdvisorConsultation: advisorSpy,
+      });
+
+      const stream = createMockStream([
+        {
+          type: StreamEventType.CHUNK,
+          value: {
+            candidates: [{ content: { parts: [{ text: 'Hello' }] } }],
+          },
+        },
+      ]);
+      mockChat.sendMessageStream.mockResolvedValue(stream);
+
+      // Defense-in-depth fail-open contract: any advisor-seam rejection must
+      // NOT break the ACP session, emit a UserCancelled equivalent, or trigger
+      // a redundant permission prompt (P0-02 §2.4, PHASE2_GUARDRAILS §4.3).
+      const result = await session.prompt({
+        sessionId: 'session-1',
+        prompt: [{ type: 'text', text: 'Hi' }],
+      });
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(mockChat.sendMessageStream).toHaveBeenCalledTimes(1);
+      expect(mockConnection.requestPermission).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ stopReason: 'end_turn' });
+    });
+
+    it('is a no-op when GeminiClient does not expose runPolluxAdvisorConsultation (defensive guard)', async () => {
+      // Simulate an older client that lacks the P2-05 public wrapper.
+      mockConfig.getGeminiClient = vi.fn().mockReturnValue({});
+
+      const stream = createMockStream([
+        {
+          type: StreamEventType.CHUNK,
+          value: {
+            candidates: [{ content: { parts: [{ text: 'Hello' }] } }],
+          },
+        },
+      ]);
+      mockChat.sendMessageStream.mockResolvedValue(stream);
+
+      const result = await session.prompt({
+        sessionId: 'session-1',
+        prompt: [{ type: 'text', text: 'Hi' }],
+      });
+
+      expect(mockChat.sendMessageStream).toHaveBeenCalledTimes(1);
+      expect(mockConnection.requestPermission).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ stopReason: 'end_turn' });
+    });
   });
 });

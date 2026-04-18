@@ -612,6 +612,28 @@ export class GeminiClient {
     );
   }
 
+  /**
+   * Public entry point for surfaces that do not route through
+   * `GeminiClient.processTurn` (currently the ACP surface uses
+   * `GeminiChat.sendMessageStream` directly and must invoke the advisor
+   * per-surface seam explicitly). Delegates to the same internal helper as
+   * `processTurn` so the policy-path, budget, telemetry role, and fail-open
+   * behavior are identical across surfaces (P0-01 S4, PHASE2_GUARDRAILS §4.2).
+   */
+  async runPolluxAdvisorConsultation(
+    request: PartListUnion,
+    signal: AbortSignal,
+    prompt_id: string,
+    runtimeSurface: PolluxRuntimeSurface,
+  ): Promise<void> {
+    return this.maybeRunPolluxAdvisorConsultation(
+      request,
+      signal,
+      prompt_id,
+      runtimeSurface,
+    );
+  }
+
   private async maybeRunPolluxAdvisorConsultation(
     request: PartListUnion,
     signal: AbortSignal,
@@ -622,7 +644,8 @@ export class GeminiClient {
       runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE &&
       runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE &&
       runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE
+      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE &&
+      runtimeSurface !== PolluxRuntimeSurface.ACP
     ) {
       return;
     }

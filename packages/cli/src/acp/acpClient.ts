@@ -34,6 +34,7 @@ import {
   Kind,
   partListUnionToString,
   LlmRole,
+  PolluxRuntimeSurface,
   ApprovalMode,
   getVersion,
   convertSessionToClientHistory,
@@ -698,6 +699,14 @@ export class Session {
 
     const promptId = Math.random().toString(16).slice(2);
     const chat = this.chat;
+    // ACP (D5) is a Phase 2 Pollux surface whose entry path bypasses
+    // `GeminiClient.processTurn` and invokes `GeminiChat.sendMessageStream`
+    // directly (P0-01 D5). The advisor seam must therefore be invoked
+    // explicitly here, via the public per-surface wrapper on `GeminiClient`.
+    // Policy decisions stay on the packaged default ALLOW rule path (P1-08),
+    // and the advisor is never allowed to trigger `connection.requestPermission`
+    // (P0-02 §2.4, PHASE2_GUARDRAILS §3.4).
+    const geminiClient = this.context.config.getGeminiClient();
 
     const parts = await this.#resolvePrompt(params.prompt, pendingSend.signal);
 
@@ -768,6 +777,29 @@ export class Session {
 
         const router = this.context.config.getModelRouterService();
         const { model } = await router.route(routingContext);
+
+        // Advisor seam for D5 ACP. Must run before the user-visible stream
+        // opens. The internal helper (`maybeRunPolluxAdvisorConsultation`)
+        // already swallows timeouts, policy denials, and parse errors; the
+        // outer try/catch here is defense-in-depth so any future regression in
+        // the seam cannot impact executor output or leak to the ACP client
+        // (PHASE2_GUARDRAILS §4.3 fail-open, §3.4 no advisor permission
+        // prompts).
+        if (geminiClient?.runPolluxAdvisorConsultation) {
+          try {
+            await geminiClient.runPolluxAdvisorConsultation(
+              nextMessage?.parts ?? [],
+              pendingSend.signal,
+              promptId,
+              PolluxRuntimeSurface.ACP,
+            );
+          } catch (advisorError) {
+            this.debug(
+              `Pollux ACP advisor consultation failed (fail-open): ${getErrorMessage(advisorError)}`,
+            );
+          }
+        }
+
         const responseStream = await chat.sendMessageStream(
           { model },
           nextMessage?.parts ?? [],

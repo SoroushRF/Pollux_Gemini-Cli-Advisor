@@ -1598,6 +1598,255 @@ describe('Gemini Client (client.ts)', () => {
       expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('keeps ACP output baseline-identical when Pollux is disabled (D5 Cell A)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: false,
+      });
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-a-baseline',
+        ),
+      );
+
+      const acpWithPolluxDisabled = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-a-acp',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.ACP,
+        ),
+      );
+
+      expect(acpWithPolluxDisabled).toEqual(baseline);
+      expect(mockPolicyCheck).not.toHaveBeenCalled();
+    });
+
+    it('runs advisor internally on allow and preserves ACP stream events (D5 Cell B)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-b-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Continue with executor"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const polluxOn = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-b-acp',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.ACP,
+        ),
+      );
+
+      expect(polluxOn).toEqual(baseline);
+      expect(mockPolicyCheck).toHaveBeenCalled();
+      expect(mockPolicyCheck.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ name: 'advisor_consultation' }),
+      );
+      expect(advisorSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(Object),
+        LlmRole.UTILITY_ADVISOR,
+      );
+    });
+
+    it('fails open for ACP when advisor policy denies (D5 Cell C)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-c-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.DENY,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      const polluxOnDenied = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-c-acp',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.ACP,
+        ),
+      );
+
+      expect(polluxOnDenied).toEqual(baseline);
+      expect(advisorSpy).not.toHaveBeenCalled();
+    });
+
+    it('fails open on advisor timeout and keeps ACP executor stream stable (D5 Cell D)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      const baseline = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-d-baseline',
+        ),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const timeoutError = new Error('advisor timeout');
+      timeoutError.name = 'AbortError';
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockRejectedValue(timeoutError);
+
+      const polluxOnTimeout = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-d5-cell-d-acp',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.ACP,
+        ),
+      );
+
+      expect(polluxOnTimeout).toEqual(baseline);
+      expect(
+        polluxOnTimeout.some(
+          (event) => event.type === GeminiEventType.UserCancelled,
+        ),
+      ).toBe(false);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('runPolluxAdvisorConsultation is a no-op for unknown runtime surfaces (P2-05 guard)', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      // A2A is explicitly deferred (D6) and must remain a no-op bypass.
+      await client.runPolluxAdvisorConsultation(
+        [{ text: 'Hi' }],
+        new AbortController().signal,
+        'pollux-a2a-deferred-noop',
+        PolluxRuntimeSurface.A2A_DEFERRED,
+      );
+
+      expect(mockPolicyCheck).not.toHaveBeenCalled();
+      expect(advisorSpy).not.toHaveBeenCalled();
+    });
+
+    it('runPolluxAdvisorConsultation invokes advisor for ACP surface (P2-05 public wrapper)', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"ok"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      await client.runPolluxAdvisorConsultation(
+        [{ text: 'Hi' }],
+        new AbortController().signal,
+        'pollux-acp-public-wrapper',
+        PolluxRuntimeSurface.ACP,
+      );
+
+      expect(mockPolicyCheck).toHaveBeenCalled();
+      expect(mockPolicyCheck.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ name: 'advisor_consultation' }),
+      );
+      expect(advisorSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(Object),
+        LlmRole.UTILITY_ADVISOR,
+      );
+    });
+
     it('yields UserCancelled when processTurn throws AbortError', async () => {
       const abortError = new Error('Aborted');
       abortError.name = 'AbortError';
