@@ -722,14 +722,14 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                           | Owner   | Deliverable                      | Depends on   | TG mapping |
-| ----- | ------------------------------------------------------------------------------ | ------- | -------------------------------- | ------------ | ---------- |
-| P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes  | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
-| P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping  | 02      | structured detector + leak tests | P3-01        | TG-6       |
-| P3-03 | [Done 2026-04-18] Implement hybrid detector precedence and tie-break semantics | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
-| P3-04 | Implement advisor timeout/malformed response fail-open behavior                | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
-| P3-05 | Add escalation calibration set and threshold tuning guide                      | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
-| P3-06 | Verify telemetry reconciliation under escalation load                          | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
+| ID    | Task                                                                              | Owner   | Deliverable                      | Depends on   | TG mapping |
+| ----- | --------------------------------------------------------------------------------- | ------- | -------------------------------- | ------------ | ---------- |
+| P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes     | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
+| P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping     | 02      | structured detector + leak tests | P3-01        | TG-6       |
+| P3-03 | [Done 2026-04-18] Implement hybrid detector precedence and tie-break semantics    | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
+| P3-04 | [Done 2026-04-18] Implement advisor timeout/malformed response fail-open behavior | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
+| P3-05 | Add escalation calibration set and threshold tuning guide                         | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
+| P3-06 | Verify telemetry reconciliation under escalation load                             | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
 
 Exit criteria:
 
@@ -850,6 +850,31 @@ Phase 3 implementation evidence update (2026-04-18):
   - Validation evidence:
     - `npm run test --workspace @google/gemini-cli-core -- src/pollux/detector.test.ts`
       passed (1 file / 74 tests) and post-test core build completed.
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+
+- P3-04 (Advisor timeout/malformed fail-open behavior) delivered by hardening
+  runtime fail-open coverage for advisor parse/empty response failures across
+  all in-scope runtime surfaces, validating the existing
+  `maybeRunPolluxAdvisorConsultation` fail-open contract in
+  `packages/core/src/core/client.ts`:
+  - Existing runtime behavior confirmed and enforced via tests:
+    - Timeout failures fall through to executor path (already covered by D1-D5
+      Cell D runtime tests).
+    - Malformed advisor responses fail-open (`parse_error`) without emitting
+      user-visible cancellation or stream drift.
+    - Empty advisor responses fail-open (`empty_response`) without emitting
+      user-visible cancellation or stream drift.
+  - Expanded `packages/core/src/core/client.test.ts` with P3-04 runtime tests:
+    - Table-driven malformed-response fail-open tests for all in-scope surfaces
+      (legacy interactive, legacy non-interactive, agent-session interactive,
+      agent-session non-interactive, ACP).
+    - Table-driven empty-response fail-open tests for all in-scope surfaces.
+    - Each test asserts executor stream remains baseline-identical and that no
+      `GeminiEventType.UserCancelled` event is introduced.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts`
+      passed (1 file / 114 tests, 1 pre-existing skip) and post-test core build
+      completed.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
 
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)

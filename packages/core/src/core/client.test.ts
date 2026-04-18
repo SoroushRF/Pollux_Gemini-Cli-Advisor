@@ -1790,6 +1790,174 @@ describe('Gemini Client (client.ts)', () => {
       expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+      {
+        label: 'legacy interactive',
+        surface: PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        prompt: 'pollux-p3-04-malformed-d1',
+      },
+      {
+        label: 'legacy non-interactive',
+        surface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-malformed-d2',
+      },
+      {
+        label: 'agent-session interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        prompt: 'pollux-p3-04-malformed-d3',
+      },
+      {
+        label: 'agent-session non-interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-malformed-d4',
+      },
+      {
+        label: 'acp',
+        surface: PolluxRuntimeSurface.ACP,
+        prompt: 'pollux-p3-04-malformed-d5',
+      },
+    ])(
+      'fails open on malformed advisor response and keeps $label executor stream stable (P3-04)',
+      async ({ surface, prompt }) => {
+        mockTurnRunFn.mockImplementation(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'Hello' };
+          })(),
+        );
+
+        const baseline = await fromAsync(
+          client.sendMessageStream(
+            [{ text: 'Hi' }],
+            new AbortController().signal,
+            `${prompt}-baseline`,
+          ),
+        );
+
+        vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+          enabled: true,
+        });
+        mockPolicyCheck.mockResolvedValue({
+          decision: PolicyDecision.ALLOW,
+          rule: undefined,
+        });
+
+        const advisorSpy = vi
+          .spyOn(client, 'generateContent')
+          .mockResolvedValue({
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{malformed json' }],
+                },
+              },
+            ],
+          } as GenerateContentResponse);
+
+        const polluxOnMalformed = await fromAsync(
+          client.sendMessageStream(
+            [{ text: 'Hi' }],
+            new AbortController().signal,
+            prompt,
+            undefined,
+            false,
+            undefined,
+            false,
+            surface,
+          ),
+        );
+
+        expect(polluxOnMalformed).toEqual(baseline);
+        expect(
+          polluxOnMalformed.some(
+            (event) => event.type === GeminiEventType.UserCancelled,
+          ),
+        ).toBe(false);
+        expect(advisorSpy).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      {
+        label: 'legacy interactive',
+        surface: PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        prompt: 'pollux-p3-04-empty-d1',
+      },
+      {
+        label: 'legacy non-interactive',
+        surface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-empty-d2',
+      },
+      {
+        label: 'agent-session interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        prompt: 'pollux-p3-04-empty-d3',
+      },
+      {
+        label: 'agent-session non-interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-empty-d4',
+      },
+      {
+        label: 'acp',
+        surface: PolluxRuntimeSurface.ACP,
+        prompt: 'pollux-p3-04-empty-d5',
+      },
+    ])(
+      'fails open on empty advisor response and keeps $label executor stream stable (P3-04)',
+      async ({ surface, prompt }) => {
+        mockTurnRunFn.mockImplementation(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'Hello' };
+          })(),
+        );
+
+        const baseline = await fromAsync(
+          client.sendMessageStream(
+            [{ text: 'Hi' }],
+            new AbortController().signal,
+            `${prompt}-baseline`,
+          ),
+        );
+
+        vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+          enabled: true,
+        });
+        mockPolicyCheck.mockResolvedValue({
+          decision: PolicyDecision.ALLOW,
+          rule: undefined,
+        });
+
+        const advisorSpy = vi
+          .spyOn(client, 'generateContent')
+          .mockResolvedValue({
+            candidates: [],
+          } as unknown as GenerateContentResponse);
+
+        const polluxOnEmpty = await fromAsync(
+          client.sendMessageStream(
+            [{ text: 'Hi' }],
+            new AbortController().signal,
+            prompt,
+            undefined,
+            false,
+            undefined,
+            false,
+            surface,
+          ),
+        );
+
+        expect(polluxOnEmpty).toEqual(baseline);
+        expect(
+          polluxOnEmpty.some(
+            (event) => event.type === GeminiEventType.UserCancelled,
+          ),
+        ).toBe(false);
+        expect(advisorSpy).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it('runPolluxAdvisorConsultation is a no-op for unknown runtime surfaces (P2-05 guard)', async () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
