@@ -729,12 +729,32 @@ Task breakdown:
 | P3-03 | [Done 2026-04-18] Implement hybrid detector precedence and tie-break semantics    | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
 | P3-04 | [Done 2026-04-18] Implement advisor timeout/malformed response fail-open behavior | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
 | P3-05 | [Done 2026-04-18] Add escalation calibration set and threshold tuning guide       | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
-| P3-06 | Verify telemetry reconciliation under escalation load                             | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
+| P3-06 | [Done 2026-04-18] Verify telemetry reconciliation under escalation load           | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
+| P3-07 | [Done 2026-04-18] Wire detector into runtime advisor seam (closes Phase 3 gap)    | 02      | detector seam + surface tests    | P3-01..P3-06 | TG-6       |
 
 Exit criteria:
 
 - Detector calibration and fail-open behavior documented.
 - TG-4 and TG-6 green under stress scenarios.
+- Detector wired into the runtime advisor seam so the configured strategy
+  actually gates advisor invocation (no dead-code detectors).
+
+Phase 3 exit checklist (2026-04-18 — closed):
+
+- [x] Heuristic, structured, and hybrid detectors implemented with deterministic
+      reason codes and baseline-purity invariants (P3-01..P3-03).
+- [x] Advisor fail-open behavior covered for timeout, malformed-response,
+      empty-response, and policy-deny across all five in-scope surfaces (P3-04
+  - the policy-denied table added in P3-07).
+- [x] Calibration set, sweep utilities, and tuning guide published with pinned
+      default-threshold ground truth (P3-05).
+- [x] Telemetry reconciliation under N=50 escalation load with role isolation,
+      token accounting identity, and stress tolerance (P3-06).
+- [x] Detector wired into `maybeRunPolluxAdvisorConsultation`; runtime advisor
+      invocation gated by `shouldEscalate(...)` per POLLUX_SPEC §5.1 step 2
+      (P3-07).
+- [x] Phase 3 test suites green: 232 Pollux tests, 124 client tests (1
+      pre-existing skip), 64 ACP client tests, 13 a2a-server task tests.
 
 Phase 3 implementation evidence update (2026-04-18):
 
@@ -876,6 +896,107 @@ Phase 3 implementation evidence update (2026-04-18):
       passed (1 file / 114 tests, 1 pre-existing skip) and post-test core build
       completed.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+
+- P3-05 (Escalation calibration set and threshold tuning guide) delivered with a
+  curated calibration set, sweep utilities, and a published tuning guide that
+  pins the default-threshold ground truth for every detector strategy:
+  - Added `packages/core/src/pollux/calibration.ts` with:
+    - `CALIBRATION_SET`: 21 labeled turn contexts spanning four categories
+      (`true_positive` ×6, `true_negative` ×6, `boundary` ×5, `cross_strategy`
+      ×4), each with explicit per-strategy ground-truth expectations at defaults
+      (`minScore=2`, `confidenceThreshold=6`).
+    - `buildCalibrationContext`, `evaluateCalibrationEntry`, and
+      `evaluateFullCalibrationSet` helpers that route entries through the raw
+      signal evaluators without instantiating detector factories.
+    - `sweepHeuristicMinScores` and `sweepStructuredThresholds` utilities used
+      by the tuning guide to derive the sensitivity tables.
+  - Added `packages/core/src/pollux/calibration.test.ts` (98 tests) verifying
+    structure, per-strategy ground truth, cross-strategy divergence, boundary
+    behavior, sweep monotonicity, determinism, and per-entry rule matches.
+  - Published `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md`
+    covering methodology, default-threshold analysis (heuristic 10/21,
+    structured 4/21, hybrid 13/21), sensitivity sweeps, the cross-strategy
+    comparison matrix, five recommended threshold profiles, the heuristic rule
+    weight rationale, and the operational tuning procedure.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/pollux/calibration.test.ts`
+      passes (98 tests).
+    - Tuning-guide §3.3 hybrid distribution and §4.1 heuristic sweep numbers are
+      pinned from the calibration utilities (rows sum to 21 by construction).
+
+- P3-06 (Telemetry reconciliation under escalation load) delivered with a
+  dedicated test suite that exercises the full advisor telemetry pipeline under
+  stress and pins the role-attribution invariants required by TG-4:
+  - Added `packages/core/src/pollux/telemetryReconciliation.test.ts` (25 tests)
+    covering:
+    - End-to-end `LlmRole.UTILITY_ADVISOR` propagation through
+      `LoggingContentGenerator` into API request/response/error events.
+    - `UiTelemetryService` aggregation isolation between `UTILITY_ADVISOR` and
+      executor roles, including shared-model scenarios where advisor and
+      executor reuse the same model id.
+    - Token accounting identity: per-role counters sum to the global counter
+      with no double-counting and no cross-role contamination.
+    - Stress reconciliation under interleaved N=50 advisor + executor calls with
+      mixed success/error outcomes.
+    - Latency aggregation, clear/reset behavior, event emission semantics, and
+      role attribute presence on log records.
+  - Published `docs/core/pollux/P3-06_TELEMETRY_RECONCILIATION_REPORT.md`
+    documenting the reconciliation surface, the 25-test coverage matrix, the
+    verified invariants, the known gaps (OTel metric counters and billing events
+    lack a `role` dimension — both deliberately deferred to a follow-up because
+    they require additional schema work outside Phase 3 scope), and the closure
+    relationship to P3-07.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/pollux/telemetryReconciliation.test.ts`
+      passes (25 tests).
+    - All Pollux tests collectively (`src/pollux`) pass (232 tests across 7
+      files).
+
+- P3-07 (Wire detector into runtime advisor seam) delivered to close the Phase 3
+  architectural gap exposed during senior review: P3-01..P3-03 had shipped
+  working detectors, but `maybeRunPolluxAdvisorConsultation` in
+  `packages/core/src/core/client.ts` invoked the advisor unconditionally on the
+  `enabled` + `policy` + `budget` triple, never calling
+  `detector.shouldEscalate(...)`. P3-07 makes the runtime path obey POLLUX_SPEC
+  §5.1 step 2:
+  - In `packages/core/src/core/client.ts`:
+    - Added `summarizeRequestForDetector(request)`: a bounded helper that splits
+      a `PartListUnion` into the `userContentDigest` (text and string parts) and
+      `pendingToolContext` (`functionResponse` payloads), each clamped to
+      `DETECTOR_MAX_FIELD_LENGTH`. Non-text/non-tool parts (binary blobs, code
+      execution results, function calls, etc.) are intentionally dropped from
+      the digest.
+    - Added `buildPolluxDetector(strategy)`: factory selector that returns the
+      heuristic, structured, or hybrid detector based on
+      `experimental.pollux.strategy`, defaulting to hybrid for unknown values so
+      a misconfigured strategy never silently bypasses the gate.
+    - In `maybeRunPolluxAdvisorConsultation`, populated `PolluxTurnContext` with
+      the request summary and inserted the detector evaluation between the cheap
+      budget pre-check and the policy check. A non-escalating detector result
+      short-circuits the advisor call before any policy lookup, eliminating the
+      dead-code risk and matching the spec's intended "evaluate `shouldEscalate`
+      first" ordering.
+  - In `packages/core/src/core/client.test.ts`:
+    - Added a shared `POLLUX_ESCALATION_INPUT` constant (an input that trips the
+      default heuristic) and updated every Cell B/C/D and P3-04 table-driven
+      test across all five in-scope surfaces (D1–D5) to use it, so the existing
+      fail-open and policy-deny coverage continues to exercise the full advisor
+      path now that the detector gate is live.
+    - Added a P3-04 policy-denied fail-open table for all five surfaces
+      asserting baseline-identical streams, no `UserCancelled` event, and
+      `mockPolicyCheck` invocation with `advisor_consultation`.
+    - Added a P3-07 detector-skip table for all five surfaces asserting that
+      innocuous input (`'Hi'`) with Pollux enabled does NOT call the advisor and
+      does NOT consult the policy engine, locking in the new gate.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts`
+      passes (124 tests, 1 pre-existing skip).
+    - `npm run test --workspace @google/gemini-cli-core -- src/pollux` passes
+      (232 tests across 7 files).
+    - `npm run test --workspace @google/gemini-cli -- src/acp/acpClient.test.ts`
+      passes (64 tests).
+    - `npm run test --workspace @google/gemini-cli-a2a-server -- src/agent/task.test.ts`
+      passes (13 tests).
 
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)
 

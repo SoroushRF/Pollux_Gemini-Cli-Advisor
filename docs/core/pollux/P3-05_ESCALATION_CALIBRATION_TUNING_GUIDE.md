@@ -110,21 +110,23 @@ escalation:
 
 ### 3.3 Hybrid strategy (`minScore=2`, `confidenceThreshold=6`)
 
-The hybrid detector at defaults escalates **11 of 21** entries (52.4% escalation
+The hybrid detector at defaults escalates **13 of 21** entries (61.9% escalation
 rate).
 
-Hybrid decision distribution:
+Hybrid decision distribution (rows sum to 21):
 
 | Decision         | Count | Entries                                      |
 | ---------------- | ----- | -------------------------------------------- |
-| `heuristic`      | 7     | TP-01..04, TP-06, BD-02, BD-05, CS-01, CS-04 |
-| `structured`     | 2     | TP-05, BD-03, CS-02                          |
+| `heuristic`      | 9     | TP-01..04, TP-06, BD-02, BD-05, CS-01, CS-04 |
+| `structured`     | 3     | TP-05, BD-03, CS-02                          |
 | `tie_structured` | 1     | CS-03                                        |
-| `none`           | 10    | All TN-\*, BD-01, BD-04                      |
+| `none`           | 8     | TN-01..06, BD-01, BD-04                      |
 
-Note: The hybrid picks up one more escalation than heuristic alone (TP-05 via
-structured path), and one more entry altogether because both paths can
-independently trigger. This demonstrates the value of the hybrid approach.
+Note: Hybrid escalates 3 more entries than heuristic alone at defaults — the
+three structured-only escalations (TP-05, BD-03, CS-02) — and matches heuristic
+on the 10 entries it already escalates (9 `heuristic` + 1 `tie_structured`
+decisions). This demonstrates the value of the hybrid approach: structured
+catches model-reported uncertainty that no heuristic keyword would surface.
 
 ---
 
@@ -137,8 +139,8 @@ independently trigger. This demonstrates the value of the hybrid approach.
 | 1        | 11       | 52.4% | —     |
 | 2        | 10       | 47.6% | −1    |
 | 3        | 7        | 33.3% | −3    |
-| 4        | 6        | 28.6% | −1    |
-| 5        | 2        | 9.5%  | −4    |
+| 4        | 7        | 33.3% | 0     |
+| 5        | 2        | 9.5%  | −5    |
 | 6        | 2        | 9.5%  | 0     |
 | 7        | 0        | 0.0%  | −2    |
 | 8        | 0        | 0.0%  | 0     |
@@ -146,11 +148,13 @@ independently trigger. This demonstrates the value of the hybrid approach.
 Key observations:
 
 - **Monotonically non-increasing** — verified by tests.
-- The steepest drop is between `minScore=4` and `minScore=5` (−4 entries),
-  because 4 entries (TP-01, TP-02, TP-03, TP-04) have exactly score 4.
+- No calibration entry has a score of exactly 3, so the table is flat between
+  `minScore=3` and `minScore=4`.
+- The steepest drop is between `minScore=4` and `minScore=5` (−5 entries),
+  because 5 entries (TP-01, TP-02, TP-03, TP-04, CS-01) have exactly score 4.
 - At `minScore=1`, every entry with even a single weak keyword match escalates.
 - At `minScore≥7`, no entries in the calibration set escalate (maximum observed
-  score is 6 from CS-03 and CS-04).
+  heuristic score is 6 from CS-03 and CS-04).
 
 ### 4.2 Structured `confidenceThreshold` sweep
 
@@ -235,10 +239,11 @@ weak keywords like "help" alone do not trigger escalation).
 }
 ```
 
-Expected behavior: 11 of 21 calibration entries escalate. This is the shipped
-default. It catches most distress/error scenarios without escalating trivial
-requests. The threshold of 6 on a 1–10 scale divides the confidence range at
-60%, which provides a natural separation between routine and complex turns.
+Expected behavior: 13 of 21 calibration entries escalate (61.9%). This is the
+shipped default. It catches most distress/error scenarios without escalating
+trivial requests. The threshold of 6 on a 1–10 scale divides the confidence
+range at 60%, which provides a natural separation between routine and complex
+turns.
 
 ### Profile: Aggressive (maximize recall)
 

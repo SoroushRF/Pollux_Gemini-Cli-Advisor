@@ -55,6 +55,18 @@ import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   PolluxRuntimeSurface,
 } from '../pollux/types.js';
+
+/**
+ * Input that reliably trips the default heuristic detector (P3-01) so the
+ * advisor seam exercises the full `shouldEscalate` → policy → advisor path.
+ *
+ * `stuck` matches `EXPLICIT_BLOCKED` (weight 2) and `need help` matches
+ * `HELP_REQUEST` (weight 1) for a total score of 3 ≥ the default min-score of
+ * 2. The hybrid (default) detector escalates on heuristic-only matches when
+ * no structured confidence tag is present, so the same string covers all
+ * default-strategy assertions in this suite.
+ */
+const POLLUX_ESCALATION_INPUT = 'I am stuck and need help with this.';
 import { partToString } from '../utils/partUtils.js';
 import { coreEvents, CoreEvent } from '../utils/events.js';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
@@ -876,7 +888,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-b-baseline',
         ),
@@ -903,7 +915,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOn = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-b-interactive',
           undefined,
@@ -936,7 +948,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-c-baseline',
         ),
@@ -955,7 +967,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnDenied = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-c-interactive',
           undefined,
@@ -979,7 +991,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-d-baseline',
         ),
@@ -1002,7 +1014,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-cell-d-interactive',
           undefined,
@@ -1068,7 +1080,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-b-baseline',
         ),
@@ -1095,7 +1107,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOn = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-b-non-interactive',
           undefined,
@@ -1128,7 +1140,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-c-baseline',
         ),
@@ -1147,7 +1159,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnDenied = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-c-non-interactive',
           undefined,
@@ -1171,7 +1183,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-d-baseline',
         ),
@@ -1194,7 +1206,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d2-cell-d-non-interactive',
           undefined,
@@ -1260,7 +1272,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-b-baseline',
         ),
@@ -1287,7 +1299,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOn = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-b-agent-session-interactive',
           undefined,
@@ -1320,7 +1332,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-c-baseline',
         ),
@@ -1339,7 +1351,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnDenied = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-c-agent-session-interactive',
           undefined,
@@ -1363,7 +1375,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-d-baseline',
         ),
@@ -1386,7 +1398,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d3-cell-d-agent-session-interactive',
           undefined,
@@ -1452,7 +1464,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-b-baseline',
         ),
@@ -1479,7 +1491,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOn = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-b-agent-session-non-interactive',
           undefined,
@@ -1512,7 +1524,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-c-baseline',
         ),
@@ -1531,7 +1543,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnDenied = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-c-agent-session-non-interactive',
           undefined,
@@ -1555,7 +1567,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-d-baseline',
         ),
@@ -1578,7 +1590,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d4-cell-d-agent-session-non-interactive',
           undefined,
@@ -1644,7 +1656,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-b-baseline',
         ),
@@ -1671,7 +1683,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOn = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-b-acp',
           undefined,
@@ -1704,7 +1716,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-c-baseline',
         ),
@@ -1723,7 +1735,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnDenied = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-c-acp',
           undefined,
@@ -1747,7 +1759,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const baseline = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-d-baseline',
         ),
@@ -1770,7 +1782,7 @@ describe('Gemini Client (client.ts)', () => {
 
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
-          [{ text: 'Hi' }],
+          [{ text: POLLUX_ESCALATION_INPUT }],
           new AbortController().signal,
           'pollux-d5-cell-d-acp',
           undefined,
@@ -1827,7 +1839,7 @@ describe('Gemini Client (client.ts)', () => {
 
         const baseline = await fromAsync(
           client.sendMessageStream(
-            [{ text: 'Hi' }],
+            [{ text: POLLUX_ESCALATION_INPUT }],
             new AbortController().signal,
             `${prompt}-baseline`,
           ),
@@ -1856,7 +1868,7 @@ describe('Gemini Client (client.ts)', () => {
 
         const polluxOnMalformed = await fromAsync(
           client.sendMessageStream(
-            [{ text: 'Hi' }],
+            [{ text: POLLUX_ESCALATION_INPUT }],
             new AbortController().signal,
             prompt,
             undefined,
@@ -1914,7 +1926,7 @@ describe('Gemini Client (client.ts)', () => {
 
         const baseline = await fromAsync(
           client.sendMessageStream(
-            [{ text: 'Hi' }],
+            [{ text: POLLUX_ESCALATION_INPUT }],
             new AbortController().signal,
             `${prompt}-baseline`,
           ),
@@ -1937,7 +1949,7 @@ describe('Gemini Client (client.ts)', () => {
 
         const polluxOnEmpty = await fromAsync(
           client.sendMessageStream(
-            [{ text: 'Hi' }],
+            [{ text: POLLUX_ESCALATION_INPUT }],
             new AbortController().signal,
             prompt,
             undefined,
@@ -1955,6 +1967,155 @@ describe('Gemini Client (client.ts)', () => {
           ),
         ).toBe(false);
         expect(advisorSpy).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      {
+        label: 'legacy interactive',
+        surface: PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        prompt: 'pollux-p3-04-policy-denied-d1',
+      },
+      {
+        label: 'legacy non-interactive',
+        surface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-policy-denied-d2',
+      },
+      {
+        label: 'agent-session interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        prompt: 'pollux-p3-04-policy-denied-d3',
+      },
+      {
+        label: 'agent-session non-interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
+        prompt: 'pollux-p3-04-policy-denied-d4',
+      },
+      {
+        label: 'acp',
+        surface: PolluxRuntimeSurface.ACP,
+        prompt: 'pollux-p3-04-policy-denied-d5',
+      },
+    ])(
+      'fails open when advisor policy denies and keeps $label executor stream stable (P3-04)',
+      async ({ surface, prompt }) => {
+        mockTurnRunFn.mockImplementation(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'Hello' };
+          })(),
+        );
+
+        const baseline = await fromAsync(
+          client.sendMessageStream(
+            [{ text: POLLUX_ESCALATION_INPUT }],
+            new AbortController().signal,
+            `${prompt}-baseline`,
+          ),
+        );
+
+        vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+          enabled: true,
+        });
+        // Detector escalates (POLLUX_ESCALATION_INPUT trips the heuristic),
+        // policy then denies the advisor_consultation tool — the executor
+        // path must continue unchanged with no UserCancelled event surfaced.
+        mockPolicyCheck.mockResolvedValue({
+          decision: PolicyDecision.DENY,
+          rule: undefined,
+        });
+        const advisorSpy = vi.spyOn(client, 'generateContent');
+
+        const polluxOnDenied = await fromAsync(
+          client.sendMessageStream(
+            [{ text: POLLUX_ESCALATION_INPUT }],
+            new AbortController().signal,
+            prompt,
+            undefined,
+            false,
+            undefined,
+            false,
+            surface,
+          ),
+        );
+
+        expect(polluxOnDenied).toEqual(baseline);
+        expect(
+          polluxOnDenied.some(
+            (event) => event.type === GeminiEventType.UserCancelled,
+          ),
+        ).toBe(false);
+        expect(mockPolicyCheck).toHaveBeenCalledWith(
+          expect.objectContaining({ name: 'advisor_consultation' }),
+          undefined,
+        );
+        expect(advisorSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      {
+        label: 'legacy interactive',
+        surface: PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        prompt: 'pollux-p3-07-detector-skip-d1',
+      },
+      {
+        label: 'legacy non-interactive',
+        surface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        prompt: 'pollux-p3-07-detector-skip-d2',
+      },
+      {
+        label: 'agent-session interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE,
+        prompt: 'pollux-p3-07-detector-skip-d3',
+      },
+      {
+        label: 'agent-session non-interactive',
+        surface: PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE,
+        prompt: 'pollux-p3-07-detector-skip-d4',
+      },
+      {
+        label: 'acp',
+        surface: PolluxRuntimeSurface.ACP,
+        prompt: 'pollux-p3-07-detector-skip-d5',
+      },
+    ])(
+      'detector gate skips advisor for $label when input does not escalate (P3-07)',
+      async ({ surface, prompt }) => {
+        mockTurnRunFn.mockImplementation(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'Hello' };
+          })(),
+        );
+
+        vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+          enabled: true,
+        });
+        mockPolicyCheck.mockResolvedValue({
+          decision: PolicyDecision.ALLOW,
+          rule: undefined,
+        });
+        const advisorSpy = vi.spyOn(client, 'generateContent');
+
+        // Innocuous input does not match any default heuristic rule and
+        // carries no structured confidence tag, so the (default-hybrid)
+        // detector returns escalate=false and the advisor must not run.
+        await fromAsync(
+          client.sendMessageStream(
+            [{ text: 'Hi' }],
+            new AbortController().signal,
+            prompt,
+            undefined,
+            false,
+            undefined,
+            false,
+            surface,
+          ),
+        );
+
+        expect(advisorSpy).not.toHaveBeenCalled();
+        expect(mockPolicyCheck).not.toHaveBeenCalled();
       },
     );
 
@@ -1997,7 +2158,7 @@ describe('Gemini Client (client.ts)', () => {
       } as GenerateContentResponse);
 
       await client.runPolluxAdvisorConsultation(
-        [{ text: 'Hi' }],
+        [{ text: POLLUX_ESCALATION_INPUT }],
         new AbortController().signal,
         'pollux-acp-public-wrapper',
         PolluxRuntimeSurface.ACP,

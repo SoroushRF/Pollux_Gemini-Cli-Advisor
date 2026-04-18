@@ -77,7 +77,9 @@ import { coreEvents, CoreEvent } from '../utils/events.js';
 import { PolicyDecision } from '../policy/types.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
+  PolluxDetectorStrategy,
   PolluxRuntimeSurface,
+  type PolluxDetector,
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
@@ -94,8 +96,88 @@ import {
   PolluxModelRole,
   resolvePolluxModel,
 } from '../pollux/models.js';
+import {
+  DETECTOR_MAX_FIELD_LENGTH,
+  createHeuristicDetector,
+  createHybridDetector,
+  createStructuredDetector,
+} from '../pollux/detector.js';
 
 const MAX_TURNS = 100;
+
+/**
+ * Selects the configured detector implementation. Defaults to the hybrid
+ * detector to match {@link DEFAULT_POLLUX_EXPERIMENTAL_CONFIG}; unknown values
+ * also fall back to hybrid so a misconfigured strategy never silently bypasses
+ * the gate (POLLUX_SPEC §7).
+ */
+function buildPolluxDetector(strategy: PolluxDetectorStrategy): PolluxDetector {
+  switch (strategy) {
+    case PolluxDetectorStrategy.HEURISTIC:
+      return createHeuristicDetector();
+    case PolluxDetectorStrategy.STRUCTURED:
+      return createStructuredDetector();
+    case PolluxDetectorStrategy.HYBRID:
+    default:
+      return createHybridDetector();
+  }
+}
+
+/**
+ * Splits a turn's `PartListUnion` into the bounded `userContentDigest` and
+ * `pendingToolContext` fields consumed by the detector. Text parts (and bare
+ * string requests) are routed to the user digest; `functionResponse` payloads
+ * are stringified into the tool context. All other part shapes (file data,
+ * inline data, function calls, code execution results, etc.) are intentionally
+ * dropped from the detector inputs to keep the digest free of binary blobs and
+ * model-emitted artifacts (POLLUX_SPEC §5.1, §7).
+ *
+ * Both fields are clamped to {@link DETECTOR_MAX_FIELD_LENGTH} so the detector
+ * receives a stable, bounded view regardless of upstream request size.
+ */
+function summarizeRequestForDetector(request: PartListUnion): {
+  userContentDigest: string;
+  pendingToolContext: string;
+} {
+  const userParts: string[] = [];
+  const toolParts: string[] = [];
+  const partsList: unknown[] = Array.isArray(request) ? request : [request];
+
+  for (const raw of partsList) {
+    if (raw == null) continue;
+    if (typeof raw === 'string') {
+      userParts.push(raw);
+      continue;
+    }
+    if (typeof raw !== 'object') continue;
+
+    const part = raw as {
+      text?: string;
+      functionResponse?: { response?: unknown };
+    };
+
+    if (typeof part.text === 'string') {
+      userParts.push(part.text);
+      continue;
+    }
+    if (part.functionResponse) {
+      try {
+        toolParts.push(
+          JSON.stringify(part.functionResponse.response ?? '') ?? '',
+        );
+      } catch {
+        toolParts.push('[unserializable function response]');
+      }
+    }
+  }
+
+  return {
+    userContentDigest: userParts.join('\n').slice(0, DETECTOR_MAX_FIELD_LENGTH),
+    pendingToolContext: toolParts
+      .join('\n')
+      .slice(0, DETECTOR_MAX_FIELD_LENGTH),
+  };
+}
 
 type BeforeAgentHookReturn =
   | {
@@ -655,6 +737,10 @@ export class GeminiClient {
       return;
     }
 
+    // Cheap budget pre-check: avoids building turn context and constructing a
+    // detector when the session-level cap is already exhausted. The detector
+    // re-evaluates the same gate so callers can rely on a single source of
+    // truth for budget decisions (POLLUX_SPEC §5.1, §6).
     const budgetCheck = checkAdvisorInvocationBudget(experimental, {
       callsCompletedThisTurn: 0,
       callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
@@ -663,6 +749,33 @@ export class GeminiClient {
       if (experimental.emitAdvisorDebug) {
         debugLogger.log(
           `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
+        );
+      }
+      return;
+    }
+
+    const requestSummary = summarizeRequestForDetector(request);
+    const turnContext: PolluxTurnContext = {
+      surface: runtimeSurface,
+      sessionId: this.config.getSessionId(),
+      turnId: `${prompt_id}:${this.sessionTurnCount}`,
+      experimental,
+      advisorCallsThisTurn: 0,
+      advisorCallsThisSession: this.polluxAdvisorCallsThisSession,
+      userContentDigest: requestSummary.userContentDigest,
+      pendingToolContext: requestSummary.pendingToolContext,
+    };
+
+    // POLLUX_SPEC §5.1 step 2: gate the advisor invocation on the configured
+    // detector strategy. The detector itself enforces surface, config, budget,
+    // and strategy mismatches, so a non-escalating result here is the unified
+    // "skip advisor" decision.
+    const detector = buildPolluxDetector(experimental.strategy);
+    const escalation = await detector.shouldEscalate(turnContext);
+    if (!escalation.escalate) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (detector): reason=${escalation.reasonCode} strategy=${escalation.strategy}`,
         );
       }
       return;
@@ -684,15 +797,6 @@ export class GeminiClient {
       }
       return;
     }
-
-    const turnContext: PolluxTurnContext = {
-      surface: runtimeSurface,
-      sessionId: this.config.getSessionId(),
-      turnId: `${prompt_id}:${this.sessionTurnCount}`,
-      experimental,
-      advisorCallsThisTurn: 0,
-      advisorCallsThisSession: this.polluxAdvisorCallsThisSession,
-    };
 
     const advisorPrompt = buildAdvisorConsultationPrompt({
       context: turnContext,
