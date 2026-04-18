@@ -549,6 +549,38 @@ Exit criteria:
 - TG-2, TG-3, TG-6, TG-8 green.
 - No event ordering or continuation regressions in any in-scope surface.
 
+Phase 2 implementation evidence update (2026-04-18):
+
+- P2-01 (D1 legacy interactive) delivered with surface-scoped integration,
+  parity tests, and fail-open coverage:
+  - Core integration seam and runtime-surface propagation:
+    `packages/core/src/core/client.ts`
+  - Interactive legacy caller wiring to D1 surface tag:
+    `packages/cli/src/ui/hooks/useGeminiStream.ts`
+  - D1 Cell A-D matrix tests: `packages/core/src/core/client.test.ts`
+  - CLI hook regression updates for expanded call signature and loop
+    confirmation behavior: `packages/cli/src/ui/hooks/useGeminiStream.test.tsx`
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts`
+      passed for the D1 matrix additions.
+    - `npm run test --workspace @google/gemini-cli -- src/ui/hooks/useGeminiStream.test.tsx`
+      passed after signature/loop-handling updates.
+    - `npm run typecheck --workspace @google/gemini-cli-core` and
+      `npm run typecheck --workspace @google/gemini-cli` passed.
+  - Commit evidence: `df68732cf`.
+
+- P2-02 (D2 legacy non-interactive) delivered with non-interactive parity and
+  output-stability-oriented fail-open checks:
+  - Core D2 integration (legacy advisor path extended to non-interactive runtime
+    surface while preserving default legacy non-interactive routing):
+    `packages/core/src/core/client.ts`
+  - D2 Cell A-D matrix tests: `packages/core/src/core/client.test.ts`
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/core/client.test.ts`
+      passed with D2 Cell A-D coverage.
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+  - Commit evidence: `97a67416f`.
+
 ## Phase 3: Escalation and advisor hardening (Week 5)
 
 Goal: make escalation robust, measurable, and safe under failure.
