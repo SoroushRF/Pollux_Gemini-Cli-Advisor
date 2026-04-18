@@ -1,75 +1,104 @@
 # P4-06 Fairness Pin Audit Log
 
-Version: 1.0 Generated: 2026-04-18T21:36:04.368Z Status: Done TG mapping: TG-1
+Version: 2.0 Generated: 2026-04-18T22:37:22.244Z Status: Done TG mapping: TG-1
 
 ---
 
 ## 1) Scope
 
 This artifact validates the fairness-pin audit trail for every run in the full
-A-E benchmark matrix (initial + checkpoint/resume) and records machine-auditable
-pin status and run validity.
+A-E benchmark matrix (initial + session-resume). Per the P0-05 contract refined
+by senior review, every pin is now derived from either the requested settings
+AND/OR a runtime telemetry observable, instead of being a hardcoded constant.
+Cross-run uniqueness for FP-03/FP-05/FP-06 is verified at this audit layer.
 
 ## 2) Source coverage
 
-- Source full benchmark timestamp: 2026-04-18T21:36:04.367Z
+- Source full benchmark timestamp: 2026-04-18T22:37:22.242Z
 - Conditions: 5
-- Cells (task x condition): 15
-- Audited runs (initial + resume): 30
+- Cells (task x condition): 20
+- Audited runs (initial + resume): 40
 
 ## 3) Fairness pin pass summary
 
 | Pin                         | Pass count | Pass rate |
 | --------------------------- | ---------: | --------: |
-| FP-01 routerPinned          |      30/30 |    100.0% |
-| FP-02 loopDetectionDisabled |      30/30 |    100.0% |
-| FP-03 availabilityReset     |      30/30 |    100.0% |
-| FP-04 dynamicConfigFixed    |      30/30 |    100.0% |
-| FP-05 sessionIsolated       |      30/30 |    100.0% |
-| FP-06 sandboxIsolated       |      30/30 |    100.0% |
+| FP-01 routerPinned          |      40/40 |    100.0% |
+| FP-02 loopDetectionDisabled |      40/40 |    100.0% |
+| FP-03 availabilityReset     |      40/40 |    100.0% |
+| FP-04 dynamicConfigFixed    |      40/40 |    100.0% |
+| FP-05 sessionIsolated       |      40/40 |    100.0% |
+| FP-06 sandboxIsolated       |      40/40 |    100.0% |
 
-## 4) Run validity summary
+## 4) Telemetry-derived AC-03 evidence
 
-- Valid runs: 30/30
-- Invalid runs: 0/30
-- Checkpoint/resume fairness consistency: passed
+- Baseline utility suppression (no router or loop-detector api_response events):
+  passed
+- Advisor pipeline exercised (at least one utility_advisor api_response): yes
+  (TG-3 evidence)
 
-## 5) Per-run fairness audit trail
+## 5) Cross-run uniqueness (FP-03 / FP-05 / FP-06)
 
-| Task               | Condition | Phase   | Valid | Invalidation reason | FP-01 | FP-02 | FP-03 | FP-04 | FP-05 | FP-06 |
-| ------------------ | --------- | ------- | ----- | ------------------- | ----- | ----- | ----- | ----- | ----- | ----- |
-| CAL-BM-01-SIMPLE   | A         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | A         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | B         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | B         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | C         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | C         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | D         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | D         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | E         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-01-SIMPLE   | E         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | A         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | A         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | B         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | B         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | C         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | C         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | D         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | D         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | E         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-02-MODERATE | E         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | A         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | A         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | B         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | B         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | C         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | C         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | D         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | D         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | E         | initial | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
-| CAL-BM-03-COMPLEX  | E         | resume  | yes   | none                | pass  | pass  | pass  | pass  | pass  | pass  |
+- Distinct session ids across all runs: 20/40
+- Distinct workspace dirs across all runs: 20/40
+- Distinct home dirs across all runs: 20/40
+- Initial-run session ids unique (FP-05): yes
+- Initial-run workspace dirs unique (FP-06): yes
+- Initial-run home dirs unique (FP-03): yes
 
-## 6) Conclusion
+## 6) Run validity summary
+
+- Valid runs: 40/40
+- Invalid runs: 0/40
+- Session-resume fairness consistency: passed
+
+## 7) Per-run fairness audit trail
+
+| Task                 | Cond | Phase   | Valid | Reason | Router calls | Loop-det calls | Advisor calls | FP-01 | FP-02 | FP-03 | FP-04 | FP-05 | FP-06 |
+| -------------------- | ---- | ------- | ----- | ------ | -----------: | -------------: | ------------: | ----- | ----- | ----- | ----- | ----- | ----- |
+| CAL-BM-01-SIMPLE     | A    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | A    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | B    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | B    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | C    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | C    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | D    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | D    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | E    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-01-SIMPLE     | E    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | A    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | A    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | B    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | B    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | C    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | C    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | D    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | D    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | E    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-02-MODERATE   | E    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | A    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | A    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | B    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | B    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | C    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | C    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | D    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | D    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | E    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-03-COMPLEX    | E    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | A    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | A    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | B    | initial | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | B    | resume  | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | C    | initial | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | C    | resume  | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | D    | initial | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | D    | resume  | yes   | none   |            0 |              0 |             1 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | E    | initial | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+| CAL-BM-04-ESCALATING | E    | resume  | yes   | none   |            0 |              0 |             0 | pass  | pass  | pass  | pass  | pass  | pass  |
+
+## 8) Conclusion
 
 Fairness audit passed for every run. FP-01 through FP-06 are recorded and
-passing across initial and resumed executions.
+passing across initial and resumed executions; AC-03 utility suppression holds
+at the telemetry level; cross-run uniqueness for FP-03/05/06 is satisfied.
