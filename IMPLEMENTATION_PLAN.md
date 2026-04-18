@@ -497,7 +497,7 @@ Task breakdown:
 | P1-06 | [Done 2026-04-18] Implement advisor prompt builder/parser with strict schema validation             | 02      | prompts/advisor parser + unit tests | P1-01       | TG-6       |
 | P1-07 | [Done 2026-04-17] Add fail-open defaults and max-call budget configs                                | 02 + 09 | config defaults + safeguards        | P1-04/P1-06 | TG-3/TG-6  |
 | P1-08 | [Done 2026-04-17] Land packaged default ALLOW rule for advisor_consultation (closes ledger D-01)    | 09 + 16 | policy rule + AT-01..AT-05 tests    | P0-02       | TG-3/TG-8  |
-| P1-09 | Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)                    | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
+| P1-09 | [Done 2026-04-17] Wire `schema:settings --check` as required PR CI job (closes ledger D-02, CG-02)  | 06 + 15 | CI workflow update + drift test     | P1-03/P1-04 | TG-5       |
 
 Exit criteria:
 
@@ -898,14 +898,14 @@ cases.
   and
   [packages/cli/src/config/policy-engine.integration.test.ts](packages/cli/src/config/policy-engine.integration.test.ts)
 
-### P1-09 — Wire schema:settings --check as required PR CI job
+### P1-09 - Wire schema:settings --check as required PR CI job
 
-**Status:** Not started (as of 2026-04-17).
+**Status:** Done (2026-04-17).
 
-**Summary:** Still pending. Existing CI verifies docs settings generation via
-`npm run docs:settings -- --check`, but the required
-`npm run schema:settings -- --check` PR-gate wiring (CG-02 / D-02) has not yet
-been recorded in this plan's implementation log.
+**Summary:** Added required CI validation for settings schema artifacts by
+wiring `npm run schema:settings -- --check` into the `lint` job in
+`.github/workflows/ci.yml` (CG-02 / D-02). This complements the existing docs
+settings check and closes the Phase 1 schema-drift guard task.
 
 **References:**
 
@@ -913,5 +913,5 @@ been recorded in this plan's implementation log.
   [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-09](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-09)
 - Execution board row:
   [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
-  §3 (POLLUX-P1-09)
-- CI baseline: [.github/workflows/ci.yml](.github/workflows/ci.yml)
+  section 3 (POLLUX-P1-09)
+- CI workflow: [.github/workflows/ci.yml](.github/workflows/ci.yml)

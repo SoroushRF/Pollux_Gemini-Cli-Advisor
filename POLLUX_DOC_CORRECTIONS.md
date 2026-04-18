@@ -21,15 +21,15 @@ Rules:
 
 ## 2) Critical corrections
 
-| ID   | Area          | Issue                                                       | Required correction                                       | Owner | Status | Verification                |
-| ---- | ------------- | ----------------------------------------------------------- | --------------------------------------------------------- | ----- | ------ | --------------------------- |
-| C-01 | Runtime seams | Single-seam assumptions were unsafe                         | Keep per-surface interceptor matrix in spec and plan      | 02    | Done   | POLLUX_SPEC.md Appendix A   |
-| C-02 | Policy        | advisor_consultation could default-deny in headless mode    | Require packaged default ALLOW rule and ACP-safe behavior | 09    | Open   | Policy tests + ACP tests    |
-| C-03 | Telemetry     | New token sink proposal would duplicate existing accounting | Keep role-based extension of existing sink only           | 11    | Done   | POLLUX_SPEC.md section 9    |
-| C-04 | Benchmarking  | Baselines could include hidden utility call noise           | Enforce fairness pins and invalid-run rules               | 14    | Done   | POLLUX_SPEC.md section 10   |
-| C-05 | Settings      | Silent mapping drift between schema and core config         | Keep experimental.pollux path + schema/config CI checks   | 06    | Open   | schema and invariant tests  |
-| C-06 | Commands      | /pollux could be available only on one command surface      | Require multi-surface registration contract               | 05    | Open   | command parity tests        |
-| C-07 | Governance    | Spec/plan drift risk due weak ownership controls            | Keep versioned plan/spec and correction ledger workflow   | 16    | Done   | CODEOWNERS + ledger process |
+| ID   | Area          | Issue                                                       | Required correction                                       | Owner | Status | Verification                               |
+| ---- | ------------- | ----------------------------------------------------------- | --------------------------------------------------------- | ----- | ------ | ------------------------------------------ |
+| C-01 | Runtime seams | Single-seam assumptions were unsafe                         | Keep per-surface interceptor matrix in spec and plan      | 02    | Done   | POLLUX_SPEC.md Appendix A                  |
+| C-02 | Policy        | advisor_consultation could default-deny in headless mode    | Require packaged default ALLOW rule and ACP-safe behavior | 09    | Open   | Policy tests + ACP tests                   |
+| C-03 | Telemetry     | New token sink proposal would duplicate existing accounting | Keep role-based extension of existing sink only           | 11    | Done   | POLLUX_SPEC.md section 9                   |
+| C-04 | Benchmarking  | Baselines could include hidden utility call noise           | Enforce fairness pins and invalid-run rules               | 14    | Done   | POLLUX_SPEC.md section 10                  |
+| C-05 | Settings      | Silent mapping drift between schema and core config         | Keep experimental.pollux path + schema/config CI checks   | 06    | Done   | schema + invariant tests + CI schema check |
+| C-06 | Commands      | /pollux could be available only on one command surface      | Require multi-surface registration contract               | 05    | Open   | command parity tests                       |
+| C-07 | Governance    | Spec/plan drift risk due weak ownership controls            | Keep versioned plan/spec and correction ledger workflow   | 16    | Done   | CODEOWNERS + ledger process                |
 
 ---
 
@@ -46,23 +46,19 @@ Rules:
 
 ## 4) Open deliverables
 
-| Item | Description                                               | Owner    | Due phase |
-| ---- | --------------------------------------------------------- | -------- | --------- |
-| D-02 | schema:settings CI guard wired as required PR job (P1-09) | 06/15    | Phase 1   |
-| D-03 | Pollux command registration map and tests                 | 05/12/13 | Phase 5   |
+| Item | Description                               | Owner    | Due phase |
+| ---- | ----------------------------------------- | -------- | --------- |
+| D-03 | Pollux command registration map and tests | 05/12/13 | Phase 5   |
 
-Note: D-02 was originally scoped as a Phase 0 deliverable but is an
-implementation item. Phase 0 contract lock (G3) is achieved by the P0-03 control
-artifact; the runtime/CI landing is carried into Phase 1 per
-IMPLEMENTATION_PLAN.md section 3 "Implementation carry-over". D-01 is closed via
-P1-08.
+Note: D-03 remains open for Phase 5 command-surface completion.
 
 ## 4a) Completed deliverables
 
-| Item | Description                                | Owner | Closed     | Verification                                                                                                                                                              |
-| ---- | ------------------------------------------ | ----- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-01 | Packaged advisor ALLOW rule implementation | 09/16 | 2026-04-17 | IMPLEMENTATION_PLAN.md §12 P1-08; packages/core/src/policy/config.ts; packages/core/src/policy/config.test.ts; packages/cli/src/config/policy-engine.integration.test.ts. |
-| D-05 | A2A deferred-scope documentation note      | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md §2 row D6 + BP-06 deferred bypass.                                                                                    |
+| Item | Description                                       | Owner | Closed     | Verification                                                                                                                                                                     |
+| ---- | ------------------------------------------------- | ----- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-01 | Packaged advisor ALLOW rule implementation        | 09/16 | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-08; packages/core/src/policy/config.ts; packages/core/src/policy/config.test.ts; packages/cli/src/config/policy-engine.integration.test.ts. |
+| D-02 | schema:settings CI guard wired as required PR job | 06/15 | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-09; .github/workflows/ci.yml (Verify settings schema step runs `npm run schema:settings -- --check`).                                       |
+| D-05 | A2A deferred-scope documentation note             | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md section 2 row D6 + BP-06 deferred bypass.                                                                                    |
 
 ---
 
@@ -115,3 +111,5 @@ surfaces.
    before any Phase 1 task may move from not_started.
 10. Closed D-01 after P1-08 shipped the packaged advisor ALLOW rule and
     associated policy tests; D-02 remains open and mapped to P1-09.
+11. Closed D-02 after P1-09 wired `npm run schema:settings -- --check` in CI and
+    marked C-05 done with schema/invariant/CI evidence.

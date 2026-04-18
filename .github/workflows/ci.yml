@@ -108,6 +108,9 @@ jobs:
       - name: 'Build docs prerequisites'
         run: 'npm run predocs:settings'
 
+      - name: 'Verify settings schema'
+        run: 'npm run schema:settings -- --check'
+
       - name: 'Verify settings docs'
         run: 'npm run docs:settings -- --check'
 
