@@ -534,15 +534,15 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                   | Owner            | Deliverable                         | Depends on   | TG mapping |
-| ----- | ---------------------------------------------------------------------- | ---------------- | ----------------------------------- | ------------ | ---------- |
-| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam) | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
-| P2-02 | Integrate legacy non-interactive path and output stability checks      | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
-| P2-03 | Integrate interactive agent-session path and parity assertions         | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
-| P2-04 | Integrate non-interactive agent-session path and parity assertions     | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
-| P2-05 | Implement ACP advisor semantics without unexpected permission prompts  | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
-| P2-06 | Add explicit A2A deferred-scope assertions and docs                    | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
-| P2-07 | Run cross-surface integration matrix and compare observable behavior   | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
+| ID    | Task                                                                                | Owner            | Deliverable                         | Depends on   | TG mapping |
+| ----- | ----------------------------------------------------------------------------------- | ---------------- | ----------------------------------- | ------------ | ---------- |
+| P2-01 | [Done 2026-04-18] Integrate legacy interactive path (processTurn seam)              | 02 + 01          | integration code + regression tests | P1-01..P1-07 | TG-2/TG-6  |
+| P2-02 | [Done 2026-04-18] Integrate legacy non-interactive path and output stability checks | 02 + 01          | non-interactive parity tests        | P2-01        | TG-2       |
+| P2-03 | Integrate interactive agent-session path and parity assertions                      | 03 + 01          | adapter parity tests                | P2-01        | TG-2       |
+| P2-04 | Integrate non-interactive agent-session path and parity assertions                  | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
+| P2-05 | Implement ACP advisor semantics without unexpected permission prompts               | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
+| P2-06 | Add explicit A2A deferred-scope assertions and docs                                 | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
+| P2-07 | Run cross-surface integration matrix and compare observable behavior                | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
 
 Exit criteria:
 

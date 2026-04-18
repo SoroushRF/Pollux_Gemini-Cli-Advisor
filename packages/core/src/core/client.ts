@@ -612,13 +612,16 @@ export class GeminiClient {
     );
   }
 
-  private async maybeRunPolluxLegacyInteractiveAdvisorConsultation(
+  private async maybeRunPolluxLegacyAdvisorConsultation(
     request: PartListUnion,
     signal: AbortSignal,
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
   ): Promise<void> {
-    if (runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE) {
+    if (
+      runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE &&
+      runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE
+    ) {
       return;
     }
 
@@ -826,7 +829,7 @@ export class GeminiClient {
       this.forceFullIdeContext = false;
     }
 
-    await this.maybeRunPolluxLegacyInteractiveAdvisorConsultation(
+    await this.maybeRunPolluxLegacyAdvisorConsultation(
       request,
       signal,
       prompt_id,
