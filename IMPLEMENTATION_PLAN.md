@@ -542,7 +542,7 @@ Task breakdown:
 | P2-04 | [Done 2026-04-18] Integrate non-interactive agent-session path and parity assertions    | 03 + 01          | agent-session non-interactive tests | P2-03        | TG-2       |
 | P2-05 | [Done 2026-04-18] Implement ACP advisor semantics without unexpected permission prompts | 12 + 09/02       | ACP integration + permission tests  | P0-02/P2-01  | TG-3/TG-8  |
 | P2-06 | [Done 2026-04-18] Add explicit A2A deferred-scope assertions and docs                   | 13 + 16          | bypass tests + docs notes           | P0-01        | TG-10      |
-| P2-07 | Run cross-surface integration matrix and compare observable behavior                    | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
+| P2-07 | [Done 2026-04-18] Run cross-surface integration matrix and compare observable behavior  | 14 + 01/02/03/12 | matrix report artifact              | P2-01..P2-05 | TG-2/TG-6  |
 
 Exit criteria:
 
@@ -675,6 +675,42 @@ Phase 2 implementation evidence update (2026-04-18):
     - `npm run test` for `@google/gemini-cli-a2a-server` passed (13 test files /
       127 tests).
     - `npm run typecheck` passed for core, cli, and a2a-server workspaces.
+
+- P2-07 (Cross-surface integration matrix) delivered with a single versioned
+  report artifact that consolidates Cell A–D evidence across all in-scope
+  surfaces (D1–D5) and the D6 explicit-bypass row, and pins the Phase 2 exit
+  gates TG-2, TG-3, TG-6, and TG-8 at one HEAD commit:
+  - Matrix report: `docs/core/pollux/P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md`.
+    Sections 3.1– 3.6 enumerate each surface row × cell (A/B/C/D for D1–D5,
+    Bypass for D6) with the exact `it(...)` name and file:line reference that
+    pins the cell. Section 4 lists the eight observable-behavior invariants
+    verified simultaneously across every active row (stream-event ordering,
+    continuation parity, no `GeminiChat` history mutation, single policy
+    routing, no redundant ACP permission prompts, `LlmRole.UTILITY_ADVISOR`
+    tagging, budget safeguards, and D6 seam-allow-list absence).
+  - Consolidated cross-surface test run at HEAD `d71a823b2`:
+    - `npx vitest run src/core/client.test.ts src/agent/legacy-agent-session.test.ts src/pollux/types.test.ts`
+      in `packages/core` → 3 files / 147 passed / 1 unrelated pre-existing skip.
+    - `npx vitest run src/agent/task.test.ts` in `packages/a2a-server` → 1 file
+      / 13 passed.
+    - `npx vitest run src/acp/acpClient.test.ts src/nonInteractiveCliAgentSession.test.ts src/ui/hooks/useGeminiStream.test.tsx`
+      in `packages/cli` → 3 files / 193 passed.
+    - Totals: 353 Pollux-scoped tests green across the three workspaces at the
+      same commit, with the only non-pass being an unrelated pre-existing skip
+      outside the Pollux matrix.
+  - Test-gate sign-off recorded in the report §6:
+    - TG-2 green via sections 3.1–3.6 rows × cells plus §4 invariants 1–2.
+    - TG-3 green via D5 ACP regression block + §4 invariant 5 (no redundant
+      permission prompts on the advisor-only path).
+    - TG-6 green via the consolidated run in §5.
+    - TG-8 green via the `Pollux ACP advisor seam (P2-05)` block in
+      `packages/cli/src/acp/acpClient.test.ts` (3 tests) plus D5 Cell A–D in
+      `packages/core/src/core/client.test.ts`.
+    - TG-10 contribution recorded for the A2A deferred-scope drift guard via
+      `docs/core/pollux/P2-06_A2A_DEFERRED_BYPASS.md` and the BP-06 call-site
+      and seam-level assertions.
+  - Phase 2 exit checklist (report §7) all boxes closed. Phase 3 (P3-01 et seq.)
+    is now unblocked per its dependency declaration on P2-07.
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 
