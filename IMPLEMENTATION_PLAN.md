@@ -728,7 +728,7 @@ Task breakdown:
 | P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping     | 02      | structured detector + leak tests | P3-01        | TG-6       |
 | P3-03 | [Done 2026-04-18] Implement hybrid detector precedence and tie-break semantics    | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
 | P3-04 | [Done 2026-04-18] Implement advisor timeout/malformed response fail-open behavior | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
-| P3-05 | Add escalation calibration set and threshold tuning guide                         | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
+| P3-05 | [Done 2026-04-18] Add escalation calibration set and threshold tuning guide       | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
 | P3-06 | Verify telemetry reconciliation under escalation load                             | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
 
 Exit criteria:
