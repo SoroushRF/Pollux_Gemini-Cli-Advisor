@@ -196,6 +196,38 @@ export interface StructuredDetectorOptions {
   readonly maxFieldLength?: number;
 }
 
+/** Options accepted by {@link createHybridDetector}. */
+export interface HybridDetectorOptions {
+  /**
+   * Heuristic-path options used while evaluating hybrid resolution.
+   * Defaults are the same as {@link createHeuristicDetector}.
+   */
+  readonly heuristic?: HeuristicDetectorOptions;
+  /**
+   * Structured-path options used while evaluating hybrid resolution.
+   * Defaults are the same as {@link createStructuredDetector}.
+   */
+  readonly structured?: StructuredDetectorOptions;
+}
+
+/** Deterministic decision chosen by hybrid precedence rules. */
+export type HybridResolutionDecision =
+  | 'none'
+  | 'heuristic'
+  | 'structured'
+  | 'tie_structured';
+
+/**
+ * Hybrid evaluation breakdown for P3-03 policy testing and P3-05 calibration.
+ */
+export interface HybridEvaluation {
+  readonly decision: HybridResolutionDecision;
+  readonly heuristic: HeuristicEvaluation;
+  readonly structured: StructuredConfidenceEvaluation;
+  readonly heuristicMinScore: number;
+  readonly structuredThreshold: number;
+}
+
 interface ResolvedStructuredDetectorOptions {
   readonly maxFieldLength: number;
 }
@@ -525,6 +557,138 @@ export function createStructuredDetector(
         PolluxDetectorStrategy.STRUCTURED,
         evaluation.structuredConfidence,
       );
+    },
+  };
+}
+
+/**
+ * Gate evaluation for the hybrid detector path.
+ *
+ * Returns `null` when the path is eligible. Returns a deterministic disabled
+ * result when Pollux is off, runtime surface is out of scope, budget is
+ * exhausted, or when hybrid is not the active strategy.
+ */
+export function isHybridPathEligible(
+  context: PolluxTurnContext,
+): ShouldEscalateResult | null {
+  if (!context.experimental.enabled) {
+    return disabled(
+      PolluxEscalationReasonCode.CONFIG_DISABLED,
+      PolluxDetectorStrategy.HYBRID,
+    );
+  }
+  if (context.surface === PolluxRuntimeSurface.A2A_DEFERRED) {
+    return disabled(
+      PolluxEscalationReasonCode.DEFERRED_SURFACE,
+      PolluxDetectorStrategy.HYBRID,
+    );
+  }
+  if (context.experimental.strategy !== PolluxDetectorStrategy.HYBRID) {
+    return disabled(
+      PolluxEscalationReasonCode.NONE,
+      PolluxDetectorStrategy.HYBRID,
+    );
+  }
+  const budget = checkAdvisorInvocationBudget(context.experimental, {
+    callsCompletedThisTurn: context.advisorCallsThisTurn,
+    callsCompletedThisSession: context.advisorCallsThisSession,
+  });
+  if (!budget.allowed) {
+    return disabled(budget.reasonCode, PolluxDetectorStrategy.HYBRID);
+  }
+  return null;
+}
+
+/**
+ * Evaluates heuristic and structured paths and resolves a deterministic hybrid
+ * decision (P3-03).
+ *
+ * Precedence policy:
+ *
+ *   1. Structured-only hit => `structured`.
+ *   2. Heuristic-only hit => `heuristic`.
+ *   3. Both hit => `tie_structured` (structured path wins ties).
+ *   4. Neither hit => `none`.
+ */
+export function evaluateHybridSignals(
+  context: PolluxTurnContext,
+  options?: HybridDetectorOptions,
+): HybridEvaluation {
+  const heuristic = evaluateHeuristicSignals(context, options?.heuristic);
+  const structured = evaluateStructuredConfidenceSignal(
+    context,
+    options?.structured,
+  );
+  const heuristicMinScore = resolveOptions(options?.heuristic).minScore;
+  const structuredThreshold = resolveStructuredThreshold(
+    context.experimental.confidenceThreshold,
+  );
+
+  const heuristicEscalates = heuristic.score >= heuristicMinScore;
+  const structuredEscalates =
+    structured.structuredConfidence !== undefined &&
+    structured.structuredConfidence >= structuredThreshold;
+
+  let decision: HybridResolutionDecision = 'none';
+  if (heuristicEscalates && structuredEscalates) {
+    decision = 'tie_structured';
+  } else if (structuredEscalates) {
+    decision = 'structured';
+  } else if (heuristicEscalates) {
+    decision = 'heuristic';
+  }
+
+  return {
+    decision,
+    heuristic,
+    structured,
+    heuristicMinScore,
+    structuredThreshold,
+  };
+}
+
+/**
+ * Factory for the hybrid detector (POLLUX_SPEC §7.1 strategy 3 / P3-03).
+ *
+ * The detector composes heuristic + structured paths. Structured wins tie
+ * cases deterministically. Escalation outcomes use
+ * `PolluxEscalationReasonCode.HYBRID_RESOLUTION`.
+ */
+export function createHybridDetector(
+  options?: HybridDetectorOptions,
+): PolluxDetector {
+  return {
+    async shouldEscalate(
+      context: PolluxTurnContext,
+    ): Promise<ShouldEscalateResult> {
+      const gate = isHybridPathEligible(context);
+      if (gate !== null) {
+        return gate;
+      }
+
+      const evaluation = evaluateHybridSignals(context, options);
+      if (evaluation.decision === 'none') {
+        return disabled(
+          PolluxEscalationReasonCode.NONE,
+          PolluxDetectorStrategy.HYBRID,
+          evaluation.structured.structuredConfidence,
+        );
+      }
+
+      if (evaluation.structured.structuredConfidence !== undefined) {
+        return {
+          escalate: true,
+          reasonCode: PolluxEscalationReasonCode.HYBRID_RESOLUTION,
+          strategy: PolluxDetectorStrategy.HYBRID,
+          structuredConfidence: evaluation.structured.structuredConfidence,
+        };
+      }
+
+      return {
+        escalate: true,
+        reasonCode: PolluxEscalationReasonCode.HYBRID_RESOLUTION,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      };
     },
   };
 }

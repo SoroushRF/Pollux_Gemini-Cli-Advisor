@@ -9,10 +9,13 @@ import {
   DEFAULT_HEURISTIC_MIN_SCORE,
   DEFAULT_HEURISTIC_RULES,
   DETECTOR_MAX_FIELD_LENGTH,
+  createHybridDetector,
   createHeuristicDetector,
   createStructuredDetector,
+  evaluateHybridSignals,
   evaluateHeuristicSignals,
   evaluateStructuredConfidenceSignal,
+  isHybridPathEligible,
   isHeuristicPathEligible,
   isStructuredPathEligible,
 } from './detector.js';
@@ -703,6 +706,305 @@ describe('pollux/detector structured', () => {
       const input = ctx({
         experimental: enabledStructured,
         userContentDigest: 'x <!-- pollux:confidence:9 --> y',
+      });
+
+      const first = await det.shouldEscalate(input);
+      const second = await det.shouldEscalate(input);
+      expect(first).toEqual(second);
+    });
+  });
+});
+
+describe('pollux/detector hybrid', () => {
+  describe('gate: isHybridPathEligible', () => {
+    it('returns CONFIG_DISABLED when Pollux is off', () => {
+      const gate = isHybridPathEligible(
+        ctx({ experimental: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.CONFIG_DISABLED,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('returns DEFERRED_SURFACE for A2A even when Pollux is enabled', () => {
+      const gate = isHybridPathEligible(
+        ctx({
+          experimental: enabledHybrid,
+          surface: PolluxRuntimeSurface.A2A_DEFERRED,
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.DEFERRED_SURFACE,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('returns NONE when hybrid is not the active strategy', () => {
+      const gate = isHybridPathEligible(
+        ctx({
+          experimental: enabledStructured,
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('returns BUDGET_EXHAUSTED at the per-turn cap', () => {
+      const gate = isHybridPathEligible(
+        ctx({
+          experimental: enabledHybrid,
+          advisorCallsThisTurn: enabledHybrid.maxAdvisorCallsPerTurn,
+        }),
+      );
+      expect(gate).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.BUDGET_EXHAUSTED,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('returns null when hybrid path is eligible', () => {
+      expect(isHybridPathEligible(ctx({ experimental: enabledHybrid }))).toBe(
+        null,
+      );
+    });
+  });
+
+  describe('evaluateHybridSignals', () => {
+    it('selects structured when structured confidence alone meets threshold', () => {
+      const evaluation = evaluateHybridSignals(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.HYBRID,
+            confidenceThreshold: 6,
+          }),
+          userContentDigest: 'Proceed <!-- pollux:confidence:8 --> next step.',
+        }),
+      );
+
+      expect(evaluation.decision).toBe('structured');
+      expect(evaluation.structured.structuredConfidence).toBe(8);
+      expect(evaluation.heuristic.score).toBeLessThan(
+        evaluation.heuristicMinScore,
+      );
+    });
+
+    it('selects heuristic when structured confidence is missing', () => {
+      const evaluation = evaluateHybridSignals(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest: "I'm stuck and it keeps failing.",
+        }),
+      );
+
+      expect(evaluation.decision).toBe('heuristic');
+      expect(evaluation.structured.structuredConfidence).toBeUndefined();
+      expect(evaluation.heuristic.score).toBeGreaterThanOrEqual(
+        evaluation.heuristicMinScore,
+      );
+    });
+
+    it('uses deterministic tie-break semantics when both paths match', () => {
+      const evaluation = evaluateHybridSignals(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest:
+            "I'm stuck <!-- pollux:confidence:9 --> and need help debugging this.",
+        }),
+      );
+
+      expect(evaluation.decision).toBe('tie_structured');
+      expect(evaluation.structured.structuredConfidence).toBe(9);
+      expect(evaluation.heuristic.score).toBeGreaterThanOrEqual(
+        evaluation.heuristicMinScore,
+      );
+    });
+
+    it('falls back to heuristic when structured confidence is below threshold', () => {
+      const evaluation = evaluateHybridSignals(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.HYBRID,
+            confidenceThreshold: 9,
+          }),
+          userContentDigest:
+            "I'm stuck <!-- pollux:confidence:7 --> and still blocked.",
+        }),
+      );
+
+      expect(evaluation.decision).toBe('heuristic');
+      expect(evaluation.structured.structuredConfidence).toBe(7);
+    });
+
+    it('returns none when neither path reaches escalation criteria', () => {
+      const evaluation = evaluateHybridSignals(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest: 'Please summarize this module.',
+        }),
+      );
+
+      expect(evaluation.decision).toBe('none');
+      expect(evaluation.heuristic.score).toBeLessThan(
+        evaluation.heuristicMinScore,
+      );
+    });
+
+    it('is deterministic across repeated evaluations for identical input', () => {
+      const input = ctx({
+        experimental: enabledHybrid,
+        userContentDigest:
+          "I'm stuck <!-- pollux:confidence:8 --> and keep seeing the same error.",
+        pendingToolContext: 'error: repeat failure',
+      });
+
+      const first = evaluateHybridSignals(input);
+      const second = evaluateHybridSignals(input);
+      expect(first).toEqual(second);
+    });
+  });
+
+  describe('createHybridDetector().shouldEscalate', () => {
+    it('short-circuits to CONFIG_DISABLED when Pollux is off', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({ experimental: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.CONFIG_DISABLED,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('short-circuits to DEFERRED_SURFACE for A2A turns', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledHybrid,
+          surface: PolluxRuntimeSurface.A2A_DEFERRED,
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.DEFERRED_SURFACE,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('short-circuits to BUDGET_EXHAUSTED when budget is exhausted', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledHybrid,
+          advisorCallsThisSession: enabledHybrid.maxAdvisorCallsPerSession,
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.BUDGET_EXHAUSTED,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('returns NONE when hybrid is not the active strategy', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledStructured,
+          userContentDigest:
+            "I'm stuck <!-- pollux:confidence:9 --> and need help.",
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('escalates with HYBRID_RESOLUTION for heuristic-only match', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest: "I'm completely stuck and it keeps failing.",
+        }),
+      );
+      expect(r).toEqual({
+        escalate: true,
+        reasonCode: PolluxEscalationReasonCode.HYBRID_RESOLUTION,
+        strategy: PolluxDetectorStrategy.HYBRID,
+      });
+    });
+
+    it('escalates with HYBRID_RESOLUTION for structured-only match', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest: 'Proceed <!-- pollux:confidence:8 --> now.',
+        }),
+      );
+      expect(r).toEqual({
+        escalate: true,
+        reasonCode: PolluxEscalationReasonCode.HYBRID_RESOLUTION,
+        strategy: PolluxDetectorStrategy.HYBRID,
+        structuredConfidence: 8,
+      });
+    });
+
+    it('escalates with HYBRID_RESOLUTION on tie and preserves structured confidence', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: enabledHybrid,
+          userContentDigest:
+            "I'm stuck <!-- pollux:confidence:9 --> and need help debugging this.",
+        }),
+      );
+      expect(r).toEqual({
+        escalate: true,
+        reasonCode: PolluxEscalationReasonCode.HYBRID_RESOLUTION,
+        strategy: PolluxDetectorStrategy.HYBRID,
+        structuredConfidence: 9,
+      });
+    });
+
+    it('returns NONE and preserves structured confidence when below threshold with no heuristic match', async () => {
+      const det = createHybridDetector();
+      const r = await det.shouldEscalate(
+        ctx({
+          experimental: mergePolluxExperimentalConfig({
+            enabled: true,
+            strategy: PolluxDetectorStrategy.HYBRID,
+            confidenceThreshold: 8,
+          }),
+          userContentDigest: 'Proceed <!-- pollux:confidence:4 --> now.',
+        }),
+      );
+      expect(r).toEqual({
+        escalate: false,
+        reasonCode: PolluxEscalationReasonCode.NONE,
+        strategy: PolluxDetectorStrategy.HYBRID,
+        structuredConfidence: 4,
+      });
+    });
+
+    it('is deterministic for repeated calls with identical input', async () => {
+      const det = createHybridDetector();
+      const input = ctx({
+        experimental: enabledHybrid,
+        userContentDigest:
+          "I'm stuck <!-- pollux:confidence:8 --> and keep hitting the same error.",
       });
 
       const first = await det.shouldEscalate(input);

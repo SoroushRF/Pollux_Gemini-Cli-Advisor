@@ -722,14 +722,14 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                          | Owner   | Deliverable                      | Depends on   | TG mapping |
-| ----- | ----------------------------------------------------------------------------- | ------- | -------------------------------- | ------------ | ---------- |
-| P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
-| P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping | 02      | structured detector + leak tests | P3-01        | TG-6       |
-| P3-03 | Implement hybrid detector precedence and tie-break semantics                  | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
-| P3-04 | Implement advisor timeout/malformed response fail-open behavior               | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
-| P3-05 | Add escalation calibration set and threshold tuning guide                     | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
-| P3-06 | Verify telemetry reconciliation under escalation load                         | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
+| ID    | Task                                                                           | Owner   | Deliverable                      | Depends on   | TG mapping |
+| ----- | ------------------------------------------------------------------------------ | ------- | -------------------------------- | ------------ | ---------- |
+| P3-01 | [Done 2026-04-18] Implement heuristic detector and deterministic reason codes  | 02 + 07 | detector module + tests          | P2-07        | TG-6       |
+| P3-02 | [Done 2026-04-18] Implement structured detector with confidence tag stripping  | 02      | structured detector + leak tests | P3-01        | TG-6       |
+| P3-03 | [Done 2026-04-18] Implement hybrid detector precedence and tie-break semantics | 02      | hybrid policy + tests            | P3-01/P3-02  | TG-6       |
+| P3-04 | Implement advisor timeout/malformed response fail-open behavior                | 02 + 09 | fail-open runtime tests          | P3-02        | TG-3/TG-6  |
+| P3-05 | Add escalation calibration set and threshold tuning guide                      | 14 + 02 | calibration report               | P3-01..P3-04 | TG-6       |
+| P3-06 | Verify telemetry reconciliation under escalation load                          | 11 + 02 | reconciliation test report       | P3-04        | TG-4       |
 
 Exit criteria:
 
@@ -821,6 +821,35 @@ Phase 3 implementation evidence update (2026-04-18):
   - Validation evidence:
     - `npm run test --workspace @google/gemini-cli-core -- src/pollux/detector.test.ts`
       passed (1 file / 54 tests) and post-test core build completed.
+    - `npm run typecheck --workspace @google/gemini-cli-core` passed.
+
+- P3-03 (Hybrid detector precedence/tie-break semantics) delivered with
+  deterministic composition of heuristic + structured signals and explicit tie
+  policy aligned to POLLUX_SPEC §7.1 / §7.2:
+  - Extended `packages/core/src/pollux/detector.ts` with `createHybridDetector`,
+    `evaluateHybridSignals`, and `isHybridPathEligible`.
+  - Implemented hybrid gate semantics mirroring existing Pollux constraints:
+    `CONFIG_DISABLED`, `DEFERRED_SURFACE`, `BUDGET_EXHAUSTED`, and non-active
+    strategy (`NONE` when hybrid is not selected).
+  - Implemented deterministic hybrid resolution policy:
+    - `structured` when structured confidence alone reaches threshold.
+    - `heuristic` when heuristic score alone reaches threshold.
+    - `tie_structured` when both paths qualify in the same turn.
+    - `none` when neither path qualifies.
+  - Hybrid detector output behavior:
+    - Escalation decisions use `PolluxEscalationReasonCode.HYBRID_RESOLUTION`.
+    - Non-escalation uses `PolluxEscalationReasonCode.NONE`.
+    - `structuredConfidence` is preserved in hybrid results when present,
+      including below-threshold diagnostics.
+  - Expanded `packages/core/src/pollux/detector.test.ts` with hybrid TG-6
+    coverage (20 new tests) for:
+    - Hybrid gate behavior under disabled/deferred/budget/not-active cases.
+    - Structured-only, heuristic-only, both-hit tie, below-threshold fallback,
+      and neither-hit outcomes.
+    - Determinism checks for both signal evaluation and detector factory paths.
+  - Validation evidence:
+    - `npm run test --workspace @google/gemini-cli-core -- src/pollux/detector.test.ts`
+      passed (1 file / 74 tests) and post-test core build completed.
     - `npm run typecheck --workspace @google/gemini-cli-core` passed.
 
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)
