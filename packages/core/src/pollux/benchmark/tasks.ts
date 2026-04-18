@@ -14,6 +14,22 @@ export interface BenchmarkTask {
   description: string;
   files: Record<string, string>;
   prompt: string;
+  /**
+   * Whether this task is intentionally crafted to trip the Pollux escalation
+   * detector (heuristic, structured, or hybrid). Used by the benchmark runner
+   * to compute the escalation confusion matrix in P4-05: a sample is an
+   * "expected positive" only when its task is `escalates: true` AND its
+   * condition has Pollux enabled (B/C/D). Defaults to `false`.
+   */
+  escalates?: boolean;
+  /**
+   * Optional task-specific resume prompt used by
+   * `BenchmarkHarness.runBenchmarkWithCheckpointResume`. Tasks that intend to
+   * exercise the advisor on every turn (e.g. ESCALATING) override the default
+   * resume prompt with one that also trips the detector so the resume CLI
+   * subprocess consumes the same fixture sequence as the initial run.
+   */
+  resumePrompt?: string;
   oracle: (stdout: string, workspaceDir: string) => boolean | Promise<boolean>;
 }
 
@@ -79,6 +95,12 @@ export const BENCHMARK_CORPUS: BenchmarkTask[] = [
     },
     prompt:
       'Refactor legacy_app.js in the src folder so that oldAlgo returns status 200 and message "OK". Write true into a file named test-result.txt if you successfully completed the refactoring.',
+    // Tightened over the original P4-01 oracle: the previous version only
+    // checked for substrings "200" and "OK" anywhere in the file, which
+    // accepted a "fix" that left the original `status: 500, "Deprecation
+    // block"` payload intact. The refactor must (a) return status 200, (b)
+    // return message "OK", (c) drop the original 500 status, and (d) drop the
+    // "Deprecation block" message.
     oracle: (stdout, workspaceDir) => {
       const targetFilePath = path.join(workspaceDir, 'test-result.txt');
       if (!fs.existsSync(targetFilePath)) return false;
@@ -86,11 +108,47 @@ export const BENCHMARK_CORPUS: BenchmarkTask[] = [
       const legacyPath = path.join(workspaceDir, 'src', 'legacy_app.js');
       if (!fs.existsSync(legacyPath)) return false;
       const legacyContent = fs.readFileSync(legacyPath, 'utf8');
+
+      const hasStatus200 = /\bstatus\s*:\s*200\b/.test(legacyContent);
+      const hasMessageOk = /\bmessage\s*:\s*["']OK["']/.test(legacyContent);
+      const stillHasStatus500 = /\bstatus\s*:\s*500\b/.test(legacyContent);
+      const stillHasDeprecation = /Deprecation block/.test(legacyContent);
       const refactoredCorrectly =
-        legacyContent.includes('200') && legacyContent.includes('OK');
+        hasStatus200 &&
+        hasMessageOk &&
+        !stillHasStatus500 &&
+        !stillHasDeprecation;
 
       const content = fs.readFileSync(targetFilePath, 'utf8');
       return content.trim().toLowerCase() === 'true' && refactoredCorrectly;
+    },
+  },
+  {
+    id: 'CAL-BM-04-ESCALATING',
+    difficulty: 'complex',
+    description:
+      'Escalation-shaped prompt designed to trip every detector strategy (heuristic + structured), so condition B/C/D actually invoke the advisor and produce a non-degenerate escalation confusion matrix in P4-05. Without a task like this, the entire A-E benchmark collapses to a single condition replayed five times.',
+    files: {},
+    // The heuristic detector matches `EXPLICIT_BLOCKED` ("stuck", weight 2),
+    // `HELP_REQUEST` ("need help", weight 1), and `COMPLEXITY` ("refactor"
+    // / "strategy", weight 1) for a total score of >=4 (default min is 2).
+    // The structured detector matches the inline confidence tag at value 9,
+    // which clears the default threshold of 6. Both fire under hybrid; either
+    // alone fires under heuristic / structured. The confidence value MUST
+    // remain >= the default `confidenceThreshold` (6) so condition C
+    // (structured strategy) actually escalates and exercises the advisor
+    // pipeline; otherwise the structured cell collapses to the executor
+    // path and the A-E benchmark loses its only structured-positive cell.
+    prompt:
+      'I am stuck and need help with this refactor strategy. <!-- pollux:confidence:9 --> Please write a file named escalation-marker.txt containing the single word `advised` and nothing else.',
+    escalates: true,
+    resumePrompt:
+      'I am still stuck and need help confirming the refactor strategy. <!-- pollux:confidence:9 --> Please rewrite escalation-marker.txt with the single word `advised` and nothing else.',
+    oracle: (stdout, workspaceDir) => {
+      const markerPath = path.join(workspaceDir, 'escalation-marker.txt');
+      if (!fs.existsSync(markerPath)) return false;
+      const content = fs.readFileSync(markerPath, 'utf8');
+      return content.trim() === 'advised';
     },
   },
 ];
