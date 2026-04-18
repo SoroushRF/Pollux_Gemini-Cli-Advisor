@@ -1009,14 +1009,14 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                              | Owner      | Deliverable                                                                     | Depends on | TG mapping |
-| ----- | --------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------- | ---------- | ---------- |
-| P4-01 | Finalize benchmark task corpus with oracle reliability checks                     | 14         | task corpus + oracle docs                                                       | P0-05      | TG-1       |
-| P4-02 | Implement benchmark harness controls (router/loop/availability/session)           | 14 + 07/10 | benchmark harness code                                                          | P4-01      | TG-1       |
-| P4-03 | [Done 2026-04-18] Run smoke benchmark (small matrix) and validate reproducibility | 14         | smoke run artifact -> docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md | P4-02      | TG-1       |
-| P4-04 | Run full five-condition benchmark with checkpoint/resume                          | 14         | full run artifacts                                                              | P4-03      | TG-1       |
-| P4-05 | Publish token/latency/accuracy report with CIs and escalation stats               | 14 + 11    | benchmark report                                                                | P4-04      | TG-1/TG-4  |
-| P4-06 | Validate fairness-pin audit trail for each run                                    | 14         | fairness audit log                                                              | P4-04      | TG-1       |
+| ID    | Task                                                                              | Owner      | Deliverable                                                                      | Depends on | TG mapping |
+| ----- | --------------------------------------------------------------------------------- | ---------- | -------------------------------------------------------------------------------- | ---------- | ---------- |
+| P4-01 | Finalize benchmark task corpus with oracle reliability checks                     | 14         | task corpus + oracle docs                                                        | P0-05      | TG-1       |
+| P4-02 | Implement benchmark harness controls (router/loop/availability/session)           | 14 + 07/10 | benchmark harness code                                                           | P4-01      | TG-1       |
+| P4-03 | [Done 2026-04-18] Run smoke benchmark (small matrix) and validate reproducibility | 14         | smoke run artifact -> docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md  | P4-02      | TG-1       |
+| P4-04 | [Done 2026-04-18] Run full five-condition benchmark with checkpoint/resume        | 14         | full run artifacts -> docs/core/pollux/P4-04_FULL_BENCHMARK_CHECKPOINT_RESUME.md | P4-03      | TG-1       |
+| P4-05 | Publish token/latency/accuracy report with CIs and escalation stats               | 14 + 11    | benchmark report                                                                 | P4-04      | TG-1/TG-4  |
+| P4-06 | Validate fairness-pin audit trail for each run                                    | 14         | fairness audit log                                                               | P4-04      | TG-1       |
 
 Exit criteria:
 
