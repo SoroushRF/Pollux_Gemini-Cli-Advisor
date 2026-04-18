@@ -58,6 +58,9 @@ export const PolluxEscalationReasonCode = {
 export type PolluxEscalationReasonCode =
   (typeof PolluxEscalationReasonCode)[keyof typeof PolluxEscalationReasonCode];
 
+/** Lower bound for {@link PolluxExperimentalConfig.advisorRequestTimeoutMs} after merge. */
+export const POLLUX_MIN_ADVISOR_TIMEOUT_MS = 1000;
+
 /**
  * experimental.pollux.* shape (POLLUX_SPEC §8.2).
  * Wired through CLI schema / ConfigParameters in later tasks (P1-03, P1-04).
@@ -75,6 +78,11 @@ export interface PolluxExperimentalConfig {
    */
   readonly confidenceThreshold: number;
   readonly emitAdvisorDebug: boolean;
+  /**
+   * Max time to wait for an advisor model response before fail-open (ms).
+   * P1-07; enforced by runtime integration in later phases.
+   */
+  readonly advisorRequestTimeoutMs: number;
 }
 
 /**
@@ -91,6 +99,7 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   maxAdvisorCallsPerSession: 20,
   confidenceThreshold: 6,
   emitAdvisorDebug: false,
+  advisorRequestTimeoutMs: 120_000,
 } as const satisfies PolluxExperimentalConfig;
 
 function polluxFiniteNumber(
@@ -134,6 +143,13 @@ export function mergePolluxExperimentalConfig(
       d.confidenceThreshold,
     ),
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
+    advisorRequestTimeoutMs: Math.max(
+      POLLUX_MIN_ADVISOR_TIMEOUT_MS,
+      polluxFiniteNumber(
+        partial?.advisorRequestTimeoutMs,
+        d.advisorRequestTimeoutMs,
+      ),
+    ),
   };
 }
 

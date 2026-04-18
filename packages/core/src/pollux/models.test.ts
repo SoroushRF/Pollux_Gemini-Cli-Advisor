@@ -30,6 +30,8 @@ function makeExperimental(
     maxAdvisorCallsPerSession: 20,
     confidenceThreshold: 6,
     emitAdvisorDebug: false,
+    advisorRequestTimeoutMs:
+      DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs,
     ...overrides,
   };
 }

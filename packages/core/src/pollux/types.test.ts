@@ -42,6 +42,19 @@ describe('pollux/types', () => {
           confidenceThreshold: Number.NaN,
         }).confidenceThreshold,
       ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.confidenceThreshold);
+      expect(
+        mergePolluxExperimentalConfig({
+          advisorRequestTimeoutMs: Number.NaN,
+        }).advisorRequestTimeoutMs,
+      ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs);
+    });
+
+    it('clamps advisorRequestTimeoutMs to minimum', () => {
+      expect(
+        mergePolluxExperimentalConfig({
+          advisorRequestTimeoutMs: 100,
+        }).advisorRequestTimeoutMs,
+      ).toBe(1000);
     });
   });
 
@@ -58,6 +71,7 @@ describe('pollux/types', () => {
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
       expect(cfg.confidenceThreshold).toBe(6);
       expect(cfg.emitAdvisorDebug).toBe(false);
+      expect(cfg.advisorRequestTimeoutMs).toBe(120_000);
     });
   });
 

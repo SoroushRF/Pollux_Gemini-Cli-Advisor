@@ -547,6 +547,7 @@ describe('SettingsSchema', () => {
       expect(pollux.properties.maxAdvisorCallsPerSession?.default).toBe(20);
       expect(pollux.properties.confidenceThreshold?.default).toBe(6);
       expect(pollux.properties.emitAdvisorDebug?.default).toBe(false);
+      expect(pollux.properties.advisorRequestTimeoutMs?.default).toBe(120000);
     });
   });
 

@@ -1779,6 +1779,12 @@ their corresponding top-level category object in your `settings.json` file.
   - **Default:** `false`
   - **Requires restart:** Yes
 
+- **`experimental.pollux.advisorRequestTimeoutMs`** (number):
+  - **Description:** Milliseconds to wait for an advisor model response before
+    fail-open to the executor path.
+  - **Default:** `120000`
+  - **Requires restart:** Yes
+
 #### `skills`
 
 - **`skills.enabled`** (boolean):

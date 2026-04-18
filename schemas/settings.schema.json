@@ -3023,6 +3023,13 @@
               "markdownDescription": "When true, emit additional advisor debug output (verbose).\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
               "default": false,
               "type": "boolean"
+            },
+            "advisorRequestTimeoutMs": {
+              "title": "Advisor request timeout (ms)",
+              "description": "Milliseconds to wait for an advisor model response before fail-open to the executor path.",
+              "markdownDescription": "Milliseconds to wait for an advisor model response before fail-open to the executor path.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `120000`",
+              "default": 120000,
+              "type": "number"
             }
           },
           "additionalProperties": false

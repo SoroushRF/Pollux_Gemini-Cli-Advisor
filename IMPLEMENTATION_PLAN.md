@@ -848,3 +848,25 @@ are stripped after validation. Tests in
   [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
   §3 (POLLUX-P1-06)
 - Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §§6–7
+
+### P1-07 — Fail-open defaults and max-call budget configs
+
+**Status:** Done (2026-04-17).
+
+**Summary:** Added `advisorRequestTimeoutMs` (default 120s, merge clamp ≥ 1000
+ms) to `PolluxExperimentalConfig` and `experimental.pollux` in settings schema.
+Introduced `packages/core/src/pollux/safeguards.ts`:
+`checkAdvisorInvocationBudget` (disabled → `CONFIG_DISABLED`; turn/session caps
+→ `BUDGET_EXHAUSTED`), `resolveAdvisorPathFailure` (fail-open for
+parse/timeout/empty), `getAdvisorRequestTimeoutMs`. Tests: `safeguards.test.ts`,
+extended `types.test.ts` and `settingsSchema.test.ts`. Exported from
+`pollux/index.js`.
+
+**References:**
+
+- Issue draft:
+  [docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-07](docs/core/pollux/P0-08_PHASE1_ISSUE_DRAFTS.md#POLLUX-P1-07)
+- Execution board:
+  [docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md](docs/core/pollux/P0-08_PHASE1_EXECUTION_BOARD.md)
+  §3 (POLLUX-P1-07)
+- Spec: [POLLUX_SPEC.md](POLLUX_SPEC.md) §5.2, §8.2

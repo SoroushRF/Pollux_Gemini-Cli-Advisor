@@ -2315,6 +2315,16 @@ const SETTINGS_SCHEMA = {
               'When true, emit additional advisor debug output (verbose).',
             showInDialog: false,
           },
+          advisorRequestTimeoutMs: {
+            type: 'number',
+            label: 'Advisor request timeout (ms)',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs,
+            description:
+              'Milliseconds to wait for an advisor model response before fail-open to the executor path.',
+            showInDialog: false,
+          },
         },
       },
     },
