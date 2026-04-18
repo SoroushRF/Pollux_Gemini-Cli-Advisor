@@ -613,7 +613,7 @@ Phase 2 implementation evidence update (2026-04-18):
       passed with 50/50 tests green after D4 propagation expectation updates.
     - `npm run typecheck --workspace @google/gemini-cli-core` and
       `npm run typecheck --workspace @google/gemini-cli` passed.
-  - Commit evidence: pending (to be filled after commit).
+  - Commit evidence: `7abf26911`.
 
 ## Phase 3: Escalation and advisor hardening (Week 5)
 
