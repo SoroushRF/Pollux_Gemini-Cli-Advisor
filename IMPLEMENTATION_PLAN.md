@@ -1016,7 +1016,7 @@ Task breakdown:
 | P4-03 | [Done 2026-04-18] Run smoke benchmark (small matrix) and validate reproducibility     | 14         | smoke run artifact -> docs/core/pollux/P4-03_SMOKE_BENCHMARK_REPRODUCIBILITY.md  | P4-02      | TG-1       |
 | P4-04 | [Done 2026-04-18] Run full five-condition benchmark with checkpoint/resume            | 14         | full run artifacts -> docs/core/pollux/P4-04_FULL_BENCHMARK_CHECKPOINT_RESUME.md | P4-03      | TG-1       |
 | P4-05 | [Done 2026-04-18] Publish token/latency/accuracy report with CIs and escalation stats | 14 + 11    | benchmark report -> docs/core/pollux/P4-05_BENCHMARK_METRICS_REPORT.md           | P4-04      | TG-1/TG-4  |
-| P4-06 | Validate fairness-pin audit trail for each run                                        | 14         | fairness audit log                                                               | P4-04      | TG-1       |
+| P4-06 | [Done 2026-04-18] Validate fairness-pin audit trail for each run                      | 14         | fairness audit log -> docs/core/pollux/P4-06_FAIRNESS_AUDIT_LOG.md               | P4-04      | TG-1       |
 
 Exit criteria:
 
