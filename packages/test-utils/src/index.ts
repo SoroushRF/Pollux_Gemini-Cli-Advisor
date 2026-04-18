@@ -15,4 +15,5 @@ export * from './test-mcp-server.js';
 export * from './test-rig.js';
 export * from './pollux-benchmark-smoke.js';
 export * from './pollux-benchmark-full.js';
+export * from './pollux-benchmark-report.js';
 export * from './env-setup.js';
