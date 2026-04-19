@@ -45,7 +45,16 @@ describe('ACP PolluxCommand', () => {
     const result = await cmd.execute(buildContext(), ['foo']);
     expect(result).toEqual({
       name: 'pollux',
-      data: 'Usage: /pollux [status]',
+      data: 'Usage: /pollux [status] [--debug]',
+    });
+  });
+
+  it('rejects extra arguments after status for parity with legacy parsing', async () => {
+    const cmd = new PolluxCommand();
+    const result = await cmd.execute(buildContext(), ['status', 'extra']);
+    expect(result).toEqual({
+      name: 'pollux',
+      data: 'Usage: /pollux [status] [--debug]',
     });
   });
 
@@ -58,7 +67,8 @@ describe('ACP PolluxCommand', () => {
     expect(result.name).toBe('pollux');
     expect(typeof result.data).toBe('string');
     const data = result.data as string;
-    expect(data).toContain('Pollux is enabled.');
+    expect(data).toContain('Pollux is enabled. [ENABLED]');
+    expect(data).toContain('Executor alignment: [MATCH]');
     expect(data).toContain('Executor model (resolved): gemini-2.5-flash');
     expect(data).toContain('Advisor model: gemini-3.1-pro-preview');
     expect(data).toContain('Detector strategy: hybrid');
@@ -68,6 +78,17 @@ describe('ACP PolluxCommand', () => {
   it('reports disabled status when Pollux is off', async () => {
     const cmd = new PolluxCommand();
     const result = await cmd.execute(buildContext({ enabled: false }), []);
-    expect(result.data).toContain('Pollux is disabled.');
+    expect(result.data).toContain('Pollux is disabled. [DISABLED]');
+  });
+
+  it('emits optional debug detail block when --debug is present', async () => {
+    const cmd = new PolluxCommand();
+    const result = await cmd.execute(buildContext(), ['status', '--debug']);
+
+    expect(result.name).toBe('pollux');
+    expect(result.data).toContain('Debug details:');
+    expect(result.data).toContain('- status_indicator=[ENABLED]');
+    expect(result.data).toContain('- executor_alignment=[MATCH]');
+    expect(result.data).toContain('- raw_snapshot={');
   });
 });

@@ -9,7 +9,11 @@ import type {
   CommandContext,
   CommandExecutionResponse,
 } from './types.js';
-import { formatPolluxStatus } from '../../ui/commands/polluxCommand.js';
+import {
+  formatPolluxStatus,
+  parsePolluxCommandArgs,
+  POLLUX_USAGE,
+} from '../../ui/commands/polluxCommand.js';
 
 /**
  * ACP-side counterpart of the legacy `/pollux` slash command. Emits the
@@ -29,11 +33,11 @@ export class PolluxCommand implements Command {
     context: CommandContext,
     args: string[] = [],
   ): Promise<CommandExecutionResponse> {
-    const sub = (args[0] ?? '').trim();
-    if (sub !== '' && sub !== 'status') {
+    const parsedArgs = parsePolluxCommandArgs(args);
+    if (!parsedArgs) {
       return {
         name: this.name,
-        data: 'Usage: /pollux [status]',
+        data: POLLUX_USAGE,
       };
     }
 
@@ -42,7 +46,7 @@ export class PolluxCommand implements Command {
     const resolvedExecutor = config.getModel?.() ?? pollux.executorModel;
     return {
       name: this.name,
-      data: formatPolluxStatus(pollux, resolvedExecutor),
+      data: formatPolluxStatus(pollux, resolvedExecutor, parsedArgs),
     };
   }
 }

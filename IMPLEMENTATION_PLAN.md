@@ -1128,13 +1128,13 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                    | Owner      | Deliverable                   | Depends on   | TG mapping |
-| ----- | ----------------------------------------------------------------------- | ---------- | ----------------------------- | ------------ | ---------- |
-| P5-01 | [Done 2026-04-18] Register /pollux command on required command surfaces | 05 + 12/13 | command registrations + tests | P2-07        | TG-7       |
-| P5-02 | Add minimal UX indicators and optional debug detail output              | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
-| P5-03 | Finalize docs/spec/plan alignment and correction ledger updates         | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
-| P5-04 | Enable Pollux-scoped binary, perf, and memory CI workflows              | 15         | CI workflow PR                | P0-04        | TG-9       |
-| P5-05 | Release readiness review (risk closure + rollback plan)                 | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
+| ID    | Task                                                                         | Owner      | Deliverable                   | Depends on   | TG mapping |
+| ----- | ---------------------------------------------------------------------------- | ---------- | ----------------------------- | ------------ | ---------- |
+| P5-01 | [Done 2026-04-18] Register /pollux command on required command surfaces      | 05 + 12/13 | command registrations + tests | P2-07        | TG-7       |
+| P5-02 | [Done 2026-04-18] Add minimal UX indicators and optional debug detail output | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
+| P5-03 | Finalize docs/spec/plan alignment and correction ledger updates              | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
+| P5-04 | Enable Pollux-scoped binary, perf, and memory CI workflows                   | 15         | CI workflow PR                | P0-04        | TG-9       |
+| P5-05 | Release readiness review (risk closure + rollback plan)                      | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
 
 Exit criteria:
 
@@ -1154,9 +1154,9 @@ Exit criteria:
   executor, advisor, strategy, confidence threshold, advisor-call budget,
   timeout, debug telemetry flag, settings path) is byte-identical across
   surfaces. TG-7 / C-06 / D-03 evidence anchors:
-  - Unit coverage: `packages/cli/src/ui/commands/polluxCommand.test.ts` (6
+  - Unit coverage: `packages/cli/src/ui/commands/polluxCommand.test.ts` (8
     cases, including disabled snapshot and resolved-vs-configured executor
-    drift) and `packages/cli/src/acp/commands/pollux.test.ts` (4 cases).
+    drift) and `packages/cli/src/acp/commands/pollux.test.ts` (6 cases).
   - Cross-registry parity assertions live in the existing registry tests so they
     cannot drift silently:
     `packages/cli/src/services/BuiltinCommandLoader.test.ts` asserts the
@@ -1164,6 +1164,18 @@ Exit criteria:
     `packages/cli/src/acp/commandHandler.test.ts` parses `/pollux status`, and
     `packages/cli/src/acp/acpClient.test.ts` asserts the ACP
     `available_commands` payload includes `pollux`.
+
+- P5-02 (Done 2026-04-18): `/pollux` now emits minimal UX indicators and
+  supports optional debug-detail output while preserving read-only status
+  semantics. Both legacy and ACP surfaces share the same parser/formatter in
+  `packages/cli/src/ui/commands/polluxCommand.ts`, which adds:
+  `status_indicator` (`[ENABLED]`/`[DISABLED]`), executor-alignment indicator
+  (`[MATCH]`/`[DRIFT]`), and an opt-in debug block via `--debug`. Evidence
+  anchors:
+  - Behavior coverage in `packages/cli/src/ui/commands/polluxCommand.test.ts`
+    validates indicators, strict argument handling, and `status --debug` output.
+  - ACP parity coverage in `packages/cli/src/acp/commands/pollux.test.ts`
+    validates the same usage contract and debug block output on the ACP path.
 
 ---
 

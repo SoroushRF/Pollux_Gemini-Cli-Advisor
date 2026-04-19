@@ -44,7 +44,18 @@ describe('polluxCommand', () => {
     expect(result).toEqual({
       type: 'message',
       messageType: 'error',
-      content: 'Usage: /pollux [status]',
+      content: 'Usage: /pollux [status] [--debug]',
+    });
+  });
+
+  it('rejects extra arguments after status', async () => {
+    const context = buildContext();
+    const result = await polluxCommand.action!(context, 'status extra');
+
+    expect(result).toEqual({
+      type: 'message',
+      messageType: 'error',
+      content: 'Usage: /pollux [status] [--debug]',
     });
   });
 
@@ -76,7 +87,8 @@ describe('polluxCommand', () => {
     });
 
     if (result?.type === 'message') {
-      expect(result.content).toContain('Pollux is enabled.');
+      expect(result.content).toContain('Pollux is enabled. [ENABLED]');
+      expect(result.content).toContain('Executor alignment: [MATCH]');
       expect(result.content).toContain(
         'Executor model (resolved): gemini-2.5-flash',
       );
@@ -100,7 +112,7 @@ describe('polluxCommand', () => {
 
     expect(result?.type).toBe('message');
     if (result?.type === 'message') {
-      expect(result.content).toContain('Pollux is disabled.');
+      expect(result.content).toContain('Pollux is disabled. [DISABLED]');
       expect(result.content).toContain('Settings path: experimental.pollux.*');
     }
   });
@@ -114,12 +126,26 @@ describe('polluxCommand', () => {
 
     const result = await polluxCommand.action!(context, '');
     if (result?.type === 'message') {
+      expect(result.content).toContain('Executor alignment: [DRIFT]');
       expect(result.content).toContain(
         'Executor model (resolved): gemini-3.1-pro-preview',
       );
       expect(result.content).toContain(
         'Executor model (configured): gemini-2.5-flash',
       );
+    }
+  });
+
+  it('emits optional debug detail block when --debug is provided', async () => {
+    const context = buildContext();
+    const result = await polluxCommand.action!(context, 'status --debug');
+
+    expect(result?.type).toBe('message');
+    if (result?.type === 'message') {
+      expect(result.content).toContain('Debug details:');
+      expect(result.content).toContain('- status_indicator=[ENABLED]');
+      expect(result.content).toContain('- executor_alignment=[MATCH]');
+      expect(result.content).toContain('- raw_snapshot={');
     }
   });
 

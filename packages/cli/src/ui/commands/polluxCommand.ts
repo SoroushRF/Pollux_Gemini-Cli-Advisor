@@ -14,6 +14,41 @@ import type {
   PolluxExperimentalConfig,
 } from '@google/gemini-cli-core';
 
+export const POLLUX_USAGE = 'Usage: /pollux [status] [--debug]';
+
+type PolluxCommandOptions = {
+  showDebugDetails: boolean;
+};
+
+export function parsePolluxCommandArgs(
+  tokens: readonly string[],
+): PolluxCommandOptions | null {
+  let sawStatus = false;
+  let showDebugDetails = false;
+
+  for (const token of tokens) {
+    if (token === 'status') {
+      if (sawStatus) {
+        return null;
+      }
+      sawStatus = true;
+      continue;
+    }
+
+    if (token === '--debug') {
+      if (showDebugDetails) {
+        return null;
+      }
+      showDebugDetails = true;
+      continue;
+    }
+
+    return null;
+  }
+
+  return { showDebugDetails };
+}
+
 /**
  * Read-only Pollux status command. Emits the active Pollux experimental
  * config snapshot so users can verify which executor / advisor models, which
@@ -39,12 +74,16 @@ export const polluxCommand: SlashCommand = {
     context: CommandContext,
     args: string,
   ): Promise<MessageActionReturn> => {
-    const trimmed = (args ?? '').trim();
-    if (trimmed !== '' && trimmed !== 'status') {
+    const tokens = (args ?? '')
+      .trim()
+      .split(/\s+/)
+      .filter((part) => part.length > 0);
+    const parsedArgs = parsePolluxCommandArgs(tokens);
+    if (!parsedArgs) {
       return {
         type: 'message',
         messageType: 'error',
-        content: 'Usage: /pollux [status]',
+        content: POLLUX_USAGE,
       };
     }
 
@@ -62,7 +101,7 @@ export const polluxCommand: SlashCommand = {
     return {
       type: 'message',
       messageType: 'info',
-      content: formatPolluxStatus(pollux, resolvedExecutor),
+      content: formatPolluxStatus(pollux, resolvedExecutor, parsedArgs),
     };
   },
 };
@@ -78,13 +117,19 @@ export const polluxCommand: SlashCommand = {
 export function formatPolluxStatus(
   pollux: PolluxExperimentalConfig,
   resolvedExecutor: string,
+  options: PolluxCommandOptions = { showDebugDetails: false },
 ): string {
   const lines: string[] = [];
+  const statusIndicator = pollux.enabled ? '[ENABLED]' : '[DISABLED]';
+  const alignmentIndicator =
+    resolvedExecutor === pollux.executorModel ? '[MATCH]' : '[DRIFT]';
+
   if (pollux.enabled) {
-    lines.push('Pollux is enabled.');
+    lines.push(`Pollux is enabled. ${statusIndicator}`);
   } else {
-    lines.push('Pollux is disabled.');
+    lines.push(`Pollux is disabled. ${statusIndicator}`);
   }
+  lines.push(`Executor alignment: ${alignmentIndicator}`);
   lines.push(`Executor model (resolved): ${resolvedExecutor}`);
   lines.push(`Executor model (configured): ${pollux.executorModel}`);
   lines.push(`Advisor model: ${pollux.advisorModel}`);
@@ -95,6 +140,27 @@ export function formatPolluxStatus(
   );
   lines.push(`Advisor request timeout (ms): ${pollux.advisorRequestTimeoutMs}`);
   lines.push(`Emit advisor debug telemetry: ${pollux.emitAdvisorDebug}`);
+
+  if (options.showDebugDetails) {
+    lines.push('Debug details:');
+    lines.push(`- status_indicator=${statusIndicator}`);
+    lines.push(`- executor_alignment=${alignmentIndicator}`);
+    lines.push(`- detector_strategy=${pollux.strategy}`);
+    lines.push(
+      `- raw_snapshot=${JSON.stringify({
+        enabled: pollux.enabled,
+        executorModel: pollux.executorModel,
+        advisorModel: pollux.advisorModel,
+        strategy: pollux.strategy,
+        maxAdvisorCallsPerTurn: pollux.maxAdvisorCallsPerTurn,
+        maxAdvisorCallsPerSession: pollux.maxAdvisorCallsPerSession,
+        confidenceThreshold: pollux.confidenceThreshold,
+        emitAdvisorDebug: pollux.emitAdvisorDebug,
+        advisorRequestTimeoutMs: pollux.advisorRequestTimeoutMs,
+      })}`,
+    );
+  }
+
   lines.push('Settings path: experimental.pollux.*');
   return lines.join('\n');
 }
