@@ -28,7 +28,7 @@ Rules:
 | C-03 | Telemetry     | New token sink proposal would duplicate existing accounting | Keep role-based extension of existing sink only           | 11    | Done   | POLLUX_SPEC.md section 9                   |
 | C-04 | Benchmarking  | Baselines could include hidden utility call noise           | Enforce fairness pins and invalid-run rules               | 14    | Done   | POLLUX_SPEC.md section 10                  |
 | C-05 | Settings      | Silent mapping drift between schema and core config         | Keep experimental.pollux path + schema/config CI checks   | 06    | Done   | schema + invariant tests + CI schema check |
-| C-06 | Commands      | /pollux could be available only on one command surface      | Require multi-surface registration contract               | 05    | Open   | command parity tests                       |
+| C-06 | Commands      | /pollux could be available only on one command surface      | Require multi-surface registration contract               | 05    | Done   | command parity tests (P5-01)               |
 | C-07 | Governance    | Spec/plan drift risk due weak ownership controls            | Keep versioned plan/spec and correction ledger workflow   | 16    | Done   | CODEOWNERS + ledger process                |
 
 ---
@@ -46,19 +46,17 @@ Rules:
 
 ## 4) Open deliverables
 
-| Item | Description                               | Owner    | Due phase |
-| ---- | ----------------------------------------- | -------- | --------- |
-| D-03 | Pollux command registration map and tests | 05/12/13 | Phase 5   |
-
-Note: D-03 remains open for Phase 5 command-surface completion.
+_(none — D-03 closed under P5-01 on 2026-04-18; remaining deliverables tracked
+under Phase 5 task IDs P5-02..P5-05.)_
 
 ## 4a) Completed deliverables
 
-| Item | Description                                       | Owner | Closed     | Verification                                                                                                                                                                     |
-| ---- | ------------------------------------------------- | ----- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D-01 | Packaged advisor ALLOW rule implementation        | 09/16 | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-08; packages/core/src/policy/config.ts; packages/core/src/policy/config.test.ts; packages/cli/src/config/policy-engine.integration.test.ts. |
-| D-02 | schema:settings CI guard wired as required PR job | 06/15 | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-09; .github/workflows/ci.yml (Verify settings schema step runs `npm run schema:settings -- --check`).                                       |
-| D-05 | A2A deferred-scope documentation note             | 13/16 | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md section 2 row D6 + BP-06 deferred bypass.                                                                                    |
+| Item | Description                                       | Owner    | Closed     | Verification                                                                                                                                                                                                                                                                                                   |
+| ---- | ------------------------------------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D-01 | Packaged advisor ALLOW rule implementation        | 09/16    | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-08; packages/core/src/policy/config.ts; packages/core/src/policy/config.test.ts; packages/cli/src/config/policy-engine.integration.test.ts.                                                                                                                               |
+| D-02 | schema:settings CI guard wired as required PR job | 06/15    | 2026-04-17 | IMPLEMENTATION_PLAN.md section 12 P1-09; .github/workflows/ci.yml (Verify settings schema step runs `npm run schema:settings -- --check`).                                                                                                                                                                     |
+| D-03 | Pollux command registration map and tests         | 05/12/13 | 2026-04-18 | IMPLEMENTATION_PLAN.md section 12 P5-01; packages/cli/src/ui/commands/polluxCommand.ts; packages/cli/src/acp/commands/pollux.ts; cross-registry assertions in packages/cli/src/services/BuiltinCommandLoader.test.ts, packages/cli/src/acp/commandHandler.test.ts, and packages/cli/src/acp/acpClient.test.ts. |
+| D-05 | A2A deferred-scope documentation note             | 13/16    | 2026-04-17 | docs/core/pollux/P0-01_DRIVER_INTERCEPTOR_MATRIX.md section 2 row D6 + BP-06 deferred bypass.                                                                                                                                                                                                                  |
 
 ---
 
@@ -113,3 +111,15 @@ surfaces.
     associated policy tests; D-02 remains open and mapped to P1-09.
 11. Closed D-02 after P1-09 wired `npm run schema:settings -- --check` in CI and
     marked C-05 done with schema/invariant/CI evidence.
+
+## 2026-04-18
+
+1. Closed C-06 (multi-surface `/pollux` registration contract) after P5-01
+   landed `polluxCommand` in `BuiltinCommandLoader` and `PolluxCommand` in the
+   ACP `commandHandler`. Both implementations share the `formatPolluxStatus`
+   formatter so output is byte-identical across surfaces.
+2. Closed D-03 (Pollux command registration map and tests). Cross-registry
+   parity assertions are pinned in `BuiltinCommandLoader.test.ts`,
+   `acp/commandHandler.test.ts`, and `acp/acpClient.test.ts`; per-surface
+   behavior is covered by `polluxCommand.test.ts` (6 cases) and ACP
+   `commands/pollux.test.ts` (4 cases).

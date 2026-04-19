@@ -1141,6 +1141,30 @@ Exit criteria:
 - TG-7, TG-9, TG-10 green.
 - Release board signoff with rollback plan attached.
 
+### Phase 5 evidence (per task)
+
+- P5-01 (Done 2026-04-18): `/pollux` is a single source of truth (read-only
+  status snapshot) registered on every in-scope command surface. Legacy
+  interactive, agent-session interactive, and non-interactive surfaces share
+  `packages/cli/src/ui/commands/polluxCommand.ts` via
+  `packages/cli/src/services/BuiltinCommandLoader.ts`; the ACP surface uses
+  `packages/cli/src/acp/commands/pollux.ts` registered in
+  `packages/cli/src/acp/commandHandler.ts`. Both implementations share the
+  exported `formatPolluxStatus` formatter so output (resolved vs. configured
+  executor, advisor, strategy, confidence threshold, advisor-call budget,
+  timeout, debug telemetry flag, settings path) is byte-identical across
+  surfaces. TG-7 / C-06 / D-03 evidence anchors:
+  - Unit coverage: `packages/cli/src/ui/commands/polluxCommand.test.ts` (6
+    cases, including disabled snapshot and resolved-vs-configured executor
+    drift) and `packages/cli/src/acp/commands/pollux.test.ts` (4 cases).
+  - Cross-registry parity assertions live in the existing registry tests so they
+    cannot drift silently:
+    `packages/cli/src/services/BuiltinCommandLoader.test.ts` asserts the
+    legacy/non-interactive registry exposes `pollux`,
+    `packages/cli/src/acp/commandHandler.test.ts` parses `/pollux status`, and
+    `packages/cli/src/acp/acpClient.test.ts` asserts the ACP
+    `available_commands` payload includes `pollux`.
+
 ---
 
 ## 6) Mandatory test gates
