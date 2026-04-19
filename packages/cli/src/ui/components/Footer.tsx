@@ -205,7 +205,10 @@ export const Footer: React.FC = () => {
     terminalWidth,
     quotaStats,
   } = {
-    model: uiState.currentModel,
+    // Prefer the live Pollux advisor model while a consultation is in flight
+    // so the bottom-right footer reflects which model is actually executing
+    // for this turn. Reverts to the executor model on phase='done'.
+    model: uiState.polluxActiveModel ?? uiState.currentModel,
     targetDir: config.getTargetDir(),
     debugMode: config.getDebugMode(),
     branchName: uiState.branchName,

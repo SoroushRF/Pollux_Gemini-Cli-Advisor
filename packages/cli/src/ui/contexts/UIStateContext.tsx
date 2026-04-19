@@ -172,6 +172,18 @@ export interface UIState {
   // Quota-related state
   quota: QuotaState;
   currentModel: string;
+  /**
+   * Pollux advisor lifecycle status text. When set, overrides the default
+   * "Thinking..." LoadingIndicator phrase. Cleared when the consultation
+   * completes (success or fail-open). See POLLUX_SPEC §11 UI surface.
+   */
+  polluxAdvisorPhrase?: string;
+  /**
+   * Canonical model id of the currently-active Pollux advisor. When set,
+   * overrides {@link currentModel} in the footer's `model-name` cell so the
+   * user can see which model is actually doing work mid-turn.
+   */
+  polluxActiveModel?: string;
   contextFileNames: string[];
   errorCount: number;
   availableTerminalHeight: number | undefined;

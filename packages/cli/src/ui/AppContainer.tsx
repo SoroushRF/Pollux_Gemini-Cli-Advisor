@@ -434,6 +434,17 @@ export const AppContainer = (props: AppContainerProps) => {
 
   const [currentModel, setCurrentModel] = useState(config.getModel());
 
+  // Pollux advisor lifecycle (POLLUX_SPEC §11.x UI surface).
+  // `polluxAdvisorPhrase` overrides the "Thinking..." status while the
+  // advisor consultation is in flight; `polluxActiveModel` overrides the
+  // footer model name for the same window. Both clear on phase='done'.
+  const [polluxAdvisorPhrase, setPolluxAdvisorPhrase] = useState<
+    string | undefined
+  >(undefined);
+  const [polluxActiveModel, setPolluxActiveModel] = useState<
+    string | undefined
+  >(undefined);
+
   const [userTier, setUserTier] = useState<UserTierId | undefined>(undefined);
   const [quotaStats, setQuotaStats] = useState<QuotaStats | undefined>(() => {
     const remaining = config.getQuotaRemaining();
@@ -587,6 +598,50 @@ export const AppContainer = (props: AppContainerProps) => {
       coreEvents.off(CoreEvent.QuotaChanged, handleQuotaChanged);
     };
   }, [config]);
+
+  // Subscribe to Pollux advisor lifecycle events from core. Drives the
+  // dynamic "Advising..." status text and the footer model swap.
+  useEffect(() => {
+    const handlePolluxAdvisorPhase = (payload: {
+      phase: 'pending' | 'consulting' | 'done';
+      advisorModel?: string;
+      executorModel?: string;
+    }) => {
+      switch (payload.phase) {
+        case 'pending':
+          setPolluxAdvisorPhrase('Advising required...');
+          if (payload.advisorModel) {
+            setPolluxActiveModel(payload.advisorModel);
+          }
+          break;
+        case 'consulting':
+          setPolluxAdvisorPhrase('Advising in progress...');
+          if (payload.advisorModel) {
+            setPolluxActiveModel(payload.advisorModel);
+          }
+          break;
+        case 'done':
+          // Briefly show "done" so the transition is visible, then clear.
+          // Clearing returns the LoadingIndicator to its default ("Thinking...")
+          // and the footer to the executor model.
+          setPolluxAdvisorPhrase('Advising done.');
+          setPolluxActiveModel(undefined);
+          setTimeout(() => {
+            setPolluxAdvisorPhrase((prev) =>
+              prev === 'Advising done.' ? undefined : prev,
+            );
+          }, 1200);
+          break;
+        default:
+          break;
+      }
+    };
+
+    coreEvents.on(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    };
+  }, []);
 
   useEffect(() => {
     const handleSettingsChanged = () => {
@@ -2479,6 +2534,8 @@ Logging in with Google... Restarting Gemini CLI to continue.
       showApprovalModeIndicator,
       allowPlanMode,
       currentModel,
+      polluxAdvisorPhrase,
+      polluxActiveModel,
       quota: {
         userTier,
         stats: quotaStats,
@@ -2626,6 +2683,8 @@ Logging in with Google... Restarting Gemini CLI to continue.
       ideTrustRestartReason,
       isRestarting,
       currentModel,
+      polluxAdvisorPhrase,
+      polluxActiveModel,
       extensionsUpdateState,
       activePtyId,
       backgroundTaskCount,

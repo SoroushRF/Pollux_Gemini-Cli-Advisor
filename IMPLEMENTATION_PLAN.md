@@ -1200,6 +1200,42 @@ Exit criteria:
   observed green Pollux-touching PR cycle (binary/perf/memory checks), while
   TG-7 and TG-10 are already satisfied by P5-01..P5-03 evidence.
 
+### Phase 5 follow-on: live advisor lifecycle UI surface (POLLUX_SPEC §11.4)
+
+- P5-FU-01 (Done 2026-04-19): Live advisor consultation is now visible on the
+  interactive surfaces, satisfying the new POLLUX_SPEC §11.4 contract. The
+  default `Thinking...` status row is overridden with phase-specific phrases
+  (`Advising required...` → `Advising in progress...` → `Advising done.`) while
+  the consultation is in flight, and the footer's `model-name` cell swaps to the
+  live advisor model id and reverts on completion. This addresses the gap
+  observed during P5 live walkthroughs where users could not distinguish a long
+  executor pause from an active advisor consultation without tailing
+  `pollux-debug.log`. Evidence anchors:
+  - Core event surface: `CoreEvent.PolluxAdvisorPhase` +
+    `PolluxAdvisorPhasePayload` + `coreEvents.emitPolluxAdvisorPhase()` in
+    `packages/core/src/utils/events.ts`.
+  - Emit sites (pending → consulting → done, with `done` always firing in the
+    `finally` block to honor §5.2 fail-open): `packages/core/src/core/client.ts`
+    `maybeRunPolluxAdvisorConsultation`.
+  - UI subscription + state plumbing: `packages/cli/src/ui/AppContainer.tsx`
+    (subscribes to `CoreEvent.PolluxAdvisorPhase`, drives `polluxAdvisorPhrase`
+    and `polluxActiveModel` on the UIState).
+  - UIState surface contract: `packages/cli/src/ui/contexts/UIStateContext.tsx`
+    (`polluxAdvisorPhrase?` and `polluxActiveModel?` on the `UIState`
+    interface).
+  - Status row override: `packages/cli/src/ui/components/StatusRow.tsx`
+    (`StatusNode` preempts the `LoadingIndicator` `Thinking...` text when
+    `polluxAdvisorPhrase` is set; advisor phrase is given priority over
+    `thought.subject` because the consultation runs before the executor stream
+    produces any thoughts).
+  - Footer override: `packages/cli/src/ui/components/Footer.tsx` (`model-name`
+    cell now reads `uiState.polluxActiveModel ?? uiState.currentModel`; the swap
+    intentionally does NOT alter the model used by `ContextUsageDisplay` or by
+    `/pollux` status, per §11.4.3).
+  - Out of scope for this follow-on (deferred): automated UI snapshot tests for
+    the override paths; ACP surface parity is structurally inherited because it
+    consumes the same core event but has not been exercised live.
+
 ---
 
 ## 6) Mandatory test gates

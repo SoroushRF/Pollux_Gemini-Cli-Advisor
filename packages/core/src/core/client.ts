@@ -810,11 +810,26 @@ export class GeminiClient {
     const advisorSignal = AbortSignal.any([signal, timeoutSignal]);
     let failOpenKind: 'parse_error' | 'timeout' | 'empty_response' | undefined;
 
+    // Resolve the advisor model up-front so the UI lifecycle event can include
+    // the canonical model id (used for the dynamic footer + status indicator).
+    // Must happen before the first emit so 'pending' carries the right name.
+    const advisorModel = resolvePolluxModel(experimental.advisorModel, {
+      registry: this.polluxModelRegistry,
+      role: PolluxModelRole.ADVISOR,
+      experimental,
+    });
+
+    coreEvents.emitPolluxAdvisorPhase({
+      phase: 'pending',
+      advisorModel: advisorModel.canonicalModelId,
+      executorModel: experimental.executorModel,
+    });
+
     try {
-      const advisorModel = resolvePolluxModel(experimental.advisorModel, {
-        registry: this.polluxModelRegistry,
-        role: PolluxModelRole.ADVISOR,
-        experimental,
+      coreEvents.emitPolluxAdvisorPhase({
+        phase: 'consulting',
+        advisorModel: advisorModel.canonicalModelId,
+        executorModel: experimental.executorModel,
       });
 
       const advisorResponse = await this.generateContent(
@@ -863,6 +878,15 @@ export class GeminiClient {
           `Pollux advisor fail-open (${failOpenOutcome.failureKind}); continuing executor path.`,
         );
       }
+
+      // Always emit 'done' so the UI can clear the advisor status row and
+      // restore the executor model in the footer, regardless of success,
+      // fail-open, or unexpected throw. Mirrors the safety contract of
+      // POLLUX_SPEC §5.2 (consultation never blocks the executor path).
+      coreEvents.emitPolluxAdvisorPhase({
+        phase: 'done',
+        executorModel: experimental.executorModel,
+      });
     }
   }
 

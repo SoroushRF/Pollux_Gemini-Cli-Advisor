@@ -178,6 +178,32 @@ export interface QuotaChangedPayload {
   resetTime?: string;
 }
 
+/**
+ * Lifecycle phases of a Pollux advisor consultation.
+ *
+ * Emitted by the core advisor pipeline so the UI can surface what the system
+ * is doing during the otherwise-opaque "Thinking..." window.
+ *
+ * Phase progression for a consulted turn:
+ *   `pending` (detector + policy approved escalation)
+ *     -> `consulting` (advisor request actually in flight)
+ *       -> `done` (success, parse_error, empty_response, or timeout fail-open)
+ *
+ * Turns where the detector skips escalation never emit any phase.
+ */
+export type PolluxAdvisorPhase = 'pending' | 'consulting' | 'done';
+
+/**
+ * Payload for the 'pollux-advisor-phase' event.
+ */
+export interface PolluxAdvisorPhasePayload {
+  phase: PolluxAdvisorPhase;
+  /** Canonical advisor model id (only set while phase != 'done'). */
+  advisorModel?: string;
+  /** Canonical executor model id (always set; useful for restoring footer). */
+  executorModel?: string;
+}
+
 export enum CoreEvent {
   UserFeedback = 'user-feedback',
   ModelChanged = 'model-changed',
@@ -203,6 +229,7 @@ export enum CoreEvent {
   QuotaChanged = 'quota-changed',
   TelemetryKeychainAvailability = 'telemetry-keychain-availability',
   TelemetryTokenStorageType = 'telemetry-token-storage-type',
+  PolluxAdvisorPhase = 'pollux-advisor-phase',
 }
 
 /**
@@ -237,6 +264,7 @@ export interface CoreEvents extends ExtensionEvents {
   [CoreEvent.SlashCommandConflicts]: [SlashCommandConflictsPayload];
   [CoreEvent.TelemetryKeychainAvailability]: [KeychainAvailabilityEvent];
   [CoreEvent.TelemetryTokenStorageType]: [TokenStorageInitializationEvent];
+  [CoreEvent.PolluxAdvisorPhase]: [PolluxAdvisorPhasePayload];
 }
 
 type EventBacklogItem = {
@@ -445,6 +473,16 @@ export class CoreEventEmitter extends EventEmitter<CoreEvents> {
 
   emitTelemetryTokenStorageType(event: TokenStorageInitializationEvent): void {
     this._emitOrQueue(CoreEvent.TelemetryTokenStorageType, event);
+  }
+
+  /**
+   * Notifies subscribers of a Pollux advisor consultation phase change.
+   *
+   * Always uses {@link emit} (not the buffered queue): these events are
+   * meaningless if delayed past the consultation window they describe.
+   */
+  emitPolluxAdvisorPhase(payload: PolluxAdvisorPhasePayload): void {
+    this.emit(CoreEvent.PolluxAdvisorPhase, payload);
   }
 }
 

@@ -63,6 +63,7 @@ export const StatusNode: React.FC<{
   activeHooks: ActiveHook[];
   showLoadingIndicator: boolean;
   errorVerbosity: 'low' | 'full' | undefined;
+  polluxAdvisorPhrase?: string;
   onResize?: (width: number) => void;
 }> = ({
   showTips,
@@ -73,6 +74,7 @@ export const StatusNode: React.FC<{
   activeHooks,
   showLoadingIndicator,
   errorVerbosity,
+  polluxAdvisorPhrase,
   onResize,
 }) => {
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -105,7 +107,8 @@ export const StatusNode: React.FC<{
     [onResize],
   );
 
-  if (activeHooks.length === 0 && !showLoadingIndicator) return null;
+  if (activeHooks.length === 0 && !showLoadingIndicator && !polluxAdvisorPhrase)
+    return null;
 
   let currentLoadingPhrase: string | undefined = undefined;
   let currentThought: ThoughtSummary | null = null;
@@ -129,6 +132,12 @@ export const StatusNode: React.FC<{
     } else {
       currentLoadingPhrase = GENERIC_WORKING_LABEL;
     }
+  } else if (polluxAdvisorPhrase) {
+    // Pollux advisor lifecycle takes precedence over a model "thought"
+    // subject because the consultation runs *before* the executor stream
+    // ever produces thoughts, and the user needs explicit feedback that
+    // the system is doing extra work (not stuck on "Thinking...").
+    currentLoadingPhrase = polluxAdvisorPhrase;
   } else {
     // Sanitize thought subject to prevent terminal injection
     currentThought = thought
@@ -269,6 +278,7 @@ export const StatusRow: React.FC<StatusRowProps> = ({
       errorVerbosity={
         settings.merged.ui.errorVerbosity as 'low' | 'full' | undefined
       }
+      polluxAdvisorPhrase={uiState.polluxAdvisorPhrase}
       onResize={onStatusResize}
     />
   );

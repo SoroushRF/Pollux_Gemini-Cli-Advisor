@@ -375,6 +375,85 @@ Phase 1 reuses existing tool_use/tool_result semantics for advisor interactions.
 No new JSON stream event type is required for Phase 1 unless proven necessary by
 test failures.
 
+### 11.4 Live advisor lifecycle UI surface
+
+Beyond the read-only `/pollux` snapshot in §11.2, the interactive surfaces MUST
+expose the live advisor consultation as it happens, so the user can distinguish
+"executor is thinking" from "Pollux escalated and the advisor is being
+consulted." This is required to make the otherwise opaque advisor pause
+explicable without forcing the user to tail `pollux-debug.log`.
+
+#### 11.4.1 Lifecycle event contract
+
+The core advisor pipeline MUST emit a single broadcast event per consultation
+phase change on `coreEvents`:
+
+| Phase        | Emitted when                                                                     |
+| ------------ | -------------------------------------------------------------------------------- |
+| `pending`    | Detector + policy have approved escalation, advisor model resolved, prompt built |
+| `consulting` | Immediately before the advisor `generateContent` call is awaited                 |
+| `done`       | In the consultation `finally` block (success, fail-open, or unexpected throw)    |
+
+Required guarantees:
+
+1. Every `pending` event MUST be paired with a terminal `done` event, even on
+   timeout or thrown error. This mirrors the §5.2 fail-open contract: the UI
+   override must always clear, regardless of advisor outcome.
+2. Turns where the detector skips escalation MUST NOT emit any phase event.
+3. Phase events are transient (not buffered): subscribers that attach late MUST
+   NOT see stale events from a previous turn.
+4. Each event payload MUST carry the canonical executor model id; `pending` and
+   `consulting` payloads MUST also carry the canonical advisor model id so the
+   UI can reflect which model is actively running.
+
+Reference implementation: `CoreEvent.PolluxAdvisorPhase` and
+`coreEvents.emitPolluxAdvisorPhase()` in `packages/core/src/utils/events.ts`,
+emitted from `maybeRunPolluxAdvisorConsultation` in
+`packages/core/src/core/client.ts`.
+
+#### 11.4.2 Status row UX contract
+
+Interactive surfaces (legacy interactive, agent-session interactive, ACP) MUST
+override the default `Thinking...` status row text with phase-specific phrases
+while a consultation is in flight:
+
+| Phase        | Status row text                                    |
+| ------------ | -------------------------------------------------- |
+| `pending`    | `Advising required...`                             |
+| `consulting` | `Advising in progress...`                          |
+| `done`       | `Advising done.` for ≤1.5s, then revert to default |
+
+The override MUST take precedence over the executor model's `thought` subject
+during the consultation window, because the advisor call runs _before_ the
+executor stream produces any thoughts and the user needs explicit feedback that
+extra work is happening. After the brief `done` window the row reverts to the
+normal `Thinking...` / thought-subject behavior with no further intervention.
+
+#### 11.4.3 Footer model name contract
+
+The footer's `model-name` cell MUST display the live advisor model id while a
+consultation is in flight (`pending` or `consulting`), and MUST revert to the
+executor model id on `done`. This swap is purely cosmetic and MUST NOT affect:
+
+1. Context-window usage calculations (which remain anchored on the executor
+   model that owns the conversation history).
+2. Token accounting attribution (which is governed by §9 and by `LlmRole`
+   tagging on the underlying request, not by the footer display).
+3. The `currentModel` value reported by `/pollux` (read-only snapshot, §11.2).
+
+The footer override is an _observation_ of which model is doing work right now,
+not a state change.
+
+#### 11.4.4 Failure semantics
+
+If the advisor consultation fails open (timeout, parse error, empty response, or
+unexpected throw), the `done` event MUST still fire. The UI MUST NOT treat
+fail-open as a distinct user-visible state in this surface; surfacing fail-open
+diagnostics remains the responsibility of `pollux-debug.log` (§9, §13.3) and the
+`/pollux --debug` snapshot (§11.2). This keeps the interactive surface silent
+about internal recovery and consistent with §5.2 ("consultation never blocks the
+executor path").
+
 ---
 
 ## 12) CI, test, and release contract
