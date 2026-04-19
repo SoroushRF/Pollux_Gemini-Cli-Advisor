@@ -1,6 +1,6 @@
 # Pollux Master Specification (Reconciled)
 
-Version: 2.0 Date: 2026-04-17 Status: Implementation-ready only after start
+Version: 2.1 Date: 2026-04-18 Status: Implementation-ready only after start
 gates in IMPLEMENTATION_PLAN.md are complete Scope: Pollux advisor integration
 for gemini-cli fork with benchmarkable behavior and governance controls
 
@@ -13,29 +13,30 @@ artifacts; planned = described but not yet contract-locked; implemented =
 runtime behavior shipped and test-gated in-tree. Status is tracked here to
 satisfy IMPLEMENTATION_PLAN.md G5 "Unimplemented sections marked as such".
 
-| Section                                   | Status     |
-| ----------------------------------------- | ---------- |
-| 1 Purpose                                 | contracted |
-| 2 Goals and non-goals                     | contracted |
-| 3 Runtime reality and coverage matrix     | contracted |
-| 4 Pollux component model                  | contracted |
-| 5 Interceptor contract                    | contracted |
-| 6 Advisor invocation and policy contract  | contracted |
-| 7 Escalation detector contract            | contracted |
-| 8 Settings and configuration contract     | contracted |
-| 9 Telemetry and token accounting contract | contracted |
-| 10 Benchmark protocol                     | contracted |
-| 11 Command and output surface contract    | contracted |
-| 12 CI, test, and release contract         | contracted |
-| 13 Security and safety contract           | contracted |
-| 14 Documentation and governance contract  | contracted |
-| 15 Acceptance criteria                    | contracted |
-| Appendix A Driver/interceptor matrix      | contracted |
-| Appendix B Benchmark fairness checklist   | contracted |
-| Appendix C Terminology                    | contracted |
+| Section                                   | Status      |
+| ----------------------------------------- | ----------- |
+| 1 Purpose                                 | contracted  |
+| 2 Goals and non-goals                     | contracted  |
+| 3 Runtime reality and coverage matrix     | contracted  |
+| 4 Pollux component model                  | contracted  |
+| 5 Interceptor contract                    | contracted  |
+| 6 Advisor invocation and policy contract  | contracted  |
+| 7 Escalation detector contract            | contracted  |
+| 8 Settings and configuration contract     | contracted  |
+| 9 Telemetry and token accounting contract | contracted  |
+| 10 Benchmark protocol                     | contracted  |
+| 11 Command and output surface contract    | implemented |
+| 12 CI, test, and release contract         | contracted  |
+| 13 Security and safety contract           | contracted  |
+| 14 Documentation and governance contract  | contracted  |
+| 15 Acceptance criteria                    | contracted  |
+| Appendix A Driver/interceptor matrix      | contracted  |
+| Appendix B Benchmark fairness checklist   | contracted  |
+| Appendix C Terminology                    | contracted  |
 
-No section is currently in "implemented" state. All runtime implementation and
-test-gated behavior lands in Phase 1 through Phase 5 per IMPLEMENTATION_PLAN.md.
+Section 11 is implemented in-tree (P5-01/P5-02 evidence in
+IMPLEMENTATION_PLAN.md). All other sections remain contracted until their
+phase-gated runtime and CI evidence is complete.
 
 ---
 
@@ -323,7 +324,8 @@ A run is invalid if fairness pins are not active and recorded.
 
 ### 11.1 /pollux command registration
 
-Phase 1 requires registration in all in-scope command surfaces:
+The `/pollux` command is required on all in-scope command surfaces and is
+implemented as a single parity contract:
 
 1. Builtin command loader path.
 2. ACP command registry path.
@@ -331,7 +333,42 @@ Phase 1 requires registration in all in-scope command surfaces:
 A2A command registration is Phase 2 scope and must be explicitly documented as
 deferred.
 
-### 11.2 Stream output contract
+Implemented registration contract:
+
+1. Legacy interactive, agent-session interactive, and non-interactive surfaces
+   resolve `/pollux` through `BuiltinCommandLoader` to
+   `packages/cli/src/ui/commands/polluxCommand.ts`.
+2. ACP resolves `/pollux` through `acp/commandHandler.ts` to
+   `packages/cli/src/acp/commands/pollux.ts`.
+3. Legacy + ACP share the same parser/formatter helpers from `polluxCommand.ts`
+   to keep output and argument semantics byte-identical.
+
+### 11.2 /pollux output and UX contract
+
+`/pollux` remains read-only status output. It MUST NOT mutate runtime state.
+
+Accepted syntax:
+
+1. `/pollux`
+2. `/pollux status`
+3. `/pollux --debug`
+4. `/pollux status --debug`
+
+All other argument combinations return usage text:
+`Usage: /pollux [status] [--debug]`.
+
+Default status output includes minimal UX indicators:
+
+1. Pollux state indicator: `[ENABLED]` or `[DISABLED]`.
+2. Executor alignment indicator: `[MATCH]` or `[DRIFT]` (resolved vs configured
+   executor model).
+3. Existing config snapshot lines (executor/advisor/strategy/threshold/budget/
+   timeout/debug flag/settings path).
+
+When `--debug` is present, the output appends an optional debug-details block
+including machine-readable indicator keys and the raw snapshot payload.
+
+### 11.3 Stream output contract
 
 Phase 1 reuses existing tool_use/tool_result semantics for advisor interactions.
 

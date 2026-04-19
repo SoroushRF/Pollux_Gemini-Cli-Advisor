@@ -1,6 +1,6 @@
 # Pollux Doc Corrections Ledger
 
-Version: 1.0 Date: 2026-04-17 Status: Active Purpose: Track all required
+Version: 1.1 Date: 2026-04-18 Status: Active Purpose: Track all required
 spec/plan/doc corrections that must stay aligned with implementation.
 
 ---
@@ -47,7 +47,7 @@ Rules:
 ## 4) Open deliverables
 
 _(none — D-03 closed under P5-01 on 2026-04-18; remaining deliverables tracked
-under Phase 5 task IDs P5-02..P5-05.)_
+under Phase 5 task IDs P5-04..P5-05.)_
 
 ## 4a) Completed deliverables
 
@@ -121,5 +121,9 @@ surfaces.
 2. Closed D-03 (Pollux command registration map and tests). Cross-registry
    parity assertions are pinned in `BuiltinCommandLoader.test.ts`,
    `acp/commandHandler.test.ts`, and `acp/acpClient.test.ts`; per-surface
-   behavior is covered by `polluxCommand.test.ts` (6 cases) and ACP
-   `commands/pollux.test.ts` (4 cases).
+   behavior is covered by `polluxCommand.test.ts` (8 cases) and ACP
+   `commands/pollux.test.ts` (6 cases).
+3. Synced docs after P5-02/P5-03: updated `POLLUX_SPEC.md` command/output
+   contract text for `/pollux [status] [--debug]` (status/alignment indicators
+   - optional debug-detail block), refreshed plan evidence text, and narrowed
+     open deliverables scope to P5-04..P5-05.

@@ -1128,13 +1128,13 @@ Entry criteria:
 
 Task breakdown:
 
-| ID    | Task                                                                         | Owner      | Deliverable                   | Depends on   | TG mapping |
-| ----- | ---------------------------------------------------------------------------- | ---------- | ----------------------------- | ------------ | ---------- |
-| P5-01 | [Done 2026-04-18] Register /pollux command on required command surfaces      | 05 + 12/13 | command registrations + tests | P2-07        | TG-7       |
-| P5-02 | [Done 2026-04-18] Add minimal UX indicators and optional debug detail output | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
-| P5-03 | Finalize docs/spec/plan alignment and correction ledger updates              | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
-| P5-04 | Enable Pollux-scoped binary, perf, and memory CI workflows                   | 15         | CI workflow PR                | P0-04        | TG-9       |
-| P5-05 | Release readiness review (risk closure + rollback plan)                      | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
+| ID    | Task                                                                              | Owner      | Deliverable                   | Depends on   | TG mapping |
+| ----- | --------------------------------------------------------------------------------- | ---------- | ----------------------------- | ------------ | ---------- |
+| P5-01 | [Done 2026-04-18] Register /pollux command on required command surfaces           | 05 + 12/13 | command registrations + tests | P2-07        | TG-7       |
+| P5-02 | [Done 2026-04-18] Add minimal UX indicators and optional debug detail output      | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
+| P5-03 | [Done 2026-04-18] Finalize docs/spec/plan alignment and correction ledger updates | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
+| P5-04 | Enable Pollux-scoped binary, perf, and memory CI workflows                        | 15         | CI workflow PR                | P0-04        | TG-9       |
+| P5-05 | Release readiness review (risk closure + rollback plan)                           | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
 
 Exit criteria:
 
@@ -1176,6 +1176,13 @@ Exit criteria:
     validates indicators, strict argument handling, and `status --debug` output.
   - ACP parity coverage in `packages/cli/src/acp/commands/pollux.test.ts`
     validates the same usage contract and debug block output on the ACP path.
+
+- P5-03 (Done 2026-04-18): Spec/plan/ledger documentation is synchronized to
+  shipped `/pollux` behavior and governance state (TG-10). The docs sync updates
+  include `POLLUX_SPEC.md` Section 11 command/output contract details for
+  `/pollux [status] [--debug]` and indicator/debug semantics, plus
+  `POLLUX_DOC_CORRECTIONS.md` ledger alignment updates (open-deliverables scope
+  and refreshed D-03 evidence references).
 
 ---
 
