@@ -1,6 +1,40 @@
 name: 'Performance Tests: Nightly'
 
 on:
+  push:
+    branches:
+      - 'main'
+      - 'release/**'
+    paths:
+      - '.github/workflows/perf-nightly.yml'
+      - '.github/workflows/test-build-binary.yml'
+      - '.github/workflows/memory-nightly.yml'
+      - 'packages/core/src/pollux/**'
+      - 'packages/cli/src/**/pollux*.ts'
+      - 'packages/cli/src/**/pollux*.tsx'
+      - 'packages/cli/src/acp/commandHandler.ts'
+      - 'packages/cli/src/services/BuiltinCommandLoader.ts'
+      - 'docs/core/pollux/**'
+      - 'POLLUX_SPEC.md'
+      - 'POLLUX_DOC_CORRECTIONS.md'
+      - 'IMPLEMENTATION_PLAN.md'
+  pull_request:
+    branches:
+      - 'main'
+      - 'release/**'
+    paths:
+      - '.github/workflows/perf-nightly.yml'
+      - '.github/workflows/test-build-binary.yml'
+      - '.github/workflows/memory-nightly.yml'
+      - 'packages/core/src/pollux/**'
+      - 'packages/cli/src/**/pollux*.ts'
+      - 'packages/cli/src/**/pollux*.tsx'
+      - 'packages/cli/src/acp/commandHandler.ts'
+      - 'packages/cli/src/services/BuiltinCommandLoader.ts'
+      - 'docs/core/pollux/**'
+      - 'POLLUX_SPEC.md'
+      - 'POLLUX_DOC_CORRECTIONS.md'
+      - 'IMPLEMENTATION_PLAN.md'
   schedule:
     - cron: '0 3 * * *' # Runs at 3 AM every day
   workflow_dispatch: # Allow manual trigger

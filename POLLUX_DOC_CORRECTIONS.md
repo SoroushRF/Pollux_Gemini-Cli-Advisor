@@ -40,14 +40,14 @@ Rules:
 | M-01 | A2A                 | Phase 1 coverage ambiguity                  | Keep explicit deferred scope with bypass tests | 13    | Done   | POLLUX_SPEC.md section 3          |
 | M-02 | GeminiChat guidance | Absolute prohibition language was too broad | Keep no-external-mutation contract wording     | 02    | Done   | plan decision D7 + spec section 4 |
 | M-03 | Stream protocol     | Unnecessary event taxonomy expansion risk   | Reuse existing tool_use/tool_result first      | 12    | Done   | POLLUX_SPEC.md section 11         |
-| M-04 | Release safety      | Pollux regressions could miss PR path       | Require Pollux-scoped binary/perf workflows    | 15    | Open   | CI workflow checks                |
+| M-04 | Release safety      | Pollux regressions could miss PR path       | Require Pollux-scoped binary/perf workflows    | 15    | Done   | CI workflow checks                |
 
 ---
 
 ## 4) Open deliverables
 
 _(none — D-03 closed under P5-01 on 2026-04-18; remaining deliverables tracked
-under Phase 5 task IDs P5-04..P5-05.)_
+under Phase 5 task ID P5-05.)_
 
 ## 4a) Completed deliverables
 
@@ -127,3 +127,7 @@ surfaces.
    contract text for `/pollux [status] [--debug]` (status/alignment indicators
    - optional debug-detail block), refreshed plan evidence text, and narrowed
      open deliverables scope to P5-04..P5-05.
+4. Closed M-04 after enabling Pollux-scoped CI triggers for
+   `test-build-binary.yml`, `perf-nightly.yml`, and `memory-nightly.yml` on pull
+   requests and pushes touching Pollux paths, while keeping nightly and manual
+   workflow dispatch routes.

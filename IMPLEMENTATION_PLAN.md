@@ -1133,7 +1133,7 @@ Task breakdown:
 | P5-01 | [Done 2026-04-18] Register /pollux command on required command surfaces           | 05 + 12/13 | command registrations + tests | P2-07        | TG-7       |
 | P5-02 | [Done 2026-04-18] Add minimal UX indicators and optional debug detail output      | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
 | P5-03 | [Done 2026-04-18] Finalize docs/spec/plan alignment and correction ledger updates | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
-| P5-04 | Enable Pollux-scoped binary, perf, and memory CI workflows                        | 15         | CI workflow PR                | P0-04        | TG-9       |
+| P5-04 | [Done 2026-04-18] Enable Pollux-scoped binary, perf, and memory CI workflows      | 15         | CI workflow PR                | P0-04        | TG-9       |
 | P5-05 | Release readiness review (risk closure + rollback plan)                           | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
 
 Exit criteria:
@@ -1183,6 +1183,16 @@ Exit criteria:
   `/pollux [status] [--debug]` and indicator/debug semantics, plus
   `POLLUX_DOC_CORRECTIONS.md` ledger alignment updates (open-deliverables scope
   and refreshed D-03 evidence references).
+
+- P5-04 (Done 2026-04-18): Pollux-scoped CI workflows are enabled for binary,
+  performance, and memory validation (TG-9).
+  `.github/workflows/test-build-binary.yml`,
+  `.github/workflows/perf-nightly.yml`, and
+  `.github/workflows/memory-nightly.yml` now trigger on pull requests and pushes
+  to `main`/`release/**` when Pollux-touched paths change
+  (`packages/core/src/pollux/**`, Pollux command surface files, Pollux
+  governance docs, and the workflow definitions), while preserving existing
+  nightly schedules and manual dispatch paths.
 
 ---
 
