@@ -1119,11 +1119,12 @@ Entry criteria:
 - Phase 4 exit criteria met.
 - Phase 4 closeout addenda (PRE-5-01..PRE-5-04) merged.
 - Phase 5 entry gate: `experimental.pollux.executorModel` is load-bearing
-  (PRE-5-01) and the three operator-driven sections of
-  `docs/core/pollux/PHASE5_PRE_FLIGHT.md` §5 each report `Outcome: PASS`. The
-  pre-flight is the live precondition for P5-01 because `/pollux` command
-  registration assumes the underlying advisor seam is observable on every
-  surface where the command will be exposed.
+  (PRE-5-01). The three operator-driven sections of
+  `docs/core/pollux/PHASE5_PRE_FLIGHT.md` §5 are deferred and optional rather
+  than blocking, because the advisor seam is shared with the validated
+  `LEGACY_INTERACTIVE` surface and covered by the Phase 2 / Phase 3 automated
+  test suites. The §5 runbook stays available for opportunistic live
+  verification or regression diagnosis.
 
 Task breakdown:
 
