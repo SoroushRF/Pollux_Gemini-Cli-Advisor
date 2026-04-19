@@ -1,6 +1,6 @@
 # Pollux Doc Corrections Ledger
 
-Version: 1.1 Date: 2026-04-18 Status: Active Purpose: Track all required
+Version: 1.2 Date: 2026-04-18 Status: Active Purpose: Track all required
 spec/plan/doc corrections that must stay aligned with implementation.
 
 ---
@@ -46,8 +46,8 @@ Rules:
 
 ## 4) Open deliverables
 
-_(none — D-03 closed under P5-01 on 2026-04-18; remaining deliverables tracked
-under Phase 5 task ID P5-05.)_
+_(none — D-03 closed under P5-01 on 2026-04-18; no open Phase 5 deliverables
+remain.)_
 
 ## 4a) Completed deliverables
 
@@ -131,3 +131,7 @@ surfaces.
    `test-build-binary.yml`, `perf-nightly.yml`, and `memory-nightly.yml` on pull
    requests and pushes touching Pollux paths, while keeping nightly and manual
    workflow dispatch routes.
+5. Completed P5-05 by publishing
+   `docs/core/pollux/P5-05_RELEASE_READINESS_DECISION_LOG.md` with gate status,
+   risk closure summary, and rollback plan. Decision is HOLD for latest
+   promotion until TG-9 has an observed green Pollux-touching PR cycle.

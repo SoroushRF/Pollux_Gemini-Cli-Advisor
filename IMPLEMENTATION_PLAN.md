@@ -1134,7 +1134,7 @@ Task breakdown:
 | P5-02 | [Done 2026-04-18] Add minimal UX indicators and optional debug detail output      | 01 + 12    | UX behavior tests             | P5-01        | TG-7       |
 | P5-03 | [Done 2026-04-18] Finalize docs/spec/plan alignment and correction ledger updates | 16         | docs sync PR                  | P5-01/P4-05  | TG-10      |
 | P5-04 | [Done 2026-04-18] Enable Pollux-scoped binary, perf, and memory CI workflows      | 15         | CI workflow PR                | P0-04        | TG-9       |
-| P5-05 | Release readiness review (risk closure + rollback plan)                           | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
+| P5-05 | [Done 2026-04-18] Release readiness review (risk closure + rollback plan)         | 15 + 16    | ship-readiness decision log   | P5-01..P5-04 | TG-9/TG-10 |
 
 Exit criteria:
 
@@ -1193,6 +1193,12 @@ Exit criteria:
   (`packages/core/src/pollux/**`, Pollux command surface files, Pollux
   governance docs, and the workflow definitions), while preserving existing
   nightly schedules and manual dispatch paths.
+
+- P5-05 (Done 2026-04-18): Release-readiness review and rollback plan are
+  captured in `docs/core/pollux/P5-05_RELEASE_READINESS_DECISION_LOG.md`.
+  Decision state is HOLD for latest promotion until TG-9 includes a first
+  observed green Pollux-touching PR cycle (binary/perf/memory checks), while
+  TG-7 and TG-10 are already satisfied by P5-01..P5-03 evidence.
 
 ---
 
