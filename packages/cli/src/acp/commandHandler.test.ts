@@ -30,6 +30,10 @@ describe('CommandHandler', () => {
     const about = parse('/about');
     expect(about.commandToExecute?.name).toBe('about');
 
+    const pollux = parse('/pollux status');
+    expect(pollux.commandToExecute?.name).toBe('pollux');
+    expect(pollux.args).toBe('status');
+
     const help = parse('/help');
     expect(help.commandToExecute?.name).toBe('help');
   });

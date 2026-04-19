@@ -761,6 +761,7 @@ describe('Session', () => {
             expect.objectContaining({ name: 'extensions' }),
             expect.objectContaining({ name: 'restore' }),
             expect.objectContaining({ name: 'init' }),
+            expect.objectContaining({ name: 'pollux' }),
           ]),
         }),
       }),

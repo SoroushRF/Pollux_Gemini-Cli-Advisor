@@ -247,6 +247,9 @@ describe('BuiltinCommandLoader', () => {
 
     const mcpCmd = commands.find((c) => c.name === 'mcp');
     expect(mcpCmd).toBeDefined();
+
+    const polluxCmd = commands.find((c) => c.name === 'pollux');
+    expect(polluxCmd).toBeDefined();
   });
 
   it('should include permissions command when folder trust is enabled', async () => {
