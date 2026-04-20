@@ -14,14 +14,16 @@ import {
 } from './models.js';
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  mergePolluxExperimentalConfig,
   PolluxDetectorStrategy,
   type PolluxExperimentalConfig,
+  type PolluxExperimentalConfigMergeInput,
 } from './types.js';
 
 function makeExperimental(
-  overrides: Partial<PolluxExperimentalConfig> = {},
+  overrides: PolluxExperimentalConfigMergeInput = {},
 ): PolluxExperimentalConfig {
-  return {
+  return mergePolluxExperimentalConfig({
     enabled: true,
     executorModel: 'gemini-2.5-flash',
     advisorModel: 'gemini-3.1-pro-preview',
@@ -33,7 +35,7 @@ function makeExperimental(
     advisorRequestTimeoutMs:
       DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs,
     ...overrides,
-  };
+  });
 }
 
 describe('pollux/models', () => {

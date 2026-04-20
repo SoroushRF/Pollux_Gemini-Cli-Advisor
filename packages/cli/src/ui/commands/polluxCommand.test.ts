@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_POLLUX_EXPERIMENTAL_CONFIG } from '@google/gemini-cli-core';
 import { polluxCommand, formatPolluxStatus } from './polluxCommand.js';
 import { createMockCommandContext } from '../../test-utils/mockCommandContext.js';
 import type { CommandContext } from './types.js';
@@ -20,15 +21,9 @@ function buildContext(overrides?: {
         config: {
           getModel: () => overrides?.resolvedExecutor ?? 'gemini-2.5-flash',
           getPolluxExperimentalConfig: () => ({
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
             enabled: overrides?.enabled ?? true,
             executorModel: overrides?.configuredExecutor ?? 'gemini-2.5-flash',
-            advisorModel: 'gemini-3.1-pro-preview',
-            strategy: 'hybrid',
-            maxAdvisorCallsPerTurn: 2,
-            maxAdvisorCallsPerSession: 20,
-            confidenceThreshold: 6,
-            emitAdvisorDebug: false,
-            advisorRequestTimeoutMs: 120000,
           }),
         },
       },

@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
   AdvisorConsultationStatus,
+  DEFAULT_POLLUX_DETECTOR_CONFIG,
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   mergePolluxExperimentalConfig,
   PolluxDetectorStrategy,
@@ -72,6 +73,30 @@ describe('pollux/types', () => {
         }).advisorRequestTimeoutMs,
       ).toBe(1000);
     });
+
+    it('merges nested detector subtree with defaults', () => {
+      const merged = mergePolluxExperimentalConfig({
+        detector: {
+          riskGate: { enabled: true, denyPatterns: ['rm\\s+-rf'] },
+          observer: { maxThoughtWindowChars: 800 },
+        },
+      });
+      expect(merged.detector.riskGate.enabled).toBe(true);
+      expect(merged.detector.riskGate.mode).toBe('blocklist');
+      expect(merged.detector.riskGate.denyPatterns).toEqual(['rm\\s+-rf']);
+      expect(merged.detector.observer.enabled).toBe(false);
+      expect(merged.detector.observer.maxThoughtWindowChars).toBe(1024);
+      expect(merged.detector.timing.sameTurnEnabled).toBe(true);
+    });
+
+    it('rejects invalid riskGate.mode by falling back to default', () => {
+      const merged = mergePolluxExperimentalConfig({
+        detector: {
+          riskGate: { mode: 'invalid' as 'allowlist' },
+        },
+      });
+      expect(merged.detector.riskGate.mode).toBe('blocklist');
+    });
   });
 
   describe('DEFAULT_POLLUX_EXPERIMENTAL_CONFIG', () => {
@@ -88,6 +113,7 @@ describe('pollux/types', () => {
       expect(cfg.confidenceThreshold).toBe(6);
       expect(cfg.emitAdvisorDebug).toBe(false);
       expect(cfg.advisorRequestTimeoutMs).toBe(120_000);
+      expect(cfg.detector).toEqual(DEFAULT_POLLUX_DETECTOR_CONFIG);
     });
   });
 

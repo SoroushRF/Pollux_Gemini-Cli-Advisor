@@ -13,26 +13,26 @@ artifacts; planned = described but not yet contract-locked; implemented =
 runtime behavior shipped and test-gated in-tree. Status is tracked here to
 satisfy IMPLEMENTATION_PLAN.md G5 "Unimplemented sections marked as such".
 
-| Section                                   | Status                                               |
-| ----------------------------------------- | ---------------------------------------------------- |
-| 1 Purpose                                 | contracted                                           |
-| 2 Goals and non-goals                     | contracted                                           |
-| 3 Runtime reality and coverage matrix     | contracted                                           |
-| 4 Pollux component model                  | contracted                                           |
-| 5 Interceptor contract                    | contracted                                           |
-| 6 Advisor invocation and policy contract  | contracted                                           |
-| 7 Escalation detector contract            | contracted (7.5 v2 timing contract added 2026-04-20) |
-| 8 Settings and configuration contract     | contracted                                           |
-| 9 Telemetry and token accounting contract | contracted                                           |
-| 10 Benchmark protocol                     | contracted                                           |
-| 11 Command and output surface contract    | implemented                                          |
-| 12 CI, test, and release contract         | contracted                                           |
-| 13 Security and safety contract           | contracted                                           |
-| 14 Documentation and governance contract  | contracted                                           |
-| 15 Acceptance criteria                    | contracted                                           |
-| Appendix A Driver/interceptor matrix      | contracted                                           |
-| Appendix B Benchmark fairness checklist   | contracted                                           |
-| Appendix C Terminology                    | contracted                                           |
+| Section                                   | Status                                            |
+| ----------------------------------------- | ------------------------------------------------- |
+| 1 Purpose                                 | contracted                                        |
+| 2 Goals and non-goals                     | contracted                                        |
+| 3 Runtime reality and coverage matrix     | contracted                                        |
+| 4 Pollux component model                  | contracted                                        |
+| 5 Interceptor contract                    | contracted                                        |
+| 6 Advisor invocation and policy contract  | contracted                                        |
+| 7 Escalation detector contract            | contracted (7.5 timing contract added 2026-04-20) |
+| 8 Settings and configuration contract     | contracted                                        |
+| 9 Telemetry and token accounting contract | contracted                                        |
+| 10 Benchmark protocol                     | contracted                                        |
+| 11 Command and output surface contract    | implemented                                       |
+| 12 CI, test, and release contract         | contracted                                        |
+| 13 Security and safety contract           | contracted                                        |
+| 14 Documentation and governance contract  | contracted                                        |
+| 15 Acceptance criteria                    | contracted                                        |
+| Appendix A Driver/interceptor matrix      | contracted                                        |
+| Appendix B Benchmark fairness checklist   | contracted                                        |
+| Appendix C Terminology                    | contracted                                        |
 
 Section 11 is implemented in-tree (P5-01/P5-02 evidence in
 IMPLEMENTATION_PLAN.md). All other sections remain contracted until their
@@ -173,11 +173,19 @@ scope = "built_in_default"
 
 ## 7) Escalation detector contract
 
-### 7.1 Detector strategies
+### 7.1 Detector architecture
 
-1. heuristic
-2. structured
-3. hybrid
+The detector is observer-backed: a `LiveExecutorObserver` watches
+`ServerGeminiStreamEvent`s emitted by the Turn loop, a fusion layer combines
+signals from pluggable sensors (thought, tool-pattern, self-report, loop bridge,
+risk gate), and the confidence gate (§7.5) decides whether to escalate.
+Eligibility gates (surface, config, budget) remain unchanged from §§3–6.
+
+Historical note: an earlier draft of §7 enumerated three monolithic detector
+"strategies" (heuristic / structured / hybrid). These have been replaced by
+sensor-based composition per `docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md`.
+Legacy strategy enum values stay in the type surface during the phased rollout
+(I9) and are deleted in Phase I alongside `detector.ts`.
 
 ### 7.2 Required detector properties
 
@@ -185,24 +193,26 @@ scope = "built_in_default"
 2. Threshold-driven behavior from config.
 3. Explicit false-positive and false-negative test coverage.
 
-### 7.3 Structured confidence tag behavior
+### 7.3 Structured confidence / status tag behavior
 
 1. Tag extraction and stripping must not leak to user-visible output.
 2. Missing/malformed tags must fail-open.
+3. Applies to both `<pollux:confidence:N>` and `<pollux:status>` tags.
 
 ### 7.4 Baseline purity constraint
 
-Detectors must not add extra LLM calls during baseline conditions that claim no
-advisor behavior.
+The detector must not add extra LLM calls during baseline conditions that claim
+no advisor behavior. Sensors are pure/synchronous; the confidence gate is
+deterministic.
 
-### 7.5 Escalation timing contract (v2 only)
+### 7.5 Escalation timing contract
 
 Status: contracted (implementation governed by
-`docs/core/pollux/DETECTOR_V2_IMPLEMENTATION_PLAN.md` §2a). Applies only when
-`experimental.pollux.detectorVersion='v2'`. Under `v1` this section is inert.
+`docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md` §2a).
 
-V2 uses a **hybrid timing policy**. An escalation request carries a required
-`escalationTiming` field whose value is either `same_turn` or `next_turn`:
+The detector uses a **hybrid timing policy**. An escalation request carries a
+required `escalationTiming` field whose value is either `same_turn` or
+`next_turn`:
 
 1. **`same_turn`** — the advisor is invoked during the current executor turn, at
    an event boundary, before the turn completes. Triggered only when the
@@ -235,8 +245,8 @@ The following MUST hold:
   not requested. No exception aborts the stream (baseline purity §7.4 plus
   invariant I3).
 - **T6 No mid-part interruption**: pause points are event boundaries only
-  (`ToolCallRequest` dispatch for pre-tool, end-of-event dispatch otherwise). V2
-  does not split a streaming content part mid-delivery.
+  (`ToolCallRequest` dispatch for pre-tool, end-of-event dispatch otherwise).
+  The detector does not split a streaming content part mid-delivery.
 - **T7 No recursion**: advisor-conditioned continuation inside a turn runs with
   the single-shot flag already set; it cannot trigger another same-turn
   escalation within the same turn.
@@ -244,9 +254,8 @@ The following MUST hold:
   reported via `sameTurnDowngraded: true` and the effective
   `escalationTiming: 'next_turn'` in the `PolluxAdvisorPhasePayload`.
 
-Kill switch: `experimental.pollux.v2.timing.sameTurnEnabled=false` forces every
-request to `next_turn` for parity with the pre-v2 "next-turn only" drafts.
-Policy T1–T8 still apply.
+Kill switch: `experimental.pollux.detector.timing.sameTurnEnabled=false` forces
+every request to `next_turn`. Policy T1–T8 still apply.
 
 ---
 

@@ -1,6 +1,6 @@
-# Detector V2 — Implementation Plan
+# Pollux Detector — Implementation Plan
 
-Version: 0.1 (Draft) Date: 2026-04-20 Status: Proposed — not started Owner:
+Version: 0.2 (Unified) Date: 2026-04-20 Status: Proposed — not started Owner:
 Pollux working group
 
 This document is the **execution contract** for rebuilding the Pollux escalation
@@ -8,13 +8,18 @@ detector around live executor observation. The conceptual case is made in
 `docs/core/pollux/DETECTOR_REDESIGN_BRAINSTORM.md`; this file says **what ships,
 when, in what order, guarded by which flags, with which tests**.
 
+There is no "v1" vs "v2" split in this plan. Pollux is still experimental with
+no external users locked in — we replace the legacy heuristic/structured/hybrid
+detector in-place. The legacy `detector.ts` stays callable during the phased
+rollout so each phase can land independently, and is **deleted** in the final
+phase (§14) once the redesign is wired up end-to-end.
+
 Related documents:
 
 - `docs/core/pollux/DETECTOR_REDESIGN_BRAINSTORM.md` — north-star design notes
-- `POLLUX_SPEC.md` §7 — current detector contract (heuristic / structured /
-  hybrid)
-- `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md` — v1
-  calibration corpus
+- `POLLUX_SPEC.md` §7 — detector contract (updated alongside this plan)
+- `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md` — legacy
+  calibration corpus (superseded by §13 in final phase)
 - `docs/core/pollux/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md` — TG matrix
 - `IMPLEMENTATION_PLAN.md` — overall Pollux delivery plan
 
@@ -29,26 +34,28 @@ Related documents:
    (thought-stream, tool patterns, self-reported status, tool risk).
 2. A **fusion layer** that combines signals with weighted scoring, precision
    priors, composite-evidence gates, negative signals, and time decay.
-3. A new detector strategy: `live` (or `hybrid_v2`), composable with the
-   existing `heuristic` / `structured` / `hybrid` strategies under a
-   `detectorVersion` flag (`v1` default, `v2` opt-in).
+3. A **hybrid timing policy** (§2a) that escalates same-turn when the confidence
+   gate trips and next-turn otherwise. Applies uniformly — there is no "legacy
+   timing" mode.
 4. New telemetry: additional escalation reason codes, per-signal attribution,
    and outcome capture for closed-loop calibration.
-5. A v2 calibration harness and corpus.
-6. Default flip from `v1 → v2` only after a full green cycle.
+5. A scripted-trace calibration harness and corpus that replaces the legacy
+   string-corpus in `packages/core/src/pollux/calibration.ts`.
+6. **Deletion** of the legacy `detector.ts`, its `heuristic`/`structured`/
+   `hybrid` strategies, and related config fields (`strategy`,
+   `confidenceThreshold`) once the new detector is wired up (§14).
 
-### 1.2 Out of scope for v2
+### 1.2 Out of scope
 
-1. **Speculative escalation** (kicking advisor off while executor streams) —
-   reserved for v2.1.
+1. **Speculative escalation** (kicking advisor off while executor streams in
+   parallel) — deferred follow-up. Same-turn here is pause-then-invoke,
+   sequential.
 2. **Branch-and-merge** turn forking — post-stability experiment.
 3. **Shadow advisor** continuous sampling — post-stability experiment.
 4. **Learned weights (logistic regression / online learning)** — requires
    telemetry data that phase G only begins to collect.
 5. **A2A deferred surface** — remains explicitly non-Pollux
    (`docs/core/pollux/P2-06_A2A_DEFERRED_BYPASS.md`).
-6. Deletion of v1 heuristic/structured/hybrid detectors — they remain callable
-   under the `v1` flag for a deprecation window of ≥2 minor releases.
 
 ### 1.3 Non-goals
 
@@ -67,18 +74,18 @@ Related documents:
 These are load-bearing. A phase is **not complete** until every applicable
 invariant has an explicit test.
 
-| #   | Invariant                                                                                                                                                                                                               | Current source of truth                                      | V2 test location                                                                                                                                                                                          |
+| #   | Invariant                                                                                                                                                                                                               | Current source of truth                                      | Test location                                                                                                                                                                                             |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| I1  | **Baseline purity**: with `experimental.pollux.enabled=false`, no v2 code runs and no allocations happen on the hot path.                                                                                               | `POLLUX_SPEC.md` §7.4                                        | `packages/core/src/pollux/observer/observer.test.ts` — assert observer factory returns a no-op when disabled                                                                                              |
-| I2  | **Deterministic reason codes** — all escalation outcomes use `PolluxEscalationReasonCode` enum values.                                                                                                                  | `packages/core/src/pollux/types.ts:47–59`                    | Add new codes in same enum; snapshot test in `types.test.ts`                                                                                                                                              |
+| I1  | **Baseline purity**: with `experimental.pollux.enabled=false`, no detector code runs and no allocations happen on the hot path.                                                                                         | `POLLUX_SPEC.md` §7.4                                        | `packages/core/src/pollux/observer/observer.test.ts` — assert observer factory returns a no-op when disabled                                                                                              |
+| I2  | **Deterministic reason codes** — all escalation outcomes use `PolluxEscalationReasonCode` enum values.                                                                                                                  | `packages/core/src/pollux/types.ts`                          | Add new codes in same enum; snapshot test in `types.test.ts`                                                                                                                                              |
 | I3  | **Fail-open**: observer exceptions never abort the executor turn.                                                                                                                                                       | `packages/core/src/pollux/safeguards.ts`                     | `observer.test.ts` — throw-in-sensor cases                                                                                                                                                                |
 | I4  | **No extra LLM calls inside the detector**. Observer sensors are pure/synchronous.                                                                                                                                      | `POLLUX_SPEC.md` §7.4                                        | Existing detector purity tests — extend for observer.                                                                                                                                                     |
-| I5  | **Policy channel unchanged** — still routed through `ADVISOR_CONSULTATION_TOOL_NAME` with full policy check.                                                                                                            | `packages/core/src/core/client.ts:784–799`                   | `client.test.ts` — existing policy-deny test must still pass under v2                                                                                                                                     |
-| I6  | **Budget caps unchanged** — `checkAdvisorInvocationBudget` is the single source of truth.                                                                                                                               | `packages/core/src/pollux/safeguards.ts:40–71`               | Existing budget tests extended                                                                                                                                                                            |
-| I7  | **Cross-surface parity** — legacy, agent-session, ACP behave identically under v2. A2A deferred remains a no-op.                                                                                                        | `docs/core/pollux/P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md` | New cross-surface matrix for v2 in that same doc                                                                                                                                                          |
+| I5  | **Policy channel unchanged** — still routed through `ADVISOR_CONSULTATION_TOOL_NAME` with full policy check.                                                                                                            | `packages/core/src/core/client.ts:784–799`                   | `client.test.ts` — existing policy-deny test still passes on both same-turn and next-turn paths                                                                                                           |
+| I6  | **Budget caps unchanged** — `checkAdvisorInvocationBudget` is the single source of truth.                                                                                                                               | `packages/core/src/pollux/safeguards.ts:40–71`               | Existing budget tests extended to cover same-turn path                                                                                                                                                    |
+| I7  | **Cross-surface parity** — legacy, agent-session, ACP behave identically. A2A deferred remains a no-op.                                                                                                                 | `docs/core/pollux/P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md` | Cross-surface matrix updated in that same doc                                                                                                                                                             |
 | I8  | **Token accounting** — all advisor model calls continue to tag `LlmRole.UTILITY_ADVISOR`.                                                                                                                               | `packages/core/src/telemetry/llmRole.ts:20`                  | `uiTelemetry.test.ts` aggregate test                                                                                                                                                                      |
-| I9  | **v1 detectors stay callable and tested** for the full deprecation window.                                                                                                                                              | N/A                                                          | `detector.test.ts` keeps running unmodified in CI                                                                                                                                                         |
-| I10 | **Timing policy is explicit**: every escalation reason code is annotated `same_turn` or `next_turn` per §2a; the observer NEVER queues a high-confidence signal for next-turn when the confidence gate (§2a.2) is met.  | `DETECTOR_V2_IMPLEMENTATION_PLAN.md §2a`                     | `types.test.ts` — snapshot asserts a `timing` entry exists for every `PolluxEscalationReasonCode` value; `observer.test.ts` — high-confidence signal produces a `SameTurnIntent`, not a `NextTurnIntent`. |
+| I9  | **Legacy detector stays callable during rollout**: phases A–H ship incrementally; until Phase I deletes `detector.ts`, the existing `shouldEscalate` surface remains green in CI so each phase is safely revertable.    | N/A                                                          | `detector.test.ts` keeps running unmodified in CI until Phase I                                                                                                                                           |
+| I10 | **Timing policy is explicit**: every escalation reason code is annotated `same_turn` or `next_turn` per §2a; the observer NEVER queues a high-confidence signal for next-turn when the confidence gate (§2a.2) is met.  | `DETECTOR_IMPLEMENTATION_PLAN.md §2a`                        | `types.test.ts` — snapshot asserts a `timing` entry exists for every `PolluxEscalationReasonCode` value; `observer.test.ts` — high-confidence signal produces a `SameTurnIntent`, not a `NextTurnIntent`. |
 | I11 | **Same-turn budget guardrail**: at most one same-turn escalation per executor turn; additional high-confidence signals during the same turn are either suppressed or merged into the next-turn queue, never re-entered. | §2a.4 (guardrails)                                           | `observer.test.ts` — two same-turn triggers in one turn produce exactly one advisor invocation.                                                                                                           |
 
 ---
@@ -91,7 +98,7 @@ rule. Where older wording conflicts with this section, **this section wins**.
 
 ### 2a.1 Policy
 
-Pollux v2 uses a **hybrid timing policy**:
+The Pollux detector uses a **hybrid timing policy**:
 
 - **Default = next-turn.** Soft / composite signals (thought hedges, subject
   loops under the hard-precision bar, `tool.search_without_decide`, generic
@@ -128,7 +135,8 @@ of the following hold:
    firing together" — no single signal is hard-precision, but the stack of
    evidence is unambiguous.
 3. **Explicit escalation request**: future hook — reserved for user-driven "help
-   me" UI affordance (out of scope for v2.0, reason code `V2_USER_REQUEST`).
+   me" UI affordance (out of scope for the initial ship of this plan, reason
+   code `USER_REQUEST`).
 
 Everything else is `NextTurnIntent`.
 
@@ -137,15 +145,15 @@ Everything else is `NextTurnIntent`.
 Every reason code added in Phase A MUST declare its timing in
 `PolluxEscalationReasonCode` metadata and be snapshot-tested per I10.
 
-| Reason code                    | Timing        | Trigger                                                     | Precision prior |
-| ------------------------------ | ------------- | ----------------------------------------------------------- | --------------- |
-| `V2_RISK_GATE_BLOCK`           | **same_turn** | pending tool matches high-risk pattern                      | 0.95            |
-| `V2_HARD_LOOP`                 | **same_turn** | `LoopDetectionService.peekState()` reports confirmed loop   | 0.85            |
-| `V2_SELF_REPORT_STUCK`         | **same_turn** | `<pollux:status stuck_on="...">` with non-trivial obstacle  | 0.95            |
-| `V2_FUSION_COMPOSITE_EMPHATIC` | **same_turn** | composite netScore ≥ `sameTurnThreshold` with ≥2 categories | computed        |
-| `V2_FUSION_COMPOSITE`          | next_turn     | composite netScore ≥ `threshold` but < `sameTurnThreshold`  | computed        |
-| `V2_LIVE_OBSERVER_MATCH`       | next_turn     | any non-hard-precision signal crossing normal threshold     | ≥ 0.50          |
-| `V2_FUSION_BUDGET_TARGET`      | next_turn     | auto-calibrator lowered threshold to hit target rate        | auto            |
+| Reason code                 | Timing        | Trigger                                                     | Precision prior |
+| --------------------------- | ------------- | ----------------------------------------------------------- | --------------- |
+| `RISK_GATE_BLOCK`           | **same_turn** | pending tool matches high-risk pattern                      | 0.95            |
+| `HARD_LOOP`                 | **same_turn** | `LoopDetectionService.peekState()` reports confirmed loop   | 0.85            |
+| `SELF_REPORT_STUCK`         | **same_turn** | `<pollux:status stuck_on="...">` with non-trivial obstacle  | 0.95            |
+| `FUSION_COMPOSITE_EMPHATIC` | **same_turn** | composite netScore ≥ `sameTurnThreshold` with ≥2 categories | computed        |
+| `FUSION_COMPOSITE`          | next_turn     | composite netScore ≥ `threshold` but < `sameTurnThreshold`  | computed        |
+| `LIVE_OBSERVER_MATCH`       | next_turn     | any non-hard-precision signal crossing normal threshold     | ≥ 0.50          |
+| `FUSION_BUDGET_TARGET`      | next_turn     | auto-calibrator lowered threshold to hit target rate        | auto            |
 
 ### 2a.4 Guardrails on same-turn escalation
 
@@ -175,12 +183,12 @@ All of these are MUST and have dedicated tests in Phase F:
 6. **No mid-stream policy re-entry.** The pause point is an **event boundary**
    (end of a `ServerGeminiStreamEvent` dispatch), never mid-part. The observer
    does not interrupt partial content delivery.
-7. **Risk gate is pre-tool.** The `V2_RISK_GATE_BLOCK` pause point is the
+7. **Risk gate is pre-tool.** The `RISK_GATE_BLOCK` pause point is the
    `ToolCallRequest` event boundary, _before_ the tool executes, so the advisor
    can actually influence the decision. The tool scheduler already has a
-   confirmation seam we can hook into (see §7.B for details).
-8. **Other same-turn triggers are post-event.** `V2_HARD_LOOP`,
-   `V2_SELF_REPORT_STUCK`, and `V2_FUSION_COMPOSITE_EMPHATIC` pause after the
+   confirmation seam we can hook into (see §7 for details).
+8. **Other same-turn triggers are post-event.** `HARD_LOOP`,
+   `SELF_REPORT_STUCK`, and `FUSION_COMPOSITE_EMPHATIC` pause after the
    triggering event's dispatch completes. They do not try to rewind in-flight
    work.
 
@@ -201,28 +209,27 @@ assertions unambiguous and makes fail-open storms detectable by filtering on
 - The test ambiguity where "should this have escalated now or later?" depended
   on reader interpretation.
 
-**NOT opened (deliberately deferred to v2.1+):**
+**NOT opened (deliberately deferred):**
 
 - Speculative escalation (kick advisor off while executor _keeps streaming_ in
   parallel). §1.2 exclusion still holds; pause-and-resume is sequential.
 - Branch-and-merge turn forking.
 - Mid-part streaming interruption (pause is at event boundary only).
-- User-facing "stop and ask advisor" button (reserved for `V2_USER_REQUEST`).
+- User-facing "stop and ask advisor" button (reserved for `USER_REQUEST`).
 
 ---
 
 ## 3) Architecture overview
 
-### 3.1 Conceptual flow under v2
+### 3.1 Conceptual flow
 
 ```
                  ┌────────────────────────────────────────────────────────┐
                  │ GeminiClient.processTurn  (client.ts:893)              │
                  │                                                        │
  user request ──▶│  maybeRunPolluxAdvisorConsultation                     │
-                 │    └── v1: detector.shouldEscalate (one-shot)          │
-                 │    └── v2: consume pending NextTurnIntent (if any)     │
-                 │            then seed LiveExecutorObserver for turn     │
+                 │    └── consume pending NextTurnIntent (if any)         │
+                 │        then seed LiveExecutorObserver for turn         │
                  │                                                        │
                  │  turn.run → stream events ──────────────────────────┐  │
                  │                                                     ▼  │
@@ -267,18 +274,21 @@ Key properties:
 5. Fail-open everywhere: if any step in the same-turn path throws, the executor
    resumes its turn untouched.
 
-### 3.2 New module layout
+### 3.2 Module layout
 
 ```
 packages/core/src/pollux/
-├── detector.ts               (unchanged; v1 lives here, stays exported)
-├── types.ts                  (extended: new reason codes, v2 config fields)
+├── detector.ts               (legacy; deleted in Phase I — see §14)
+├── detector.test.ts          (legacy; deleted in Phase I)
+├── calibration.ts            (legacy string corpus; deleted in Phase I)
+├── types.ts                  (extended: new reason codes, detector config subtree)
 ├── prompts.ts                (extended: <pollux:status> parser)
 ├── safeguards.ts             (unchanged)
-├── observer/                 (NEW)
+├── observer/                 (NEW — the redesigned detector lives here)
 │   ├── index.ts              re-exports
 │   ├── observer.ts           LiveExecutorObserver orchestrator
 │   ├── fusion.ts             FusionLayer: scoring, negative signals, decay
+│   ├── types.ts              SensorSignal, SameTurnIntent, NextTurnIntent
 │   ├── sensors/
 │   │   ├── base.ts           Sensor interface + helpers
 │   │   ├── thought.ts        ThoughtSensor (subject-loop, hedges, contradictions)
@@ -286,17 +296,17 @@ packages/core/src/pollux/
 │   │   ├── selfReport.ts     <pollux:status>, asymmetric confidence
 │   │   ├── loopBridge.ts     LoopDetectionService → observer adapter
 │   │   └── riskGate.ts       pending-tool risk classifier
-│   └── calibrationV2.ts      v2 corpus + harness
-└── index.ts                  (adds observer/* re-exports)
+│   └── calibration.ts        scripted-trace corpus + harness
+└── index.ts                  (re-exports observer surface)
 ```
 
 ### 3.3 How existing code plugs in
 
 1. **`client.ts:985`** (`maybeRunPolluxAdvisorConsultation`) — unchanged entry
-   point. Under `detectorVersion='v2'` it also:
+   point. With the new detector it:
    - Consumes any pending `NextTurnIntent` from the previous turn.
-   - Is re-enterable from inside the stream loop to service a `SameTurnIntent`
-     (new in v2; guarded by the single-shot flag from §2a.4 guardrail 1).
+   - Is re-enterable from inside the stream loop to service a `SameTurnIntent`,
+     guarded by the single-shot flag from §2a.4 guardrail 1.
 2. **`client.ts:1067–1092`** (`for await (const event of resultStream)`) —
    observer receives every event here in parallel with
    `loopDetector.addAndCheck`. After each event dispatch completes, the loop
@@ -309,8 +319,8 @@ packages/core/src/pollux/
    confidence gate promotes it to a `SameTurnIntent`.
 4. **`core/turn.ts:310–317`** (Thought event emission) — unchanged; observer
    consumes the event stream that already exists.
-5. **`core/prompts.ts` / `PromptProvider.getCoreSystemPrompt`** — phase E adds a
-   conditional block when `detectorVersion='v2'` is active.
+5. **`core/prompts.ts` / `PromptProvider.getCoreSystemPrompt`** — Phase E adds a
+   conditional block gated on `experimental.pollux.detector.selfReport.enabled`.
 6. **Tool scheduler confirmation seam** — Phase B hooks the existing
    pre-execution confirmation path to insert the risk-gate advisor call _before_
    a high-risk tool actually runs, instead of racing it.
@@ -319,37 +329,35 @@ packages/core/src/pollux/
 
 ## 4) Config surface changes
 
-All new fields gated by `experimental.pollux.detectorVersion`. The whole v2
-subtree is a no-op when `detectorVersion='v1'` (default).
+The detector lives under a single `experimental.pollux.detector` subtree. The
+master kill-switch remains `experimental.pollux.enabled` (pre-existing,
+unchanged). Per-component `enabled` flags inside the subtree let phases land
+incrementally without running the full pipeline before it is safe to do so.
+
+There is **no version flag**. The redesign replaces the legacy detector in
+place; the legacy `strategy` / `confidenceThreshold` fields stay for the rollout
+window (I9) and are **deleted** in Phase I alongside `detector.ts`.
 
 ### 4.1 `PolluxExperimentalConfig` additions
 
 `packages/core/src/pollux/types.ts`:
 
 ```ts
-export const PolluxDetectorVersion = {
-  V1: 'v1',
-  V2: 'v2',
-} as const;
-export type PolluxDetectorVersion =
-  (typeof PolluxDetectorVersion)[keyof typeof PolluxDetectorVersion];
-
-export interface PolluxV2Config {
-  readonly enabled: boolean; // master for v2 subtree; default false
+export interface PolluxDetectorConfig {
   readonly riskGate: {
-    readonly enabled: boolean; // default true when v2.enabled
+    readonly enabled: boolean;
     readonly mode: 'allowlist' | 'blocklist';
     readonly denyPatterns: readonly string[];
   };
   readonly observer: {
-    readonly enabled: boolean; // default true when v2.enabled
+    readonly enabled: boolean;
     readonly maxThoughtWindowChars: number; // default 16384
     readonly maxToolEventWindow: number; // default 64
     readonly decayHalfLifeMs: number; // default 15000
   };
   readonly selfReport: {
-    readonly enabled: boolean; // default true when v2.enabled
-    readonly promptPrimingEnabled: boolean; // default true
+    readonly enabled: boolean;
+    readonly promptPrimingEnabled: boolean; // default true when selfReport.enabled
   };
   readonly fusion: {
     readonly targetEscalationRate: number; // 0..1; default 0.05
@@ -363,29 +371,36 @@ export interface PolluxV2Config {
   };
   readonly timing: {
     // Hard kill-switch for same-turn escalation. Policy (§2a) still applies
-    // when enabled; flipping false forces everything to next-turn (legacy
-    // behavior from the pre-decision-note draft).
-    readonly sameTurnEnabled: boolean; // default true when v2.enabled
+    // when enabled; flipping false forces everything to next-turn.
+    readonly sameTurnEnabled: boolean;
     // Guardrail I11 cap. Keep at 1 unless you know why you're changing it.
     readonly maxSameTurnEscalationsPerTurn: number; // default 1
   };
 }
 
 export interface PolluxExperimentalConfig {
-  // ...existing fields...
-  readonly detectorVersion: PolluxDetectorVersion; // default 'v1'
-  readonly v2: PolluxV2Config;
+  // ...existing fields — `strategy` and `confidenceThreshold` are legacy
+  // fields retained under I9 until Phase I deletes them...
+  readonly detector: PolluxDetectorConfig;
 }
 ```
 
 ### 4.2 Defaults (`DEFAULT_POLLUX_EXPERIMENTAL_CONFIG`)
 
+Defaults are **conservative**: each subsystem ships disabled and is flipped to
+`true` per-phase as its integration test passes. A single flip of
+`experimental.pollux.enabled=true` with all sub-`enabled` flags false is a valid
+no-op state.
+
 ```ts
-detectorVersion: PolluxDetectorVersion.V1,
-v2: {
-  enabled: false,
+detector: {
   riskGate: { enabled: false, mode: 'blocklist', denyPatterns: [] },
-  observer: { enabled: false, maxThoughtWindowChars: 16384, maxToolEventWindow: 64, decayHalfLifeMs: 15000 },
+  observer: {
+    enabled: false,
+    maxThoughtWindowChars: 16384,
+    maxToolEventWindow: 64,
+    decayHalfLifeMs: 15000,
+  },
   selfReport: { enabled: false, promptPrimingEnabled: false },
   fusion: {
     targetEscalationRate: 0.05,
@@ -394,85 +409,90 @@ v2: {
     sameTurnThresholdMultiplier: 1.5,
     sameTurnAbsoluteFloor: 3.5,
   },
-  timing: { sameTurnEnabled: false, maxSameTurnEscalationsPerTurn: 1 },
+  timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
 }
 ```
 
-When a user sets `detectorVersion='v2'`, `mergePolluxExperimentalConfig` flips
-the subtree `enabled` flags to `true` unless explicitly overridden.
+`sameTurnEnabled: true` is the default because §2a is the whole point — but the
+per-subsystem `enabled` flags are still the real gates: a same-turn intent only
+ever arises from a sensor that is itself enabled.
 
 ### 4.3 Settings schema deltas
 
 `packages/cli/src/config/settingsSchema.ts:2221` — under
-`experimental.pollux.*`, add:
-
-- `detectorVersion` (enum: v1 | v2; default v1; `requiresRestart: true`)
-- `v2` (object) with nested objects for `riskGate`, `observer`, `selfReport`,
-  `fusion`. Each leaf mirrors the shape in §4.1 with `showInDialog: false`.
+`experimental.pollux.*`, add a `detector` object with nested objects for
+`riskGate`, `observer`, `selfReport`, `fusion`, `timing`. Each leaf mirrors the
+shape in §4.1 with `showInDialog: false`.
 
 ### 4.4 Config accessor
 
 No new accessor needed. `config.getPolluxExperimentalConfig()` already returns
-the merged shape; v2 fields come for free.
+the merged shape; the `detector` subtree comes for free once defaults and merge
+rules are updated in §6.A.1.
 
-### 4.5 Migration behavior (v1 → v2)
+### 4.5 Rollout behavior
 
-1. **Silent default**: upgrading the CLI version does not enable v2.
-2. When users opt in (`detectorVersion='v2'`), the system emits one startup
-   `debugLogger` line explaining the change.
+1. **Silent default**: upgrading the CLI version does not flip any
+   `detector.*.enabled` flag to true.
+2. Users (and internal dogfood) opt in by toggling the specific subsystems they
+   want exercised, or by setting `experimental.pollux.enabled=true` and letting
+   each phase's test suite flip its own subsystem default.
 3. Telemetry continues under the same roles. New reason codes listed in §6.
 
 ---
 
 ## 5) Phase roadmap
 
-| Phase | Focus                                                                                                      | PR size | Gate                                                                                                             |
-| ----- | ---------------------------------------------------------------------------------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| A     | Foundation: flag, module scaffolding, reason codes, telemetry hooks — all no-ops behind `v2.enabled=false` | S       | All existing tests green; new invariant I1 test added                                                            |
-| B     | Risk gate (Tier 5) — high-precision pre-action escalation                                                  | M       | Unit tests + integration test covering `rm -rf` / `git push` paths                                               |
-| C     | LoopDetectionService bridge — reroute existing high-precision signal                                       | S       | Integration test: loop-triggered turn produces a queued escalation intent instead of being silently halted       |
-| D     | Live executor observer core + fusion layer (Tier 1 + Tier 2 + Tier 6.fusion)                               | L       | Full observer test suite; precision/recall unit tests on v2 corpus                                               |
-| E     | Self-report channel — structured `<pollux:status>` tag and asymmetric confidence                           | M       | Prompt priming test; parser test; sensor integration test                                                        |
-| F     | Full v2 detector composition + budget-targeted threshold                                                   | M       | End-to-end test: v2 detector runs through `maybeRunPolluxAdvisorConsultation` and fails-open on sensor exception |
-| G     | Outcome telemetry (collect only, no behavior change)                                                       | M       | New telemetry event shape added to `P3-06_TELEMETRY_RECONCILIATION_REPORT.md`                                    |
-| H     | V2 calibration corpus + benchmark condition F                                                              | M       | Benchmark run produces precision/recall metrics for v2                                                           |
-| I     | Default flip `v1 → v2` + v1 deprecation timeline in spec                                                   | S       | Full CI green + TG-1..10 green under v2 defaults                                                                 |
+| Phase | Focus                                                                                                                                                                 | PR size | Gate                                                                                                          |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| A     | Foundation: `detector` config subtree, module scaffolding, reason codes, telemetry hooks — all no-ops behind per-subsystem `enabled`                                  | S       | All existing tests green; invariant I1 test added                                                             |
+| B     | Risk gate (Tier 5) — high-precision pre-action escalation                                                                                                             | M       | Unit tests + integration test covering `rm -rf` / `git push` paths                                            |
+| C     | LoopDetectionService bridge — reroute existing high-precision signal                                                                                                  | S       | Integration test: loop-triggered turn produces a same-turn escalation instead of being silently halted        |
+| D     | Live executor observer core + fusion layer (Tier 1 + Tier 2 + Tier 6.fusion)                                                                                          | L       | Full observer test suite; precision/recall unit tests on the new corpus                                       |
+| E     | Self-report channel — structured `<pollux:status>` tag and asymmetric confidence                                                                                      | M       | Prompt priming test; parser test; sensor integration test                                                     |
+| F     | Full detector composition — wire `maybeRunPolluxAdvisorConsultation` to the observer; split intent queue; guardrail chain                                             | M       | End-to-end test: detector runs through `maybeRunPolluxAdvisorConsultation` and fails-open on sensor exception |
+| G     | Outcome telemetry (collect only, no behavior change)                                                                                                                  | M       | New telemetry event shape added to `P3-06_TELEMETRY_RECONCILIATION_REPORT.md`                                 |
+| H     | Scripted-trace calibration corpus + benchmark condition                                                                                                               | M       | Benchmark run produces precision/recall metrics; F1 ≥ legacy F1 on shared task set                            |
+| I     | **Delete legacy detector** — remove `detector.ts`, `detector.test.ts`, `calibration.ts`, `PolluxDetectorStrategy`, `strategy` and `confidenceThreshold` config fields | S       | Full CI green with no references to the deleted surface; TG-1..10 green on the redesigned detector            |
 
 Phases A-C are parallelizable in principle but should ship in order so each PR
 is reviewable against a settled baseline. Phase D depends on A. Phase F depends
-on D + E. Phase I depends on H.
+on D + E. Phase I depends on F (minimum) and preferably H.
 
 ---
 
-## 6) Phase A — Foundation (flag + scaffolding)
+## 6) Phase A — Foundation (scaffolding + reason codes)
 
 ### A.1 Tasks
 
-1. Add `PolluxDetectorVersion` enum + `PolluxV2Config` type in
-   `packages/core/src/pollux/types.ts`.
+1. Add the `PolluxDetectorConfig` type (§4.1) in
+   `packages/core/src/pollux/types.ts`. Do **not** add a version enum.
 2. Update `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG` and
    `mergePolluxExperimentalConfig` to handle the new subtree with safe defaults
-   (all `false`, except leaf flags that cascade from `v2.enabled`).
+   (§4.2). All per-subsystem `enabled` fields default `false`.
 3. Update schema in `packages/cli/src/config/settingsSchema.ts:2221` with the
-   new nested properties.
+   new nested `detector` object.
 4. Create the observer directory skeleton (§3.2) — all files exist but export
-   pure no-ops (`observer.shouldEscalate()` returns
-   `{ escalate: false, reasonCode: NONE, strategy: HEURISTIC }`).
+   pure no-ops: `observer.peekSameTurnIntent()` and
+   `observer.consumePendingNextTurnIntent()` return `undefined`;
+   `observer.ingest()` is a no-op.
 5. Add new reason codes to `PolluxEscalationReasonCode`, each paired with a
    canonical **timing** entry per §2a.3 (enforced by invariant I10):
-   - `V2_LIVE_OBSERVER_MATCH` — `next_turn`
-   - `V2_RISK_GATE_BLOCK` — `same_turn`
-   - `V2_HARD_LOOP` — `same_turn`
-   - `V2_SELF_REPORT_STUCK` — `same_turn`
-   - `V2_FUSION_COMPOSITE` — `next_turn`
-   - `V2_FUSION_COMPOSITE_EMPHATIC` — `same_turn` (new; netScore ≥
-     `sameTurnThreshold`)
-   - `V2_FUSION_BUDGET_TARGET` — `next_turn`
+   - `LIVE_OBSERVER_MATCH` — `next_turn`
+   - `RISK_GATE_BLOCK` — `same_turn`
+   - `HARD_LOOP` — `same_turn`
+   - `SELF_REPORT_STUCK` — `same_turn`
+   - `FUSION_COMPOSITE` — `next_turn`
+   - `FUSION_COMPOSITE_EMPHATIC` — `same_turn` (netScore ≥ `sameTurnThreshold`)
+   - `FUSION_BUDGET_TARGET` — `next_turn`
 
    Export a const map
    `POLLUX_ESCALATION_TIMING: Readonly<Record<PolluxEscalationReasonCode, 'same_turn' | 'next_turn'>>`
    adjacent to the enum. Every reason code present in the enum MUST have a key
-   in this map — enforced by a snapshot test.
+   in this map — enforced by a snapshot test. Legacy reason codes
+   (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) are mapped to
+   `next_turn` during the rollout window and deleted in Phase I alongside their
+   enum entries.
 
 6. Define the two intent shapes in `packages/core/src/pollux/observer/types.ts`
    (new file; co-located with the observer module):
@@ -503,11 +523,13 @@ on D + E. Phase I depends on H.
 
 7. Extend `emitPolluxAdvisorPhase` (no new event). Add to
    `PolluxAdvisorPhasePayload` in `packages/core/src/utils/events.ts`:
-   - `detectorVersion?: 'v1' | 'v2'`
-   - `escalationTiming?: 'same_turn' | 'next_turn'` (REQUIRED under v2 when the
-     payload describes an escalation; invariant I10 snapshot test asserts it is
-     always set for v2 phases)
+   - `escalationTiming?: 'same_turn' | 'next_turn'` (REQUIRED when the payload
+     describes an escalation produced by the observer; invariant I10 snapshot
+     test asserts it is always set).
+   - `pauseBoundary?: 'pre_tool' | 'post_event'` (present only when
+     `escalationTiming='same_turn'`).
    - `contributingSignalIds?: readonly string[]`
+   - `sameTurnDowngraded?: boolean`
 
 ### A.2 Files touched
 
@@ -517,18 +539,16 @@ on D + E. Phase I depends on H.
 - `packages/cli/src/config/settingsSchema.ts:2221` (schema delta)
 - `packages/core/src/utils/events.ts:199–204` (payload delta)
 - `docs/reference/configuration.md` (document the new flags)
-- `POLLUX_SPEC.md` (add §7.5 placeholder referencing this plan)
 
 ### A.3 Tests
 
 - `packages/core/src/pollux/types.test.ts` — snapshot of defaults, merge rules
-  for v2 subtree; **plus** the invariant I10 assertion that every
+  for the `detector` subtree; **plus** the invariant I10 assertion that every
   `PolluxEscalationReasonCode` enum value has a matching entry in
   `POLLUX_ESCALATION_TIMING`, and the timing values exactly match §2a.3.
-- `packages/core/src/pollux/observer/observer.test.ts` (new) — no-op observer
-  returns `{ escalate: false, NONE }` under default config; never throws. Also
-  asserts that under default config, `peekSameTurnIntent()` and
-  `consumePendingIntent()` both return `undefined`.
+- `packages/core/src/pollux/observer/observer.test.ts` (new) — under default
+  config, `peekSameTurnIntent()` and `consumePendingNextTurnIntent()` both
+  return `undefined`; `ingest()` never throws.
 - `packages/cli/src/config/settingsSchema.test.ts` — schema generation check,
   ConfigParameters mapping invariant (POLLUX_SPEC §8.4).
 
@@ -540,7 +560,8 @@ on D + E. Phase I depends on H.
 
 ### A.5 Rollback
 
-Revert PR. Schema default was `v1`, so no user was exercising new code paths.
+Revert PR. All new subsystem flags default off, so no code paths are exercised
+in the meantime.
 
 ---
 
@@ -565,12 +586,12 @@ should _always_ get a second opinion regardless of other signals.
      - **elevated**: edit/write that touches >N files (N=5 default) or crosses
        package boundaries; `write_file` under `/etc`.
      - **low**: everything else.
-   - Patterns come from `config.v2.riskGate.denyPatterns` and hardcoded defaults
-     merged.
+   - Patterns come from `config.detector.riskGate.denyPatterns` and hardcoded
+     defaults merged.
 2. Signal emission: `high` → `risk.pre_tool_high` sensor signal with
    `hardPrecision: true` and `precisionPrior: 0.95`. The confidence gate (§2a.2
-   rule 1) promotes it to a `SameTurnIntent` with
-   `reasonCode: V2_RISK_GATE_BLOCK` and `pauseBoundary: 'pre_tool'`.
+   rule 1) promotes it to a `SameTurnIntent` with `reasonCode: RISK_GATE_BLOCK`
+   and `pauseBoundary: 'pre_tool'`.
 3. Wire into observer: the risk sensor fires **before** tool execution, at the
    `ToolCallRequest` event boundary. Concretely, inside the
    `client.ts:1067–1092` for-await loop, when
@@ -603,7 +624,7 @@ should _always_ get a second opinion regardless of other signals.
 - `riskGate.test.ts` — pattern coverage for each classification level; arg
   shapes from both `shell` and `edit` tools.
 - `observer.test.ts` (extended) — observer produces a
-  `SameTurnIntent{ reasonCode: V2_RISK_GATE_BLOCK, pauseBoundary: 'pre_tool' }`
+  `SameTurnIntent{ reasonCode: RISK_GATE_BLOCK, pauseBoundary: 'pre_tool' }`
   synchronously when a high-risk `ToolCallRequest` is ingested, BEFORE any tool
   result event is seen.
 - `client.test.ts` (extended) — integration: a `rm -rf /tmp/*` tool request
@@ -613,7 +634,7 @@ should _always_ get a second opinion regardless of other signals.
 - `client.test.ts` — fail-open: advisor call throws → tool still executes, no
   exception escapes the turn loop.
 - `client.test.ts` — policy DENY on risk-gate path: advisor consultation denied
-  → tool still executes (I5); reason code `V2_RISK_GATE_BLOCK` and
+  → tool still executes (I5); reason code `RISK_GATE_BLOCK` and
   `advisorOutcome: 'denied'` in telemetry.
 - `client.test.ts` — single-shot guardrail (I11): two high-risk tool requests in
   the same turn → exactly one advisor invocation; second request's signal is
@@ -629,7 +650,7 @@ should _always_ get a second opinion regardless of other signals.
 
 ### B.6 Rollback
 
-Flip `v2.riskGate.enabled = false`. Fully independent from other phases.
+Flip `detector.riskGate.enabled = false`. Fully independent from other phases.
 
 ---
 
@@ -641,8 +662,8 @@ Flip `v2.riskGate.enabled = false`. Fully independent from other phases.
 already detects tool-call repetition (≥5 identical calls) and content chanting,
 plus a periodic LLM-based loop check (`LLM_CONFIDENCE_THRESHOLD = 0.9`). Today,
 when it fires, it emits `GeminiEventType.LoopDetected` and the turn halts
-(client.ts:999–1015, 1067–1097). Under v2, we want the same detection to
-escalate instead of (or in addition to) halting.
+(client.ts:999–1015, 1067–1097). We replace that silent halt with an
+advisor-in-the-loop same-turn consultation.
 
 ### C.2 Tasks
 
@@ -655,22 +676,18 @@ escalate instead of (or in addition to) halting.
    - When a loop is confirmed, emit signal `loop.hard_confirmed` with
      `hardPrecision: true`, `precisionPrior: 0.85`. The confidence gate (§2a.2
      rule 1) promotes it to a
-     `SameTurnIntent{ reasonCode: V2_HARD_LOOP, pauseBoundary: 'post_event' }`.
-3. Integrate in `client.ts:1067–1097`: when v2 is enabled AND the observer is
-   active AND `v2.timing.sameTurnEnabled=true`, a confirmed loop:
-   - Still raises the existing `GeminiEventType.LoopDetected` so v1 halt
-     behavior is unchanged (invariant I9 spirit — don't break v1 path).
-   - **Also** emits a `SameTurnIntent`. The current client halt path is replaced
-     under v2 by: pause → run advisor with the intent → inject advisor guidance
-     → resume with advisor-conditioned prompt. The turn is NOT silently dropped
-     anymore.
-   - If `v2.timing.sameTurnEnabled=false` (or advisor fails / is DENIED /
-     budget-capped), fall back to the legacy halt behavior AND queue a
+     `SameTurnIntent{ reasonCode: HARD_LOOP, pauseBoundary: 'post_event' }`.
+3. Integrate in `client.ts:1067–1097`: when `detector.observer.enabled` AND
+   `detector.timing.sameTurnEnabled`, a confirmed loop:
+   - Still raises the existing `GeminiEventType.LoopDetected` so the halt path
+     remains the safety net (do not break existing consumers of that event).
+   - **Also** emits a `SameTurnIntent`. Before the halt dispatch completes, the
+     client runs the same-turn handler: pause → advisor with the intent → inject
+     advisor guidance → resume with advisor-conditioned prompt. The turn is NOT
+     silently dropped anymore.
+   - If `sameTurnEnabled=false` OR the advisor call fails / is DENIED /
+     budget-capped, fall back to the existing halt behavior AND queue a
      `NextTurnIntent` so the user's next turn benefits from advisor help.
-4. Phase F consumes whichever intent was produced. Phase C ships with
-   `sameTurnEnabled=false` defaulted (so behavior is identical to the
-   pre-decision-note draft); Phase F flips the default to `true` with the
-   integration test coverage in place.
 
 ### C.3 Files touched
 
@@ -678,19 +695,18 @@ escalate instead of (or in addition to) halting.
   (non-invasive; no existing tests break).
 - `packages/core/src/pollux/observer/sensors/loopBridge.ts` (new)
 - `packages/core/src/pollux/observer/observer.ts` (wire sensor)
-- `packages/core/src/core/client.ts:1067–1097` — conditional observer hook under
-  `v2.observer.enabled`.
+- `packages/core/src/core/client.ts:1067–1097` — observer hook gated by
+  `detector.observer.enabled`.
 
 ### C.4 Tests
 
 - `loopBridge.test.ts` — bridge emits `loop.hard_confirmed` when service reports
   a loop, does not emit when idle.
-- `client.test.ts` — under v2 with `sameTurnEnabled=false` (Phase C default), a
-  loop-detected turn still halts AND queues a `NextTurnIntent` with
-  `reasonCode: V2_HARD_LOOP`.
-- `client.test.ts` — under v2 with `sameTurnEnabled=true` (exercised here to
-  unblock Phase F), a loop-detected turn pauses, invokes advisor, and resumes
-  with advisor guidance prepended. No silent drop.
+- `client.test.ts` — with `sameTurnEnabled=false`, a loop-detected turn still
+  halts AND queues a `NextTurnIntent` with `reasonCode: HARD_LOOP`.
+- `client.test.ts` — with `sameTurnEnabled=true`, a loop-detected turn pauses,
+  invokes the advisor, and resumes with advisor guidance prepended. No silent
+  drop.
 - `client.test.ts` — fail-open: `loopDetectionService.peekState()` throws →
   observer emits no signal; executor path unchanged.
 
@@ -700,13 +716,13 @@ escalate instead of (or in addition to) halting.
 - With `sameTurnEnabled=false`: loop detection halts exactly as today, and
   additionally queues a `NextTurnIntent` (purely additive).
 - With `sameTurnEnabled=true`: loop detection produces a `SameTurnIntent` that,
-  when consumed, replaces the silent halt with an advisor-in-the- loop
-  continuation. If advisor is unavailable (DENY / budget / throw), behavior
-  gracefully degrades to the legacy halt + `NextTurnIntent`.
+  when consumed, replaces the silent halt with an advisor-in-the-loop
+  continuation. If the advisor is unavailable (DENY / budget / throw), behavior
+  gracefully degrades to the existing halt + `NextTurnIntent`.
 
 ### C.6 Rollback
 
-Flip `v2.observer.enabled = false`.
+Flip `detector.observer.enabled = false`.
 
 ---
 
@@ -714,8 +730,8 @@ Flip `v2.observer.enabled = false`.
 
 ### D.1 Rationale
 
-This is the heart of v2: sensors that watch the executor's behavior _as it
-happens_ and feed a fusion layer.
+This is the heart of the redesign: sensors that watch the executor's behavior
+_as it happens_ and feed a fusion layer.
 
 ### D.2 Sensor contracts
 
@@ -873,7 +889,7 @@ Observer tests:
 
 ### D.11 Rollback
 
-Flip `v2.observer.enabled = false`.
+Flip `detector.observer.enabled = false`.
 
 ---
 
@@ -882,8 +898,8 @@ Flip `v2.observer.enabled = false`.
 ### E.1 Tasks
 
 1. **Prompt priming** (`core/prompts.ts`): when
-   `v2.selfReport.promptPrimingEnabled=true`, the core system prompt receives an
-   additional block:
+   `detector.selfReport.promptPrimingEnabled=true`, the core system prompt
+   receives an additional block:
 
    ```
    You may emit a structured status tag during reasoning, with this shape:
@@ -902,13 +918,13 @@ Flip `v2.observer.enabled = false`.
      `hardPrecision: true`. Fires when any parsed tag has a non-trivial
      `stuck_on` string (≥2 tokens, not in `{ 'nothing', 'n/a', 'no', 'none' }`).
      The confidence gate (§2a.2 rule 1) promotes it to a
-     `SameTurnIntent{ reasonCode: V2_SELF_REPORT_STUCK, pauseBoundary: 'post_event' }`.
+     `SameTurnIntent{ reasonCode: SELF_REPORT_STUCK, pauseBoundary: 'post_event' }`.
      The executor is literally asking for help — waiting for the next user turn
      would be absurd.
    - `self.confidence_low` — weight 2, precision 0.85, **not** `hardPrecision`.
      Asymmetric: fires only when `<pollux:confidence:N>` has N ≤ 3. High-N
      values are ignored (see brainstorm §1 Tier 3 rationale). Contributes to
-     composite score; can still promote to `V2_FUSION_COMPOSITE_EMPHATIC`
+     composite score; can still promote to `FUSION_COMPOSITE_EMPHATIC`
      (same-turn) if it stacks with another category.
 
 ### E.2 Files touched
@@ -937,41 +953,41 @@ Flip `v2.observer.enabled = false`.
 
 - No tag text ever reaches `ServerGeminiContentEvent` downstream consumers.
 - System prompt snapshot diff is human-reviewed.
-- Existing `pollux:confidence` behavior unchanged under v1.
+- Existing `pollux:confidence` behavior unchanged.
 
 ### E.5 Rollback
 
-Flip `v2.selfReport.enabled = false` (disables sensor and prompt priming).
+Flip `detector.selfReport.enabled = false` (disables sensor and prompt priming).
 
 ---
 
-## 11) Phase F — Full v2 detector composition
+## 11) Phase F — Full detector composition
 
 ### F.1 Tasks
 
-1. Add `PolluxDetectorStrategy.LIVE` (value `'live'`) alongside the existing
-   three strategies. Under `v1`, requesting `'live'` falls back to hybrid with a
-   deprecation log (mirrors existing hybrid-default behavior at
-   `client.ts:114–124`).
-2. Implement `createLiveDetector()` that:
-   - Runs all eligibility gates (surface, config, budget — same shape as
-     `isHeuristicPathEligible` et al.).
-   - Consumes the observer's **pending `NextTurnIntent`** from the previous
-     turn.
-   - If no pending intent, falls back to `createHybridDetector()` for backward
-     compatibility on first-turn scenarios (no observer history yet).
-3. Wire `buildPolluxDetector` in `client.ts:114` to include the new strategy.
-4. Implement the **split intent queue** on `GeminiClient`:
+1. Implement the observer-backed advisor consultation path in
+   `maybeRunPolluxAdvisorConsultation`:
+   - Run all eligibility gates (surface, config, budget — same shape as the
+     existing `isHeuristicPathEligible` et al. that still live in `detector.ts`
+     during the rollout window; Phase I relocates the helpers into
+     `observer/eligibility.ts`).
+   - Consume the observer's **pending `NextTurnIntent`** from the previous turn.
+     If present, run the advisor with that intent's reason code and
+     `escalationTiming='next_turn'`.
+   - If no pending intent, skip (no advisor call). First-turn and no-signal
+     scenarios are silent by design — the legacy detector's prompt-only
+     heuristic is replaced by §2a's hybrid policy plus the observer itself.
+2. Implement the **split intent queue** on `GeminiClient`:
    - `private polluxPendingNextTurnIntent?: NextTurnIntent` — the previous
      turn's queued next-turn help; consumed exactly once at the top of
      `maybeRunPolluxAdvisorConsultation` and cleared.
    - `private polluxPendingSameTurnIntent?: SameTurnIntent` — produced during
      the current turn by `observer.ingest(...)`; consumed synchronously by the
-     in-stream handler (see task 5) and cleared.
+     in-stream handler (see task 3) and cleared.
    - **Never** cross-wired: a same-turn intent is not silently demoted to the
      next-turn slot; downgrades go through the explicit guardrail path in
-     task 6.
-5. Implement the **in-stream same-turn handler** in `client.ts:1067–1092`:
+     task 4.
+3. Implement the **in-stream same-turn handler** in `client.ts:1067–1092`:
 
    ```ts
    // After each event dispatch, before the next iteration:
@@ -997,47 +1013,45 @@ Flip `v2.selfReport.enabled = false` (disables sensor and prompt priming).
    the `ToolCallRequest` is dispatched to the scheduler (see Phase B.B.2 step
    3).
 
-6. Implement the **guardrail chain** (§2a.4):
+4. Implement the **guardrail chain** (§2a.4):
    - Single-shot flag `sameTurnFiredThisTurn` on `GeminiClient`, reset at
      `processTurn` entry.
    - When the observer would produce a same-turn intent but
      `sameTurnFiredThisTurn === true`, **or**
-     `v2.timing.sameTurnEnabled === false`, **or**
+     `detector.timing.sameTurnEnabled === false`, **or**
      `checkAdvisorInvocationBudget` would reject, it produces a `NextTurnIntent`
      instead (downgrade path). Reason code is preserved; only `timing` and
-     `pauseBoundary` change. A `POLLUX_ESCALATION_TIMING` lookup at the _payload
-     emission_ site still reports `escalationTiming: 'next_turn'` per the
-     downgraded intent — the map is indexed by intent.timing, not by reason code
-     alone, so downgraded emphatic composites are faithfully reported.
+     `pauseBoundary` change. The payload's `escalationTiming` is taken from the
+     resolved intent's `timing` field — not from the reason code — so downgraded
+     emphatic composites are faithfully reported as `next_turn`.
    - Advisor consultation errors / DENY → fail-open, executor continues, no
      re-entry.
 
-7. Implement the **fusion same-turn promotion** in `observer/fusion.ts`:
+5. Implement the **fusion same-turn promotion** in `observer/fusion.ts`:
    - Existing composite-evidence check continues to run.
    - If
      `netScore ≥ max(threshold × sameTurnThresholdMultiplier, sameTurnAbsoluteFloor)`
      AND composite satisfied AND `sameTurnEnabled`, reason code is
-     `V2_FUSION_COMPOSITE_EMPHATIC`, `timing: 'same_turn'`,
+     `FUSION_COMPOSITE_EMPHATIC`, `timing: 'same_turn'`,
      `pauseBoundary: 'post_event'`.
-   - Otherwise, if `netScore ≥ threshold`, reason code is `V2_FUSION_COMPOSITE`,
+   - Otherwise, if `netScore ≥ threshold`, reason code is `FUSION_COMPOSITE`,
      `timing: 'next_turn'`.
 
-8. Emit telemetry attribution: `PolluxAdvisorPhasePayload` carries
-   `detectorVersion`, `escalationTiming`, and `contributingSignalIds` for every
-   v2 emission (see §A.7 in Phase A).
+6. Emit telemetry attribution: `PolluxAdvisorPhasePayload` carries
+   `escalationTiming`, `pauseBoundary` (same-turn only),
+   `contributingSignalIds`, and `sameTurnDowngraded` for every escalation
+   emission (see §6.A.1 task 7).
 
 ### F.2 Files touched
 
-- `packages/core/src/pollux/types.ts` (enum addition)
-- `packages/core/src/pollux/detector.ts` (live detector factory + shared
-  eligibility helper)
-- `packages/core/src/core/client.ts:114, 985, 719–891` (build + consume intent)
+- `packages/core/src/pollux/types.ts` (telemetry map, if any last tweaks)
+- `packages/core/src/pollux/observer/**` (consumption surface)
+- `packages/core/src/core/client.ts:114, 985, 719–891, 1067–1092` (intent queue,
+  in-stream handler, next-turn consumption)
 - `packages/core/src/utils/events.ts:199–204` (payload delta)
 
 ### F.3 Tests
 
-- `detector.test.ts` — parity tests for `createLiveDetector`: eligibility gates
-  return same codes as v1 for disabled/surface/budget.
 - `client.test.ts` — **next-turn lifecycle**: soft-composite signals → observer
   queues `NextTurnIntent` → next turn advisor consulted with correct reason
   code + `escalationTiming: 'next_turn'` → budget counter increments.
@@ -1046,7 +1060,7 @@ Flip `v2.selfReport.enabled = false` (disables sensor and prompt priming).
   `SameTurnIntent{ pauseBoundary: 'pre_tool' }` → advisor invoked BEFORE tool
   scheduler → advisor output injected → tool scheduler called afterwards →
   telemetry shows `escalationTiming: 'same_turn'`,
-  `reasonCode: V2_RISK_GATE_BLOCK`.
+  `reasonCode: RISK_GATE_BLOCK`.
 - `client.test.ts` — **same-turn lifecycle (hard loop)**: confirmed loop
   mid-stream → advisor invoked in-turn → turn resumes with advisor guidance (no
   silent drop).
@@ -1055,7 +1069,7 @@ Flip `v2.selfReport.enabled = false` (disables sensor and prompt priming).
   event boundary → `escalationTiming: 'same_turn'`.
 - `client.test.ts` — **emphatic composite**: stacked soft signals with
   `netScore ≥ sameTurnThreshold` produce a `SameTurnIntent` with
-  `reasonCode: V2_FUSION_COMPOSITE_EMPHATIC`.
+  `reasonCode: FUSION_COMPOSITE_EMPHATIC`.
 - `client.test.ts` — **single-shot guardrail (I11)**: two same-turn qualifying
   signals in one turn → exactly one advisor invocation; the second signal
   appears as a `NextTurnIntent` in the next turn's payload.
@@ -1068,21 +1082,23 @@ Flip `v2.selfReport.enabled = false` (disables sensor and prompt priming).
   path) still executes.
 - `client.test.ts` — **budget cap downgrade (I6)**: budget exhausted at
   same-turn trigger time → intent downgraded to `NextTurnIntent`; telemetry
-  reflects `escalationTiming: 'next_turn'`.
+  reflects `escalationTiming: 'next_turn'` and `sameTurnDowngraded: true`.
 - `client.test.ts` — **observer throws mid-stream (I3)**: no escalation queued
   or fired; no regression in executor path.
-- `client.test.ts` — **kill switch**: `v2.timing.sameTurnEnabled=false` → all
-  same-turn-eligible signals become `NextTurnIntent`; no mid-turn advisor
+- `client.test.ts` — **kill switch**: `detector.timing.sameTurnEnabled=false` →
+  all same-turn-eligible signals become `NextTurnIntent`; no mid-turn advisor
   invocations.
 
 ### F.4 Acceptance criteria
 
-- All TG-1..10 tests pass under `detectorVersion='v2'`.
+- All TG-1..10 tests pass under the redesigned detector.
 - Invariants I1–I9 verified.
 
 ### F.5 Rollback
 
-Flip `detectorVersion='v1'`.
+Flip `detector.observer.enabled = false` and `detector.riskGate.enabled = false`
+(revert to legacy detector path). The legacy `detector.ts` and its tests are
+still live until Phase I.
 
 ---
 
@@ -1132,13 +1148,13 @@ Revert PR. No behavior depends on these events yet.
 
 ---
 
-## 13) Phase H — v2 calibration and benchmark
+## 13) Phase H — Calibration corpus and benchmark
 
-### H.1 V2 corpus (`observer/calibrationV2.ts`)
+### H.1 Scripted-trace corpus (`observer/calibration.ts`)
 
-The v1 corpus (21 string-based entries in `calibration.ts`) is inadequate for
-stream-based sensors because it has no temporal dimension. The v2 corpus is a
-set of **scripted event traces**:
+The legacy corpus (21 string-based entries in `pollux/calibration.ts`) is
+inadequate for stream-based sensors because it has no temporal dimension. The
+redesigned corpus is a set of **scripted event traces**:
 
 ```ts
 export interface CalibrationTraceEntry {
@@ -1162,7 +1178,7 @@ and each negative signal.
 
 ### H.2 Metrics
 
-For every detector version × corpus run, compute:
+Per corpus run, compute:
 
 - Precision = TP / (TP + FP)
 - Recall = TP / (TP + FN)
@@ -1170,25 +1186,29 @@ For every detector version × corpus run, compute:
 - False-positive rate per category (thought / tool / self)
 - Mean contributing-signal count on escalations
 
-Report template: `docs/core/pollux/P4-07_DETECTOR_V2_CALIBRATION_REPORT.md`
-(new, modeled on P3-05).
+Report template: `docs/core/pollux/P4-07_DETECTOR_CALIBRATION_REPORT.md` (new,
+modeled on P3-05). P3-05 stays linked as historical context for the legacy
+string-corpus era, but the active tuning guide is the new report.
 
 ### H.3 Benchmark condition F
 
 Add to `POLLUX_SPEC.md §10.1`:
 
-| ID  | Executor | Advisor | Strategy  |
-| --- | -------- | ------- | --------- |
-| F   | Flash    | Pro     | Live (v2) |
+| ID  | Executor | Advisor | Notes                                   |
+| --- | -------- | ------- | --------------------------------------- |
+| F   | Flash    | Pro     | Redesigned detector — observer + fusion |
 
 Run under the same fairness pins as A-E (POLLUX_SPEC §10.2). Required metrics
-are identical (§10.4).
+are identical (§10.4). A side-by-side entry against the legacy detector is
+optional in this phase; Phase I deletes the legacy path so that comparison has
+no long-term value.
 
 ### H.4 Acceptance criteria
 
-- V2 F1 ≥ v1 F1 on a shared task set (chosen from the existing benchmark corpus,
-  `packages/core/src/pollux/benchmark/tasks.ts`).
-- V2 precision on the true-negative corpus ≥ 0.90. (This is the bill-saving
+- Redesigned detector F1 ≥ legacy detector F1 on a shared task set (chosen from
+  the existing benchmark corpus, `packages/core/src/pollux/benchmark/tasks.ts`).
+  This is the functionality-parity metric.
+- Precision on the true-negative corpus ≥ 0.90. (This is the bill-saving
   metric.)
 
 ### H.5 Rollback
@@ -1197,34 +1217,90 @@ Calibration corpus is a test artifact; revert PR.
 
 ---
 
-## 14) Phase I — Default flip
+## 14) Phase I — Delete the legacy detector
+
+This is the cleanup phase. Once phases A–F (minimum) have landed and all the
+observer-backed paths are green in CI, the legacy detector and its supporting
+surface are deleted outright. There is no deprecation window because Pollux is
+still experimental and has no external contract to honor.
 
 ### I.1 Preconditions
 
 Every single one must hold:
 
-- Phases A-H merged.
-- Invariants I1-I9 verified in CI on every PR.
-- V2 F1 ≥ v1 F1 AND V2 precision ≥ 0.90 on the true-negative corpus.
-- TG-1..10 green under `detectorVersion='v2'`.
-- At least 2 weeks of `emitAdvisorDebug=true` runs by the working group with no
+- Phases A–F merged. Phases G–H merged or landing in the same PR window.
+- Invariants I1–I8, I10, I11 verified in CI on every PR. I9 (legacy detector
+  callable) is about to be retired — this phase is what retires it.
+- Redesigned F1 ≥ legacy F1 AND precision ≥ 0.90 on the true-negative corpus
+  (Phase H evidence).
+- TG-1..10 green on the redesigned detector.
+- At least 1 week of `emitAdvisorDebug=true` runs by the working group with no
   fail-open storms.
 
 ### I.2 Tasks
 
-1. Change `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detectorVersion` to `'v2'`.
-2. Update `POLLUX_SPEC.md` §7.5 (newly added section) to make v2 the primary
-   contract; move v1 into an appendix with deprecation notice.
-3. Update `P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md` to link the v2 report
-   as the active tuning guide.
-4. Add a `debugLogger` startup line when `detectorVersion` was explicitly set to
-   `v1` (migration aid).
-5. Announce deprecation timeline for v1: remove in +2 minor releases.
+1. **Delete code**:
+   - `packages/core/src/pollux/detector.ts`
+   - `packages/core/src/pollux/detector.test.ts`
+   - `packages/core/src/pollux/calibration.ts` (legacy string corpus)
+   - `packages/core/src/pollux/calibration.test.ts`
+   - `PolluxDetectorStrategy` enum and all its values (`HEURISTIC`,
+     `STRUCTURED`, `HYBRID`) from `pollux/types.ts`.
+   - `strategy` and `confidenceThreshold` fields from
+     `PolluxExperimentalConfig`, `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG`, and
+     `mergePolluxExperimentalConfig`.
+   - `PolluxEscalationReasonCode` entries that only the legacy detector emitted
+     (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) and their
+     `POLLUX_ESCALATION_TIMING` entries.
+   - `strategy` / `confidenceThreshold` entries from the CLI schema
+     (`packages/cli/src/config/settingsSchema.ts`).
+   - Any `buildPolluxDetector` / `createHeuristicDetector` /
+     `createStructuredDetector` / `createHybridDetector` entry points in
+     `client.ts` and their call sites.
+2. **Migrate eligibility helpers**: move `isHeuristicPathEligible` (and
+   siblings) from `detector.ts` into `observer/eligibility.ts` — they still gate
+   the observer path.
+3. **Update docs**:
+   - `POLLUX_SPEC.md` §7 — remove references to `strategy`, the three legacy
+     strategy names, and `confidenceThreshold`. §7.5 becomes the canonical
+     detector contract.
+   - `docs/core/pollux/DETECTOR_REDESIGN_BRAINSTORM.md` — mark as historical
+     background; point to this plan (post-rename) as the live contract.
+   - `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md` — archive
+     with a "superseded by P4-07" header.
+   - `docs/reference/configuration.md` — drop legacy field references.
+4. **Update tests**: rewrite any `detector.test.ts`-adjacent tests that still
+   reference the deleted surface (there shouldn't be any if I9 was honored;
+   `grep -r` to confirm).
+5. **Settings migration**: settings files in the wild that still carry
+   `experimental.pollux.strategy` / `confidenceThreshold` should be silently
+   ignored by `mergePolluxExperimentalConfig` (no schema complaint, no debug
+   log) — fields simply stop existing. This is acceptable because the whole
+   feature is experimental; there are no users to migrate.
 
-### I.3 Rollback
+### I.3 Tests
 
-Revert the default flip PR. Because users can still set `detectorVersion='v1'`
-explicitly, this is a simple flag change, not a code removal.
+- Full CI green with **zero** references to the deleted symbols. A dedicated
+  `grep` guard in CI (simple script in `scripts/`) asserts no file under
+  `packages/` or `docs/` contains `PolluxDetectorStrategy`, `HEURISTIC_MATCH`,
+  `STRUCTURED_TAG`, `HYBRID_RESOLUTION`, `detector.ts` imports, etc.
+- All TG-1..10 rows still pass on the redesigned detector.
+- Invariant I9 row is removed from §2.
+
+### I.4 Acceptance criteria
+
+- `git diff --stat` shows net deletion in `packages/core/src/pollux/` (several
+  thousand lines removed, offset only by the small migration in
+  `observer/eligibility.ts`).
+- CI green.
+- No external user was ever exposed to the deleted surface (verified by
+  changelog review — Pollux has never been on-by-default).
+
+### I.5 Rollback
+
+Revert the deletion PR. Because the observer surface is self-contained and the
+legacy `detector.ts` was pure (fail-open) code with no runtime state beyond the
+eligibility helpers, restoring it is a clean revert.
 
 ---
 
@@ -1236,28 +1312,29 @@ explicitly, this is a simple flag change, not a code removal.
 | ---------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | Pure sensor units      | `observer/sensors/**.test.ts`                                          | 100% of detection rules (positive + negative + fail-open)             |
 | Fusion logic           | `observer/fusion.test.ts`                                              | Composite gate, decay, auto-calibration, negative signals             |
-| Observer orchestration | `observer/observer.test.ts`                                            | Invariant I1, I3, I4                                                  |
-| Detector integration   | `detector.test.ts` (extended)                                          | `createLiveDetector` parity, eligibility gates                        |
+| Observer orchestration | `observer/observer.test.ts`                                            | Invariants I1, I3, I4                                                 |
+| Eligibility helpers    | `observer/eligibility.test.ts` (Phase I; migrated from detector.test)  | Surface, config, budget gate parity                                   |
 | Client wiring          | `client.test.ts` (extended)                                            | Intent queue, fail-open under sensor exception, policy gate unchanged |
 | Cross-surface          | `acpClient.test.ts`, `a2a-server/**/task.test.ts`, agent session tests | Invariant I7                                                          |
-| Calibration            | `observer/calibrationV2.test.ts` (new)                                 | ≥60 traces, deterministic results                                     |
+| Calibration            | `observer/calibration.test.ts` (new, replaces legacy in Phase I)       | ≥60 traces, deterministic results                                     |
 | Schema                 | `packages/cli/src/config/settingsSchema.test.ts`                       | Schema-config invariant (POLLUX_SPEC §8.4)                            |
-| Telemetry              | `uiTelemetry.test.ts` (extended), `telemetryReconciliation.test.ts`    | Token reconciliation with v2 signals                                  |
+| Telemetry              | `uiTelemetry.test.ts` (extended), `telemetryReconciliation.test.ts`    | Token reconciliation with observer signals                            |
 
-### 15.2 TG additions for v2 PRs
+### 15.2 TG additions
 
 Add rows to the PR template in
 `docs/core/pollux/P0-07_IMPLEMENTATION_PR_TEMPLATE_TG_MAPPING.md`:
 
-| Gate  | Author requirement                                                      | Reviewer check                                                                                                          |
-| ----- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| TG-11 | V2 observer fail-open evidence attached                                 | Assert sensor exception does not abort stream                                                                           |
-| TG-12 | V2 risk-gate precision evidence attached                                | Review seeded dangerous/benign command set                                                                              |
-| TG-13 | V2 calibration report attached                                          | Precision ≥ 0.90 on true-negative corpus                                                                                |
-| TG-14 | V2 timing-contract evidence attached (same-turn tests named in §11.F.3) | Assert §2a.3 trigger matrix is honored by tests; advisor invoked BEFORE `rm -rf` executes; single-shot guardrail proven |
-| TG-15 | V2 fail-open evidence for same-turn path attached                       | Policy DENY / budget cap / observer throw during same-turn path all resume executor untouched                           |
+| Gate  | Author requirement                                                   | Reviewer check                                                                                                          |
+| ----- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| TG-11 | Observer fail-open evidence attached                                 | Assert sensor exception does not abort stream                                                                           |
+| TG-12 | Risk-gate precision evidence attached                                | Review seeded dangerous/benign command set                                                                              |
+| TG-13 | Calibration report attached                                          | Precision ≥ 0.90 on true-negative corpus                                                                                |
+| TG-14 | Timing-contract evidence attached (same-turn tests named in §11.F.3) | Assert §2a.3 trigger matrix is honored by tests; advisor invoked BEFORE `rm -rf` executes; single-shot guardrail proven |
+| TG-15 | Fail-open evidence for same-turn path attached                       | Policy DENY / budget cap / observer throw during same-turn path all resume executor untouched                           |
 
-Update TG-1..10 rows where v2 changes the expected evidence shape.
+Update TG-1..10 rows where the redesigned detector changes the expected evidence
+shape.
 
 ### 15.3 Timing-matrix test (MANDATORY)
 
@@ -1272,26 +1349,28 @@ is how invariant I10 is enforced in CI.
 
 ### 16.1 New reason codes
 
-Added in `PolluxEscalationReasonCode` (phase A). Timing column is canonical per
+Added in `PolluxEscalationReasonCode` (Phase A). Timing column is canonical per
 §2a.3 and enforced by invariant I10.
 
-| Code                           | Timing        | Meaning                                                                           |
-| ------------------------------ | ------------- | --------------------------------------------------------------------------------- |
-| `V2_LIVE_OBSERVER_MATCH`       | next_turn     | Fusion layer produced a score above the auto-calibrated threshold                 |
-| `V2_FUSION_COMPOSITE`          | next_turn     | Composite-evidence rule satisfied (≥2 categories), netScore below same-turn floor |
-| `V2_FUSION_COMPOSITE_EMPHATIC` | **same_turn** | Composite satisfied AND netScore ≥ same-turn threshold (§2a.2 rule 2)             |
-| `V2_FUSION_BUDGET_TARGET`      | next_turn     | Auto-calibrator lowered threshold to hit target escalation rate                   |
-| `V2_RISK_GATE_BLOCK`           | **same_turn** | Hard-precision risk signal; pre-tool pause                                        |
-| `V2_HARD_LOOP`                 | **same_turn** | LoopDetectionService bridge fired; post-event pause                               |
-| `V2_SELF_REPORT_STUCK`         | **same_turn** | Non-trivial `<pollux:status stuck_on>`; post-event pause                          |
+| Code                        | Timing        | Meaning                                                                           |
+| --------------------------- | ------------- | --------------------------------------------------------------------------------- |
+| `LIVE_OBSERVER_MATCH`       | next_turn     | Fusion layer produced a score above the auto-calibrated threshold                 |
+| `FUSION_COMPOSITE`          | next_turn     | Composite-evidence rule satisfied (≥2 categories), netScore below same-turn floor |
+| `FUSION_COMPOSITE_EMPHATIC` | **same_turn** | Composite satisfied AND netScore ≥ same-turn threshold (§2a.2 rule 2)             |
+| `FUSION_BUDGET_TARGET`      | next_turn     | Auto-calibrator lowered threshold to hit target escalation rate                   |
+| `RISK_GATE_BLOCK`           | **same_turn** | Hard-precision risk signal; pre-tool pause                                        |
+| `HARD_LOOP`                 | **same_turn** | LoopDetectionService bridge fired; post-event pause                               |
+| `SELF_REPORT_STUCK`         | **same_turn** | Non-trivial `<pollux:status stuck_on>`; post-event pause                          |
+
+Legacy codes (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) remain
+in the enum during the rollout window (I9) and are deleted in Phase I.
 
 ### 16.2 Event payload additions
 
-- `PolluxAdvisorPhasePayload.detectorVersion: 'v1' | 'v2'`
 - `PolluxAdvisorPhasePayload.escalationTiming?: 'same_turn' | 'next_turn'` —
-  REQUIRED for every v2 escalation emission. Derived from the consumed intent's
-  `timing` field (not from the reason code alone, so downgrades are reported
-  faithfully).
+  REQUIRED for every observer-backed escalation emission. Derived from the
+  consumed intent's `timing` field (not from the reason code alone, so
+  downgrades are reported faithfully).
 - `PolluxAdvisorPhasePayload.pauseBoundary?: 'pre_tool' | 'post_event'` —
   present only when `escalationTiming='same_turn'`.
 - `PolluxAdvisorPhasePayload.contributingSignalIds?: readonly string[]`
@@ -1301,13 +1380,13 @@ Added in `PolluxEscalationReasonCode` (phase A). Timing column is canonical per
 
 ### 16.3 Debug logging
 
-When `emitAdvisorDebug=true` AND v2 is active, every escalation decision logs
-with explicit timing:
+When `emitAdvisorDebug=true`, every escalation decision logs with explicit
+timing:
 
 ```
-Pollux v2 escalate: timing=same_turn reason=V2_RISK_GATE_BLOCK pauseBoundary=pre_tool signals=[risk.pre_tool_high] tool=run_shell_command
-Pollux v2 escalate: timing=next_turn reason=V2_FUSION_COMPOSITE netScore=2.4 threshold=2.1 signals=[tool.failure_cascade,thought.subject_loop]
-Pollux v2 downgrade: intended=same_turn (V2_FUSION_COMPOSITE_EMPHATIC) effective=next_turn cause=single_shot_guardrail
+Pollux escalate: timing=same_turn reason=RISK_GATE_BLOCK pauseBoundary=pre_tool signals=[risk.pre_tool_high] tool=run_shell_command
+Pollux escalate: timing=next_turn reason=FUSION_COMPOSITE netScore=2.4 threshold=2.1 signals=[tool.failure_cascade,thought.subject_loop]
+Pollux downgrade: intended=same_turn (FUSION_COMPOSITE_EMPHATIC) effective=next_turn cause=single_shot_guardrail
 ```
 
 Mirrored for `skipped` outcomes with the dominant _negative_ signal named.
@@ -1320,19 +1399,20 @@ Existing sinks carry everything. No new sinks (POLLUX_SPEC §9.3 prohibition).
 
 ## 17) Rollout and rollback
 
-| Stage            | Audience                | Flag state                                               |
-| ---------------- | ----------------------- | -------------------------------------------------------- |
-| Internal dogfood | Working group only      | `detectorVersion='v2'` in repo `~/.gemini/settings.json` |
-| Opt-in preview   | External users via docs | Default still `v1`; docs recommend trying `v2`           |
-| Default flip     | All users               | Phase I                                                  |
-| V1 removal       | +2 minor releases       | Delete v1 detectors                                      |
+| Stage                | Audience   | Flag state                                                                               |
+| -------------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| Internal scaffolding | Phases A–C | Individual subsystem `enabled` flags true in repo `~/.gemini/settings.json` per phase    |
+| Internal dogfood     | Phases D–F | All `detector.*.enabled` flags true for working group                                    |
+| Calibration run      | Phase H    | Same as dogfood + Phase H benchmark pin                                                  |
+| Legacy deletion      | Phase I    | Legacy detector code removed; no per-user migration needed (all `detector.*` flags stay) |
 
-Each stage has one required artifact: a run report attached to the phase PR (or
-a follow-up report PR for the default flip), with TG evidence and at least 100
-completed turns of `emitAdvisorDebug=true` logs summarized.
+Each phase has one required artifact: a run report attached to the phase PR,
+with TG evidence and at least 100 completed turns of `emitAdvisorDebug=true`
+logs summarized (scaled down for phases A–C, which emit fewer signals).
 
-Rollback at every stage is **flag-level** — no code revert required until v1
-removal.
+Rollback until Phase I is **flag-level** — flip the relevant
+`detector.<subsystem>.enabled` back to `false`. Rollback of Phase I is a
+deletion revert (the legacy detector's git history is preserved).
 
 ---
 
@@ -1341,7 +1421,7 @@ removal.
 | #   | Risk / question                                                                                | Mitigation                                                                                                                                                                          | Resolve by |
 | --- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
 | R1  | Observer hot-path perf regression                                                              | Perf benchmark in CI; target <5ms per 50-event turn                                                                                                                                 | Phase D    |
-| R2  | Cross-surface parity drift under v2                                                            | Reuse `P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md` test surface                                                                                                                      | Phase F    |
+| R2  | Cross-surface parity drift after the redesign lands                                            | Reuse `P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md` test surface                                                                                                                      | Phase F    |
 | R3  | Sensor exception cascades (memory leak via bounded buffers?)                                   | Bounded windows + fail-open + dedicated test                                                                                                                                        | Phase D    |
 | R4  | Prompt priming destabilizes the executor (new tag confuses small models)                       | A/B test at phase E with `promptPrimingEnabled=false`                                                                                                                               | Phase E    |
 | R5  | Auto-calibrator oscillation (threshold too reactive)                                           | Use quantile over rolling window of 200 turns, not EMA                                                                                                                              | Phase D    |
@@ -1351,17 +1431,17 @@ removal.
 | R9  | Advisor latency blows up perceived responsiveness on same-turn path                            | Surface an `awaiting-advisor` UI hint (reuses existing advisor-running indicator); record `advisorSameTurnLatencyMs` in telemetry; hard cap via existing advisor timeout            | Phase F    |
 | R10 | Pre-tool pause race: tool starts before advisor returns                                        | Observer evaluation is synchronous on the `ToolCallRequest` event dispatch; advisor invocation awaited before tool scheduler receives the call (dedicated ordering test in §11.F.3) | Phase B/F  |
 | Q1  | Do we persist observer state across CLI restarts?                                              | Default no; phase G can revisit                                                                                                                                                     |            |
-| Q2  | Should `tool.search_without_decide` also consume IDE-context signals (e.g. open file changes)? | Defer to v2.1                                                                                                                                                                       |            |
-| Q3  | Policy engine DENY on advisor — should v2 try a fallback critic?                               | Explicitly no; preserves I5                                                                                                                                                         |            |
-| Q4  | Should user-facing "ask advisor now" button map to `V2_USER_REQUEST`?                          | Reserved, out of scope for v2.0; mentioned in §2a.2 rule 3                                                                                                                          |            |
+| Q2  | Should `tool.search_without_decide` also consume IDE-context signals (e.g. open file changes)? | Defer to a follow-up plan                                                                                                                                                           |            |
+| Q3  | Policy engine DENY on advisor — should the detector try a fallback critic?                     | Explicitly no; preserves I5                                                                                                                                                         |            |
+| Q4  | Should user-facing "ask advisor now" button map to `USER_REQUEST`?                             | Reserved, out of scope for this plan; mentioned in §2a.2 rule 3                                                                                                                     |            |
 
 ---
 
 ## 19) References
 
-- `packages/core/src/pollux/detector.ts` — v1 detector (baseline)
-- `packages/core/src/pollux/types.ts:47–59` — existing reason codes and config
-  shape
+- `packages/core/src/pollux/detector.ts` — legacy detector (deleted in Phase I)
+- `packages/core/src/pollux/types.ts` — existing reason codes and config shape
+  (the `detector` subtree is added in Phase A; legacy fields deleted in Phase I)
 - `packages/core/src/pollux/safeguards.ts:40–71` — budget check
 - `packages/core/src/pollux/prompts.ts` — existing tag parsers
 - `packages/core/src/core/client.ts:985` — advisor consultation seam
@@ -1398,7 +1478,7 @@ export class LiveExecutorObserver {
   private pendingNextTurn: NextTurnIntent | undefined;
   private sameTurnFiredThisTurn = false;
 
-  constructor(config: PolluxV2Config, sensors: readonly Sensor[]) {
+  constructor(config: PolluxDetectorConfig, sensors: readonly Sensor[]) {
     /* ... */
   }
 
@@ -1579,11 +1659,12 @@ this.polluxPendingNextTurnIntent = this.polluxObserver?.finalizeTurn(
 Next-turn consumption at the top of `maybeRunPolluxAdvisorConsultation`:
 
 ```ts
-if (experimental.detectorVersion === 'v2' && !triggerFromSameTurn) {
+if (!triggerFromSameTurn) {
   const intent = this.polluxObserver?.consumePendingNextTurnIntent();
   if (intent) {
-    // bypass detector.shouldEscalate; run advisor with
-    // intent.reasonCode and escalationTiming='next_turn'
+    // Run advisor with intent.reasonCode and escalationTiming='next_turn'.
+    // No legacy shouldEscalate call; the observer is the only source of
+    // escalation intents after Phase F.
   }
 }
 ```
@@ -1643,11 +1724,11 @@ sameTurnThreshold = max(threshold * sameTurnThresholdMultiplier,
 if sameTurnEnabled and net >= sameTurnThreshold:
   // §2a.2 rule 2: emphatic composite, same-turn.
   return ESCALATE(timing=same_turn,
-                  reason=V2_FUSION_COMPOSITE_EMPHATIC,
+                  reason=FUSION_COMPOSITE_EMPHATIC,
                   pauseBoundary=post_event,
                   net, threshold)
 
 return ESCALATE(timing=next_turn,
-                reason=V2_FUSION_COMPOSITE,
+                reason=FUSION_COMPOSITE,
                 net, threshold)
 ```

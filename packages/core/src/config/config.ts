@@ -87,6 +87,7 @@ import {
 import {
   mergePolluxExperimentalConfig,
   type PolluxExperimentalConfig,
+  type PolluxExperimentalConfigMergeInput,
 } from '../pollux/types.js';
 import { shouldAttemptBrowserLaunch } from '../utils/browser.js';
 import type { MCPOAuthConfig } from '../mcp/oauth-provider.js';
@@ -710,7 +711,7 @@ export interface ConfigParameters {
   memoryBoundaryMarkers?: string[];
   topicUpdateNarration?: boolean;
   /** Resolved Pollux settings; partial values are merged in the Config constructor. */
-  pollux?: Partial<PolluxExperimentalConfig>;
+  pollux?: PolluxExperimentalConfigMergeInput;
 
   disableLLMCorrection?: boolean;
   plan?: boolean;

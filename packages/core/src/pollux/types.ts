@@ -41,23 +41,10 @@ export type PolluxDetectorStrategy =
   (typeof PolluxDetectorStrategy)[keyof typeof PolluxDetectorStrategy];
 
 /**
- * Which detector pipeline runs (`experimental.pollux.detectorVersion`).
- * @see docs/core/pollux/DETECTOR_V2_IMPLEMENTATION_PLAN.md §4
+ * Live observer + fusion configuration (`experimental.pollux.detector`).
+ * @see docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md §4
  */
-export const PolluxDetectorVersion = {
-  V1: 'v1',
-  V2: 'v2',
-} as const;
-
-export type PolluxDetectorVersion =
-  (typeof PolluxDetectorVersion)[keyof typeof PolluxDetectorVersion];
-
-/**
- * Opt-in subtree for live observer + fusion (v2). Merge defaults and
- * `PolluxExperimentalConfig` wiring ship in a follow-up task.
- */
-export interface PolluxV2Config {
-  readonly enabled: boolean;
+export interface PolluxDetectorConfig {
   readonly riskGate: {
     readonly enabled: boolean;
     readonly mode: 'allowlist' | 'blocklist';
@@ -85,6 +72,25 @@ export interface PolluxV2Config {
     readonly maxSameTurnEscalationsPerTurn: number;
   };
 }
+
+export const DEFAULT_POLLUX_DETECTOR_CONFIG = {
+  riskGate: { enabled: false, mode: 'blocklist', denyPatterns: [] },
+  observer: {
+    enabled: false,
+    maxThoughtWindowChars: 16384,
+    maxToolEventWindow: 64,
+    decayHalfLifeMs: 15000,
+  },
+  selfReport: { enabled: false, promptPrimingEnabled: false },
+  fusion: {
+    targetEscalationRate: 0.05,
+    requireComposite: true,
+    lowPrecisionFloor: 0.5,
+    sameTurnThresholdMultiplier: 1.5,
+    sameTurnAbsoluteFloor: 3.5,
+  },
+  timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+} as const satisfies PolluxDetectorConfig;
 
 /**
  * Deterministic, stable reason tokens for escalation decisions (POLLUX_SPEC §7.2).
@@ -136,7 +142,24 @@ export interface PolluxExperimentalConfig {
    * P1-07; enforced by runtime integration in later phases.
    */
   readonly advisorRequestTimeoutMs: number;
+  readonly detector: PolluxDetectorConfig;
 }
+
+/** Deep-partial merge input for `experimental.pollux.detector` (settings JSON). */
+export type PolluxDetectorConfigMergeInput = Partial<{
+  riskGate: Partial<PolluxDetectorConfig['riskGate']>;
+  observer: Partial<PolluxDetectorConfig['observer']>;
+  selfReport: Partial<PolluxDetectorConfig['selfReport']>;
+  fusion: Partial<PolluxDetectorConfig['fusion']>;
+  timing: Partial<PolluxDetectorConfig['timing']>;
+}>;
+
+/** Merge input for `experimental.pollux` including nested detector overrides. */
+export type PolluxExperimentalConfigMergeInput = Partial<
+  Omit<PolluxExperimentalConfig, 'detector'>
+> & {
+  detector?: PolluxDetectorConfigMergeInput;
+};
 
 /**
  * Phase 1 default feature flag: Pollux off for baseline-identical behavior
@@ -153,7 +176,101 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   confidenceThreshold: 6,
   emitAdvisorDebug: false,
   advisorRequestTimeoutMs: 120_000,
+  detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
 } as const satisfies PolluxExperimentalConfig;
+
+function mergePolluxDetectorConfig(
+  partial: PolluxDetectorConfigMergeInput | undefined,
+): PolluxDetectorConfig {
+  const d = DEFAULT_POLLUX_DETECTOR_CONFIG;
+  const p = partial;
+  const risk = p?.riskGate;
+  const mode =
+    risk?.mode === 'allowlist' || risk?.mode === 'blocklist'
+      ? risk.mode
+      : d.riskGate.mode;
+  const denyPatterns =
+    Array.isArray(risk?.denyPatterns) &&
+    risk.denyPatterns.every((x) => typeof x === 'string')
+      ? Object.freeze([...risk.denyPatterns])
+      : d.riskGate.denyPatterns;
+
+  const obs = p?.observer;
+  const self = p?.selfReport;
+  const fusion = p?.fusion;
+  const timing = p?.timing;
+
+  return {
+    riskGate: {
+      enabled: risk?.enabled ?? d.riskGate.enabled,
+      mode,
+      denyPatterns,
+    },
+    observer: {
+      enabled: obs?.enabled ?? d.observer.enabled,
+      maxThoughtWindowChars: Math.max(
+        1024,
+        polluxFiniteNumber(
+          obs?.maxThoughtWindowChars,
+          d.observer.maxThoughtWindowChars,
+        ),
+      ),
+      maxToolEventWindow: Math.max(
+        1,
+        polluxFiniteNumber(
+          obs?.maxToolEventWindow,
+          d.observer.maxToolEventWindow,
+        ),
+      ),
+      decayHalfLifeMs: Math.max(
+        1000,
+        polluxFiniteNumber(obs?.decayHalfLifeMs, d.observer.decayHalfLifeMs),
+      ),
+    },
+    selfReport: {
+      enabled: self?.enabled ?? d.selfReport.enabled,
+      promptPrimingEnabled:
+        self?.promptPrimingEnabled ?? d.selfReport.promptPrimingEnabled,
+    },
+    fusion: {
+      targetEscalationRate: polluxFiniteNumberInRange(
+        fusion?.targetEscalationRate,
+        d.fusion.targetEscalationRate,
+        { min: 0, max: 1 },
+      ),
+      requireComposite: fusion?.requireComposite ?? d.fusion.requireComposite,
+      lowPrecisionFloor: polluxFiniteNumberInRange(
+        fusion?.lowPrecisionFloor,
+        d.fusion.lowPrecisionFloor,
+        { min: 0, max: 1 },
+      ),
+      sameTurnThresholdMultiplier: Math.max(
+        1,
+        polluxFiniteNumber(
+          fusion?.sameTurnThresholdMultiplier,
+          d.fusion.sameTurnThresholdMultiplier,
+        ),
+      ),
+      sameTurnAbsoluteFloor: Math.max(
+        0,
+        polluxFiniteNumber(
+          fusion?.sameTurnAbsoluteFloor,
+          d.fusion.sameTurnAbsoluteFloor,
+        ),
+      ),
+    },
+    timing: {
+      sameTurnEnabled: timing?.sameTurnEnabled ?? d.timing.sameTurnEnabled,
+      maxSameTurnEscalationsPerTurn: Math.max(
+        POLLUX_MIN_ADVISOR_CALLS,
+        polluxFiniteNumber(
+          timing?.maxSameTurnEscalationsPerTurn,
+          d.timing.maxSameTurnEscalationsPerTurn,
+        ),
+      ),
+    },
+  };
+}
 
 function polluxFiniteNumber(
   value: number | undefined,
@@ -184,7 +301,7 @@ function polluxFiniteNumberInRange(
  * fields with policy-safety ranges are clamped to safe bounds.
  */
 export function mergePolluxExperimentalConfig(
-  partial?: Partial<PolluxExperimentalConfig> | undefined,
+  partial?: PolluxExperimentalConfigMergeInput | undefined,
 ): PolluxExperimentalConfig {
   const d = DEFAULT_POLLUX_EXPERIMENTAL_CONFIG;
   const s = partial?.strategy;
@@ -226,6 +343,7 @@ export function mergePolluxExperimentalConfig(
         d.advisorRequestTimeoutMs,
       ),
     ),
+    detector: mergePolluxDetectorConfig(partial?.detector),
   };
 }
 

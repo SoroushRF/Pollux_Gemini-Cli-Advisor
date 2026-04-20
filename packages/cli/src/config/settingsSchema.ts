@@ -12,6 +12,7 @@
 import {
   DEFAULT_TRUNCATE_TOOL_OUTPUT_THRESHOLD,
   DEFAULT_MODEL_CONFIGS,
+  DEFAULT_POLLUX_DETECTOR_CONFIG,
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   AuthProviderType,
   type MCPServerConfig,
@@ -2324,6 +2325,249 @@ const SETTINGS_SCHEMA = {
             description:
               'Milliseconds to wait for an advisor model response before fail-open to the executor path.',
             showInDialog: false,
+          },
+          detector: {
+            type: 'object',
+            label: 'Pollux detector',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: {},
+            description:
+              'Live executor observer, fusion layer, and same-turn timing flags.',
+            showInDialog: false,
+            mergeStrategy: MergeStrategy.SHALLOW_MERGE,
+            properties: {
+              riskGate: {
+                type: 'object',
+                label: 'Pollux risk gate',
+                category: 'Experimental',
+                requiresRestart: true,
+                default: {},
+                description: 'Pre-tool high-risk pattern gate.',
+                showInDialog: false,
+                properties: {
+                  enabled: {
+                    type: 'boolean',
+                    label: 'Risk gate enabled',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default: DEFAULT_POLLUX_DETECTOR_CONFIG.riskGate.enabled,
+                    description: 'When true, classify pending tools for risk.',
+                    showInDialog: false,
+                  },
+                  mode: {
+                    type: 'enum',
+                    label: 'Risk gate mode',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default: DEFAULT_POLLUX_DETECTOR_CONFIG.riskGate.mode,
+                    description:
+                      'Pattern list interpretation for the risk gate.',
+                    showInDialog: false,
+                    options: [
+                      { value: 'allowlist', label: 'Allowlist' },
+                      { value: 'blocklist', label: 'Blocklist' },
+                    ],
+                  },
+                  denyPatterns: {
+                    type: 'array',
+                    label: 'Risk deny patterns',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default: [] as string[],
+                    description:
+                      'Additional denylist patterns merged with built-in defaults.',
+                    showInDialog: false,
+                    items: { type: 'string' },
+                  },
+                },
+              },
+              observer: {
+                type: 'object',
+                label: 'Pollux live observer',
+                category: 'Experimental',
+                requiresRestart: true,
+                default: {},
+                description: 'Stream sensor windows and decay.',
+                showInDialog: false,
+                properties: {
+                  enabled: {
+                    type: 'boolean',
+                    label: 'Observer enabled',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default: DEFAULT_POLLUX_DETECTOR_CONFIG.observer.enabled,
+                    description: 'When true, ingest executor stream events.',
+                    showInDialog: false,
+                  },
+                  maxThoughtWindowChars: {
+                    type: 'number',
+                    label: 'Max thought window (chars)',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.observer
+                        .maxThoughtWindowChars,
+                    description: 'Bounded buffer for thought-stream features.',
+                    showInDialog: false,
+                  },
+                  maxToolEventWindow: {
+                    type: 'number',
+                    label: 'Max tool events retained',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.observer
+                        .maxToolEventWindow,
+                    description: 'Rolling window of recent tool-call events.',
+                    showInDialog: false,
+                  },
+                  decayHalfLifeMs: {
+                    type: 'number',
+                    label: 'Signal decay half-life (ms)',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.observer.decayHalfLifeMs,
+                    description: 'Half-life for soft-signal exponential decay.',
+                    showInDialog: false,
+                  },
+                },
+              },
+              selfReport: {
+                type: 'object',
+                label: 'Pollux self-report',
+                category: 'Experimental',
+                requiresRestart: true,
+                default: {},
+                description: 'Structured executor self-report channel.',
+                showInDialog: false,
+                properties: {
+                  enabled: {
+                    type: 'boolean',
+                    label: 'Self-report enabled',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default: DEFAULT_POLLUX_DETECTOR_CONFIG.selfReport.enabled,
+                    description:
+                      'When true, parse structured status emissions.',
+                    showInDialog: false,
+                  },
+                  promptPrimingEnabled: {
+                    type: 'boolean',
+                    label: 'Self-report prompt priming',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.selfReport
+                        .promptPrimingEnabled,
+                    description:
+                      'Prime system prompt for structured status tags.',
+                    showInDialog: false,
+                  },
+                },
+              },
+              fusion: {
+                type: 'object',
+                label: 'Pollux fusion',
+                category: 'Experimental',
+                requiresRestart: true,
+                default: {},
+                description: 'Weighted fusion and composite-evidence settings.',
+                showInDialog: false,
+                properties: {
+                  targetEscalationRate: {
+                    type: 'number',
+                    label: 'Target escalation rate',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.fusion
+                        .targetEscalationRate,
+                    description: 'Target fraction of turns to escalate (0–1).',
+                    showInDialog: false,
+                  },
+                  requireComposite: {
+                    type: 'boolean',
+                    label: 'Require composite evidence',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.fusion.requireComposite,
+                    description:
+                      'When true, soft signals need corroboration before firing.',
+                    showInDialog: false,
+                  },
+                  lowPrecisionFloor: {
+                    type: 'number',
+                    label: 'Low-precision floor',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.fusion.lowPrecisionFloor,
+                    description:
+                      'Minimum precision prior for lone soft signals.',
+                    showInDialog: false,
+                  },
+                  sameTurnThresholdMultiplier: {
+                    type: 'number',
+                    label: 'Same-turn threshold multiplier',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.fusion
+                        .sameTurnThresholdMultiplier,
+                    description:
+                      'Emphatic composite same-turn gate multiplier.',
+                    showInDialog: false,
+                  },
+                  sameTurnAbsoluteFloor: {
+                    type: 'number',
+                    label: 'Same-turn absolute floor',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.fusion
+                        .sameTurnAbsoluteFloor,
+                    description: 'Minimum fusion score for emphatic same-turn.',
+                    showInDialog: false,
+                  },
+                },
+              },
+              timing: {
+                type: 'object',
+                label: 'Pollux escalation timing',
+                category: 'Experimental',
+                requiresRestart: true,
+                default: {},
+                description: 'Same-turn vs next-turn escalation controls.',
+                showInDialog: false,
+                properties: {
+                  sameTurnEnabled: {
+                    type: 'boolean',
+                    label: 'Same-turn escalation enabled',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.timing.sameTurnEnabled,
+                    description:
+                      'When false, qualifying signals downgrade to next-turn.',
+                    showInDialog: false,
+                  },
+                  maxSameTurnEscalationsPerTurn: {
+                    type: 'number',
+                    label: 'Max same-turn escalations per turn',
+                    category: 'Experimental',
+                    requiresRestart: true,
+                    default:
+                      DEFAULT_POLLUX_DETECTOR_CONFIG.timing
+                        .maxSameTurnEscalationsPerTurn,
+                    description: 'Guardrail cap (normally 1).',
+                    showInDialog: false,
+                  },
+                },
+              },
+            },
           },
         },
       },

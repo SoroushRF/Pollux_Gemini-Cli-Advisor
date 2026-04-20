@@ -548,6 +548,15 @@ describe('SettingsSchema', () => {
       expect(pollux.properties.confidenceThreshold?.default).toBe(6);
       expect(pollux.properties.emitAdvisorDebug?.default).toBe(false);
       expect(pollux.properties.advisorRequestTimeoutMs?.default).toBe(120000);
+      const detector = pollux.properties.detector;
+      expect(detector?.type).toBe('object');
+      expect(detector?.mergeStrategy).toBe('shallow_merge');
+      expect(detector?.properties?.riskGate?.properties?.enabled?.default).toBe(
+        false,
+      );
+      expect(
+        detector?.properties?.timing?.properties?.sameTurnEnabled?.default,
+      ).toBe(true);
     });
   });
 
