@@ -8,6 +8,7 @@
 // Public exports
 
 export * from './types.js';
+export * from './observer/index.js';
 export * from './models.js';
 export * from './prompts.js';
 export * from './safeguards.js';
