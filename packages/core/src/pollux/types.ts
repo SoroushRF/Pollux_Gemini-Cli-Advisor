@@ -105,10 +105,54 @@ export const PolluxEscalationReasonCode = {
   HYBRID_RESOLUTION: 'pollux.escalation.hybrid_resolution',
   DEFERRED_SURFACE: 'pollux.escalation.deferred_surface',
   FAIL_OPEN: 'pollux.escalation.fail_open',
+  /**
+   * New live-observer reason codes (DETECTOR_IMPLEMENTATION_PLAN §2a.3).
+   * Timing metadata lives in {@link POLLUX_ESCALATION_TIMING} and is enforced
+   * by invariant I10.
+   */
+  LIVE_OBSERVER_MATCH: 'pollux.escalation.live_observer_match',
+  RISK_GATE_BLOCK: 'pollux.escalation.risk_gate_block',
+  HARD_LOOP: 'pollux.escalation.hard_loop',
+  SELF_REPORT_STUCK: 'pollux.escalation.self_report_stuck',
+  FUSION_COMPOSITE: 'pollux.escalation.fusion_composite',
+  FUSION_COMPOSITE_EMPHATIC: 'pollux.escalation.fusion_composite_emphatic',
+  FUSION_BUDGET_TARGET: 'pollux.escalation.fusion_budget_target',
 } as const;
 
 export type PolluxEscalationReasonCode =
   (typeof PolluxEscalationReasonCode)[keyof typeof PolluxEscalationReasonCode];
+
+/** Same-turn vs next-turn timing for an escalation (DETECTOR_IMPLEMENTATION_PLAN §2a.3). */
+export type PolluxEscalationTiming = 'same_turn' | 'next_turn';
+
+/**
+ * Canonical timing for every {@link PolluxEscalationReasonCode}.
+ *
+ * Invariant I10: every enum value has a key here; exhaustiveness is asserted
+ * by a snapshot test in `types.test.ts`. Legacy reason codes
+ * (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) are mapped to
+ * `next_turn` during the rollout window and removed in Phase I alongside
+ * their enum entries.
+ */
+export const POLLUX_ESCALATION_TIMING: Readonly<
+  Record<PolluxEscalationReasonCode, PolluxEscalationTiming>
+> = {
+  [PolluxEscalationReasonCode.NONE]: 'next_turn',
+  [PolluxEscalationReasonCode.CONFIG_DISABLED]: 'next_turn',
+  [PolluxEscalationReasonCode.BUDGET_EXHAUSTED]: 'next_turn',
+  [PolluxEscalationReasonCode.HEURISTIC_MATCH]: 'next_turn',
+  [PolluxEscalationReasonCode.STRUCTURED_TAG]: 'next_turn',
+  [PolluxEscalationReasonCode.HYBRID_RESOLUTION]: 'next_turn',
+  [PolluxEscalationReasonCode.DEFERRED_SURFACE]: 'next_turn',
+  [PolluxEscalationReasonCode.FAIL_OPEN]: 'next_turn',
+  [PolluxEscalationReasonCode.LIVE_OBSERVER_MATCH]: 'next_turn',
+  [PolluxEscalationReasonCode.RISK_GATE_BLOCK]: 'same_turn',
+  [PolluxEscalationReasonCode.HARD_LOOP]: 'same_turn',
+  [PolluxEscalationReasonCode.SELF_REPORT_STUCK]: 'same_turn',
+  [PolluxEscalationReasonCode.FUSION_COMPOSITE]: 'next_turn',
+  [PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC]: 'same_turn',
+  [PolluxEscalationReasonCode.FUSION_BUDGET_TARGET]: 'next_turn',
+} as const;
 
 /** Lower bound for {@link PolluxExperimentalConfig.advisorRequestTimeoutMs} after merge. */
 export const POLLUX_MIN_ADVISOR_TIMEOUT_MS = 1000;

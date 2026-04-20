@@ -11,6 +11,7 @@ import {
   DEFAULT_POLLUX_DETECTOR_CONFIG,
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   mergePolluxExperimentalConfig,
+  POLLUX_ESCALATION_TIMING,
   PolluxDetectorStrategy,
   PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
@@ -121,6 +122,39 @@ describe('pollux/types', () => {
     it('uses unique string values', () => {
       const values = Object.values(PolluxEscalationReasonCode);
       expect(new Set(values).size).toBe(values.length);
+    });
+
+    // Invariant I10 (DETECTOR_IMPLEMENTATION_PLAN §2a.3): every reason code
+    // must have a canonical same_turn/next_turn mapping.
+    it('I10: POLLUX_ESCALATION_TIMING covers every reason code and matches §2a.3', () => {
+      const values = Object.values(PolluxEscalationReasonCode);
+      for (const code of values) {
+        expect(POLLUX_ESCALATION_TIMING[code]).toMatch(
+          /^(same_turn|next_turn)$/,
+        );
+      }
+      expect(Object.keys(POLLUX_ESCALATION_TIMING).sort()).toEqual(
+        [...values].sort(),
+      );
+      expect(POLLUX_ESCALATION_TIMING).toMatchInlineSnapshot(`
+        {
+          "pollux.escalation.budget_exhausted": "next_turn",
+          "pollux.escalation.config_disabled": "next_turn",
+          "pollux.escalation.deferred_surface": "next_turn",
+          "pollux.escalation.fail_open": "next_turn",
+          "pollux.escalation.fusion_budget_target": "next_turn",
+          "pollux.escalation.fusion_composite": "next_turn",
+          "pollux.escalation.fusion_composite_emphatic": "same_turn",
+          "pollux.escalation.hard_loop": "same_turn",
+          "pollux.escalation.heuristic_match": "next_turn",
+          "pollux.escalation.hybrid_resolution": "next_turn",
+          "pollux.escalation.live_observer_match": "next_turn",
+          "pollux.escalation.none": "next_turn",
+          "pollux.escalation.risk_gate_block": "same_turn",
+          "pollux.escalation.self_report_stuck": "same_turn",
+          "pollux.escalation.structured_tag": "next_turn",
+        }
+      `);
     });
   });
 
