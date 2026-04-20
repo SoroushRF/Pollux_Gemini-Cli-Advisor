@@ -4,6 +4,12 @@ Status: brainstorming notes, not a spec. Captures a design conversation about
 rethinking the Pollux escalation detector around live executor observation
 instead of prospective user-input classification. Nothing here is committed.
 
+> **Execution plan:** see
+> [`DETECTOR_V2_IMPLEMENTATION_PLAN.md`](./DETECTOR_V2_IMPLEMENTATION_PLAN.md)
+> for the phased, file-level, test-backed build plan derived from these notes.
+> This document remains the conceptual north star; the plan is the delivery
+> contract.
+
 ---
 
 ## 0) The reframe (the thesis)
@@ -319,9 +325,17 @@ the dashboard the project is judged by.
   `packages/core/src/pollux/observer/` directory with one file per sensor
   category (thought-stream sensor, tool-pattern sensor, self-report sensor,
   longitudinal sensor) and a fusion file.
-- How do we keep determinism when sensors observe a streaming source? Likely
+- ~~How do we keep determinism when sensors observe a streaming source? Likely
   buffer to turn boundary, evaluate fusion once at the gate, but allow
-  speculative-escalation kick-off mid-stream.
+  speculative-escalation kick-off mid-stream.~~ **Resolved 2026-04-20** (see
+  `DETECTOR_V2_IMPLEMENTATION_PLAN.md` §2a Timing policy and `POLLUX_SPEC.md`
+  §7.5). Policy: hybrid timing. Hard-precision signals (risk gate, hard loop,
+  structured self-report) and emphatic fusion composites
+  (`netScore ≥ sameTurnThreshold` with ≥2 categories) pause at an event boundary
+  and invoke the advisor **same-turn**. Everything else queues a next-turn
+  intent. One same-turn escalation per turn maximum; policy channel + budget +
+  fail-open unchanged. Not to be confused with speculative escalation (still
+  deferred to v2.1) — same-turn here is pause-then-invoke, not parallel.
 - Baseline-purity contract: when Pollux is off, the watcher must be a no-op with
   zero allocations on the hot path. This is testable and should be required from
   day one.

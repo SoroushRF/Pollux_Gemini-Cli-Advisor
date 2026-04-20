@@ -41,6 +41,52 @@ export type PolluxDetectorStrategy =
   (typeof PolluxDetectorStrategy)[keyof typeof PolluxDetectorStrategy];
 
 /**
+ * Which detector pipeline runs (`experimental.pollux.detectorVersion`).
+ * @see docs/core/pollux/DETECTOR_V2_IMPLEMENTATION_PLAN.md §4
+ */
+export const PolluxDetectorVersion = {
+  V1: 'v1',
+  V2: 'v2',
+} as const;
+
+export type PolluxDetectorVersion =
+  (typeof PolluxDetectorVersion)[keyof typeof PolluxDetectorVersion];
+
+/**
+ * Opt-in subtree for live observer + fusion (v2). Merge defaults and
+ * `PolluxExperimentalConfig` wiring ship in a follow-up task.
+ */
+export interface PolluxV2Config {
+  readonly enabled: boolean;
+  readonly riskGate: {
+    readonly enabled: boolean;
+    readonly mode: 'allowlist' | 'blocklist';
+    readonly denyPatterns: readonly string[];
+  };
+  readonly observer: {
+    readonly enabled: boolean;
+    readonly maxThoughtWindowChars: number;
+    readonly maxToolEventWindow: number;
+    readonly decayHalfLifeMs: number;
+  };
+  readonly selfReport: {
+    readonly enabled: boolean;
+    readonly promptPrimingEnabled: boolean;
+  };
+  readonly fusion: {
+    readonly targetEscalationRate: number;
+    readonly requireComposite: boolean;
+    readonly lowPrecisionFloor: number;
+    readonly sameTurnThresholdMultiplier: number;
+    readonly sameTurnAbsoluteFloor: number;
+  };
+  readonly timing: {
+    readonly sameTurnEnabled: boolean;
+    readonly maxSameTurnEscalationsPerTurn: number;
+  };
+}
+
+/**
  * Deterministic, stable reason tokens for escalation decisions (POLLUX_SPEC §7.2).
  * Additional codes may be added; tests should treat unknown strings as opaque.
  */

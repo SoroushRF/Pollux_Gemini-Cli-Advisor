@@ -13,26 +13,26 @@ artifacts; planned = described but not yet contract-locked; implemented =
 runtime behavior shipped and test-gated in-tree. Status is tracked here to
 satisfy IMPLEMENTATION_PLAN.md G5 "Unimplemented sections marked as such".
 
-| Section                                   | Status      |
-| ----------------------------------------- | ----------- |
-| 1 Purpose                                 | contracted  |
-| 2 Goals and non-goals                     | contracted  |
-| 3 Runtime reality and coverage matrix     | contracted  |
-| 4 Pollux component model                  | contracted  |
-| 5 Interceptor contract                    | contracted  |
-| 6 Advisor invocation and policy contract  | contracted  |
-| 7 Escalation detector contract            | contracted  |
-| 8 Settings and configuration contract     | contracted  |
-| 9 Telemetry and token accounting contract | contracted  |
-| 10 Benchmark protocol                     | contracted  |
-| 11 Command and output surface contract    | implemented |
-| 12 CI, test, and release contract         | contracted  |
-| 13 Security and safety contract           | contracted  |
-| 14 Documentation and governance contract  | contracted  |
-| 15 Acceptance criteria                    | contracted  |
-| Appendix A Driver/interceptor matrix      | contracted  |
-| Appendix B Benchmark fairness checklist   | contracted  |
-| Appendix C Terminology                    | contracted  |
+| Section                                   | Status                                               |
+| ----------------------------------------- | ---------------------------------------------------- |
+| 1 Purpose                                 | contracted                                           |
+| 2 Goals and non-goals                     | contracted                                           |
+| 3 Runtime reality and coverage matrix     | contracted                                           |
+| 4 Pollux component model                  | contracted                                           |
+| 5 Interceptor contract                    | contracted                                           |
+| 6 Advisor invocation and policy contract  | contracted                                           |
+| 7 Escalation detector contract            | contracted (7.5 v2 timing contract added 2026-04-20) |
+| 8 Settings and configuration contract     | contracted                                           |
+| 9 Telemetry and token accounting contract | contracted                                           |
+| 10 Benchmark protocol                     | contracted                                           |
+| 11 Command and output surface contract    | implemented                                          |
+| 12 CI, test, and release contract         | contracted                                           |
+| 13 Security and safety contract           | contracted                                           |
+| 14 Documentation and governance contract  | contracted                                           |
+| 15 Acceptance criteria                    | contracted                                           |
+| Appendix A Driver/interceptor matrix      | contracted                                           |
+| Appendix B Benchmark fairness checklist   | contracted                                           |
+| Appendix C Terminology                    | contracted                                           |
 
 Section 11 is implemented in-tree (P5-01/P5-02 evidence in
 IMPLEMENTATION_PLAN.md). All other sections remain contracted until their
@@ -194,6 +194,59 @@ scope = "built_in_default"
 
 Detectors must not add extra LLM calls during baseline conditions that claim no
 advisor behavior.
+
+### 7.5 Escalation timing contract (v2 only)
+
+Status: contracted (implementation governed by
+`docs/core/pollux/DETECTOR_V2_IMPLEMENTATION_PLAN.md` §2a). Applies only when
+`experimental.pollux.detectorVersion='v2'`. Under `v1` this section is inert.
+
+V2 uses a **hybrid timing policy**. An escalation request carries a required
+`escalationTiming` field whose value is either `same_turn` or `next_turn`:
+
+1. **`same_turn`** — the advisor is invoked during the current executor turn, at
+   an event boundary, before the turn completes. Triggered only when the
+   detector is confident the executor is struggling (the "confidence gate" — see
+   Decision Note §2a in the plan). Three classes qualify: (a) any hard-precision
+   sensor signal (`precisionPrior >= 0.85` and `hardPrecision=true`) — currently
+   risk-gate, hard-loop, and structured `<pollux:status stuck_on>`; (b) fusion
+   composite with `netScore >= sameTurnThreshold` and ≥2 distinct signal
+   categories; (c) reserved for explicit user-driven escalation requests
+   (future).
+2. **`next_turn`** — the advisor is invoked at the start of the next user turn.
+   All other (soft/composite, sub-confidence) signals default here.
+
+The following MUST hold:
+
+- **T1 Explicit timing**: every escalation reason code (including every value
+  added to `PolluxEscalationReasonCode`) has a canonical `same_turn | next_turn`
+  assignment tested by snapshot (invariant I10 in the plan).
+- **T2 Single-shot per turn**: at most one same-turn advisor invocation per
+  executor turn. Additional qualifying signals downgrade to `next_turn`.
+- **T3 Policy parity**: same-turn invocations route through the identical
+  `ADVISOR_CONSULTATION_TOOL_NAME` policy gate as next-turn invocations (§6). A
+  DENY result is fail-open — the executor resumes its turn untouched. No new
+  policy bypass is introduced.
+- **T4 Budget parity**: a same-turn invocation consumes exactly one slot of the
+  advisor-invocation budget (§6). Budget exhaustion at trigger time downgrades
+  the request to `next_turn`; it never silently skips.
+- **T5 Fail-open**: any exception in the observer, confidence gate, pause
+  handler, or advisor call resumes the executor turn as if the escalation was
+  not requested. No exception aborts the stream (baseline purity §7.4 plus
+  invariant I3).
+- **T6 No mid-part interruption**: pause points are event boundaries only
+  (`ToolCallRequest` dispatch for pre-tool, end-of-event dispatch otherwise). V2
+  does not split a streaming content part mid-delivery.
+- **T7 No recursion**: advisor-conditioned continuation inside a turn runs with
+  the single-shot flag already set; it cannot trigger another same-turn
+  escalation within the same turn.
+- **T8 Deterministic downgrades**: a downgrade caused by T2/T4/kill-switch is
+  reported via `sameTurnDowngraded: true` and the effective
+  `escalationTiming: 'next_turn'` in the `PolluxAdvisorPhasePayload`.
+
+Kill switch: `experimental.pollux.v2.timing.sameTurnEnabled=false` forces every
+request to `next_turn` for parity with the pre-v2 "next-turn only" drafts.
+Policy T1–T8 still apply.
 
 ---
 
