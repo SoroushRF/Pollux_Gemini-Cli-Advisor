@@ -13,6 +13,8 @@ import type {
   TokenStorageInitializationEvent,
   KeychainAvailabilityEvent,
 } from '../telemetry/types.js';
+import type { PolluxEscalationTiming } from '../pollux/types.js';
+import type { PolluxObserverPauseBoundary } from '../pollux/observer/types.js';
 import { debugLogger } from './debugLogger.js';
 
 /**
@@ -202,6 +204,26 @@ export interface PolluxAdvisorPhasePayload {
   advisorModel?: string;
   /** Canonical executor model id (always set; useful for restoring footer). */
   executorModel?: string;
+  /**
+   * When this payload describes an escalation produced by the live observer
+   * (`DETECTOR_IMPLEMENTATION_PLAN.md` §2a.5, §6.A.1 task 7), callers MUST set
+   * this to the same value as {@link POLLUX_ESCALATION_TIMING} for the
+   * escalation's reason code (`POLLUX_ESCALATION_TIMING` in
+   * `packages/core/src/pollux/types.ts`; invariant I10).
+   */
+  escalationTiming?: PolluxEscalationTiming;
+  /**
+   * Present only for same-turn escalations. Omitted when
+   * `escalationTiming` is unset or `'next_turn'`.
+   */
+  pauseBoundary?: PolluxObserverPauseBoundary;
+  /** Sensor ids that contributed to the escalation decision (observer path). */
+  contributingSignalIds?: readonly string[];
+  /**
+   * True when a same-turn-qualified signal was merged into the next-turn
+   * queue (e.g. same-turn budget or I11 single-shot guardrail).
+   */
+  sameTurnDowngraded?: boolean;
 }
 
 export enum CoreEvent {

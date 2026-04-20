@@ -1785,6 +1785,89 @@ their corresponding top-level category object in your `settings.json` file.
   - **Default:** `120000`
   - **Requires restart:** Yes
 
+- **`experimental.pollux.detector.riskGate.enabled`** (boolean):
+  - **Description:** When true, classify pending tools for risk.
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.riskGate.mode`** (enum):
+  - **Description:** Pattern list interpretation for the risk gate.
+  - **Default:** `"blocklist"`
+  - **Values:** `"allowlist"`, `"blocklist"`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.riskGate.denyPatterns`** (array):
+  - **Description:** Additional denylist patterns merged with built-in defaults.
+  - **Default:** `[]`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.observer.enabled`** (boolean):
+  - **Description:** When true, ingest executor stream events.
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.observer.maxThoughtWindowChars`** (number):
+  - **Description:** Bounded buffer for thought-stream features.
+  - **Default:** `16384`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.observer.maxToolEventWindow`** (number):
+  - **Description:** Rolling window of recent tool-call events.
+  - **Default:** `64`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.observer.decayHalfLifeMs`** (number):
+  - **Description:** Half-life for soft-signal exponential decay.
+  - **Default:** `15000`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.selfReport.enabled`** (boolean):
+  - **Description:** When true, parse structured status emissions.
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.selfReport.promptPrimingEnabled`** (boolean):
+  - **Description:** Prime system prompt for structured status tags.
+  - **Default:** `false`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.fusion.targetEscalationRate`** (number):
+  - **Description:** Target fraction of turns to escalate (0–1).
+  - **Default:** `0.05`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.fusion.requireComposite`** (boolean):
+  - **Description:** When true, soft signals need corroboration before firing.
+  - **Default:** `true`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.fusion.lowPrecisionFloor`** (number):
+  - **Description:** Minimum precision prior for lone soft signals.
+  - **Default:** `0.5`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.fusion.sameTurnThresholdMultiplier`**
+  (number):
+  - **Description:** Emphatic composite same-turn gate multiplier.
+  - **Default:** `1.5`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.fusion.sameTurnAbsoluteFloor`** (number):
+  - **Description:** Minimum fusion score for emphatic same-turn.
+  - **Default:** `3.5`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.timing.sameTurnEnabled`** (boolean):
+  - **Description:** When false, qualifying signals downgrade to next-turn.
+  - **Default:** `true`
+  - **Requires restart:** Yes
+
+- **`experimental.pollux.detector.timing.maxSameTurnEscalationsPerTurn`**
+  (number):
+  - **Description:** Guardrail cap (normally 1).
+  - **Default:** `1`
+  - **Requires restart:** Yes
+
 #### `skills`
 
 - **`skills.enabled`** (boolean):

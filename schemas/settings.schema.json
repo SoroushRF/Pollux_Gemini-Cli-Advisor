@@ -3030,6 +3030,182 @@
               "markdownDescription": "Milliseconds to wait for an advisor model response before fail-open to the executor path.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `120000`",
               "default": 120000,
               "type": "number"
+            },
+            "detector": {
+              "title": "Pollux detector",
+              "description": "Live executor observer, fusion layer, and same-turn timing flags.",
+              "markdownDescription": "Live executor observer, fusion layer, and same-turn timing flags.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "riskGate": {
+                  "title": "Pollux risk gate",
+                  "description": "Pre-tool high-risk pattern gate.",
+                  "markdownDescription": "Pre-tool high-risk pattern gate.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "title": "Risk gate enabled",
+                      "description": "When true, classify pending tools for risk.",
+                      "markdownDescription": "When true, classify pending tools for risk.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "mode": {
+                      "title": "Risk gate mode",
+                      "description": "Pattern list interpretation for the risk gate.",
+                      "markdownDescription": "Pattern list interpretation for the risk gate.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `blocklist`",
+                      "default": "blocklist",
+                      "type": "string",
+                      "enum": ["allowlist", "blocklist"]
+                    },
+                    "denyPatterns": {
+                      "title": "Risk deny patterns",
+                      "description": "Additional denylist patterns merged with built-in defaults.",
+                      "markdownDescription": "Additional denylist patterns merged with built-in defaults.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `[]`",
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "observer": {
+                  "title": "Pollux live observer",
+                  "description": "Stream sensor windows and decay.",
+                  "markdownDescription": "Stream sensor windows and decay.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "title": "Observer enabled",
+                      "description": "When true, ingest executor stream events.",
+                      "markdownDescription": "When true, ingest executor stream events.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "maxThoughtWindowChars": {
+                      "title": "Max thought window (chars)",
+                      "description": "Bounded buffer for thought-stream features.",
+                      "markdownDescription": "Bounded buffer for thought-stream features.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `16384`",
+                      "default": 16384,
+                      "type": "number"
+                    },
+                    "maxToolEventWindow": {
+                      "title": "Max tool events retained",
+                      "description": "Rolling window of recent tool-call events.",
+                      "markdownDescription": "Rolling window of recent tool-call events.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `64`",
+                      "default": 64,
+                      "type": "number"
+                    },
+                    "decayHalfLifeMs": {
+                      "title": "Signal decay half-life (ms)",
+                      "description": "Half-life for soft-signal exponential decay.",
+                      "markdownDescription": "Half-life for soft-signal exponential decay.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `15000`",
+                      "default": 15000,
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "selfReport": {
+                  "title": "Pollux self-report",
+                  "description": "Structured executor self-report channel.",
+                  "markdownDescription": "Structured executor self-report channel.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "title": "Self-report enabled",
+                      "description": "When true, parse structured status emissions.",
+                      "markdownDescription": "When true, parse structured status emissions.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "promptPrimingEnabled": {
+                      "title": "Self-report prompt priming",
+                      "description": "Prime system prompt for structured status tags.",
+                      "markdownDescription": "Prime system prompt for structured status tags.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `false`",
+                      "default": false,
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "fusion": {
+                  "title": "Pollux fusion",
+                  "description": "Weighted fusion and composite-evidence settings.",
+                  "markdownDescription": "Weighted fusion and composite-evidence settings.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "targetEscalationRate": {
+                      "title": "Target escalation rate",
+                      "description": "Target fraction of turns to escalate (0–1).",
+                      "markdownDescription": "Target fraction of turns to escalate (0–1).\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `0.05`",
+                      "default": 0.05,
+                      "type": "number"
+                    },
+                    "requireComposite": {
+                      "title": "Require composite evidence",
+                      "description": "When true, soft signals need corroboration before firing.",
+                      "markdownDescription": "When true, soft signals need corroboration before firing.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `true`",
+                      "default": true,
+                      "type": "boolean"
+                    },
+                    "lowPrecisionFloor": {
+                      "title": "Low-precision floor",
+                      "description": "Minimum precision prior for lone soft signals.",
+                      "markdownDescription": "Minimum precision prior for lone soft signals.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `0.5`",
+                      "default": 0.5,
+                      "type": "number"
+                    },
+                    "sameTurnThresholdMultiplier": {
+                      "title": "Same-turn threshold multiplier",
+                      "description": "Emphatic composite same-turn gate multiplier.",
+                      "markdownDescription": "Emphatic composite same-turn gate multiplier.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `1.5`",
+                      "default": 1.5,
+                      "type": "number"
+                    },
+                    "sameTurnAbsoluteFloor": {
+                      "title": "Same-turn absolute floor",
+                      "description": "Minimum fusion score for emphatic same-turn.",
+                      "markdownDescription": "Minimum fusion score for emphatic same-turn.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `3.5`",
+                      "default": 3.5,
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "timing": {
+                  "title": "Pollux escalation timing",
+                  "description": "Same-turn vs next-turn escalation controls.",
+                  "markdownDescription": "Same-turn vs next-turn escalation controls.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `{}`",
+                  "default": {},
+                  "type": "object",
+                  "properties": {
+                    "sameTurnEnabled": {
+                      "title": "Same-turn escalation enabled",
+                      "description": "When false, qualifying signals downgrade to next-turn.",
+                      "markdownDescription": "When false, qualifying signals downgrade to next-turn.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `true`",
+                      "default": true,
+                      "type": "boolean"
+                    },
+                    "maxSameTurnEscalationsPerTurn": {
+                      "title": "Max same-turn escalations per turn",
+                      "description": "Guardrail cap (normally 1).",
+                      "markdownDescription": "Guardrail cap (normally 1).\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `1`",
+                      "default": 1,
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false

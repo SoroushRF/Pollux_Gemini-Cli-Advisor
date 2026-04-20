@@ -11,6 +11,7 @@ import {
   coreEvents,
   type UserFeedbackPayload,
   type McpProgressPayload,
+  type PolluxAdvisorPhasePayload,
 } from './events.js';
 
 vi.mock('./debugLogger.js', () => ({
@@ -421,6 +422,26 @@ describe('CoreEventEmitter', () => {
         message: 'test',
       };
       coreEvents.emitMcpProgress(payload);
+
+      expect(listener).toHaveBeenCalledExactlyOnceWith(payload);
+    });
+  });
+
+  describe('emitPolluxAdvisorPhase', () => {
+    it('accepts observer timing extensions (§6.A.1 task 7)', () => {
+      const listener = vi.fn();
+      events.on(CoreEvent.PolluxAdvisorPhase, listener);
+
+      const payload: PolluxAdvisorPhasePayload = {
+        phase: 'pending',
+        advisorModel: 'advisor-model',
+        executorModel: 'executor-model',
+        escalationTiming: 'same_turn',
+        pauseBoundary: 'pre_tool',
+        contributingSignalIds: ['risk.pre_tool_high'],
+        sameTurnDowngraded: false,
+      };
+      events.emitPolluxAdvisorPhase(payload);
 
       expect(listener).toHaveBeenCalledExactlyOnceWith(payload);
     });

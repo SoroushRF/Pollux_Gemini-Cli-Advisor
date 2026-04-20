@@ -5,13 +5,17 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { GeminiEventType } from '../../core/turn.js';
+import {
+  GeminiEventType,
+  type ServerGeminiStreamEvent,
+} from '../../core/turn.js';
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   mergePolluxExperimentalConfig,
 } from '../types.js';
 import {
   createLiveExecutorObserver,
+  ingestPolluxObserverFailOpen,
   LIVE_EXECUTOR_OBSERVER_NO_OP,
 } from './observer.js';
 
@@ -30,8 +34,21 @@ describe('pollux/observer', () => {
     );
     expect(obs.peekSameTurnIntent()).toBeUndefined();
     expect(obs.consumePendingNextTurnIntent()).toBeUndefined();
-    expect(() =>
-      obs.ingest({ type: GeminiEventType.LoopDetected }),
-    ).not.toThrow();
+    const loopEvent: ServerGeminiStreamEvent = {
+      type: GeminiEventType.LoopDetected,
+    };
+    expect(() => obs.ingest(loopEvent)).not.toThrow();
+  });
+
+  it('I3 / TG-11: ingestPolluxObserverFailOpen swallows observer ingest errors', () => {
+    const throwing = {
+      ingest(): void {
+        throw new Error('synthetic sensor throw');
+      },
+    };
+    const event: ServerGeminiStreamEvent = {
+      type: GeminiEventType.LoopDetected,
+    };
+    expect(() => ingestPolluxObserverFailOpen(throwing, event)).not.toThrow();
   });
 });

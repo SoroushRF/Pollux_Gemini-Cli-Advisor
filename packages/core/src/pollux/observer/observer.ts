@@ -6,13 +6,13 @@
 
 import type { ServerGeminiStreamEvent } from '../../core/turn.js';
 import type { PolluxExperimentalConfig } from '../types.js';
-import type { EscalationIntent } from './types.js';
+import type { NextTurnIntent, SameTurnIntent } from './types.js';
 
 /** Live stream observer — ingestion and escalation intents (DETECTOR_IMPLEMENTATION_PLAN §3). */
 export interface LiveExecutorObserver {
   ingest(event: ServerGeminiStreamEvent): void;
-  peekSameTurnIntent(): EscalationIntent | undefined;
-  consumePendingNextTurnIntent(): EscalationIntent | undefined;
+  peekSameTurnIntent(): SameTurnIntent | undefined;
+  consumePendingNextTurnIntent(): NextTurnIntent | undefined;
 }
 
 /**
@@ -40,4 +40,20 @@ export function createLiveExecutorObserver(
     return LIVE_EXECUTOR_OBSERVER_NO_OP;
   }
   return LIVE_EXECUTOR_OBSERVER_NO_OP;
+}
+
+/**
+ * Invokes {@link LiveExecutorObserver.ingest} inside a try/catch (invariant I3,
+ * TG-11). Call sites that pump stream events into the observer MUST use this
+ * (or equivalent) so sensor errors never abort the executor turn.
+ */
+export function ingestPolluxObserverFailOpen(
+  observer: Pick<LiveExecutorObserver, 'ingest'>,
+  event: ServerGeminiStreamEvent,
+): void {
+  try {
+    observer.ingest(event);
+  } catch {
+    /* fail-open */
+  }
 }

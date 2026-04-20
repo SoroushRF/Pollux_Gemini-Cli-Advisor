@@ -40,6 +40,11 @@ in the Evidence column.
 | TG-8  | ACP advisor flow regression test                           |                     |                                             |
 | TG-9  | Binary build smoke test for Pollux-touching PRs            |                     |                                             |
 | TG-10 | Doc/spec drift check for Pollux files                      |                     |                                             |
+| TG-11 | Observer fail-open (sensor throw does not abort stream)    |                     |                                             |
+| TG-12 | Risk-gate precision evidence (dangerous vs benign corpus)  |                     |                                             |
+| TG-13 | Calibration / scripted-trace report evidence               |                     |                                             |
+| TG-14 | Timing contract (§2a.3 matrix, pre-tool order, I11)        |                     |                                             |
+| TG-15 | Same-turn fail-open (policy DENY, budget, observer throw)  |                     |                                             |
 
 ## Pre-Merge Checklist
 

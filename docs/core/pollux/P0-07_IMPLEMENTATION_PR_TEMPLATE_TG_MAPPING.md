@@ -13,7 +13,9 @@ mapping into the repository PR template.
 It covers:
 
 1. The landed PR template changes.
-2. TG-1 through TG-10 mapping expectations for Pollux-touching PRs.
+2. TG-1 through TG-15 mapping expectations for Pollux-touching PRs (TG-1..10
+   from P0-07; TG-11..15 from `DETECTOR_IMPLEMENTATION_PLAN.md` §15.2 for
+   observer/detector work).
 3. Reviewer and author usage rules for evidence-based gate tracking.
 
 ---
@@ -28,7 +30,7 @@ New required section:
 
 1. Pollux TG Mapping (required for Pollux-touching PRs).
 
-The section includes a gate matrix for TG-1 through TG-10 with required fields:
+The section includes a gate matrix for TG-1 through TG-15 with required fields:
 
 1. Status (Pass / N/A).
 2. Evidence links (tests, logs, artifacts, PR references).
@@ -42,18 +44,23 @@ or explicitly marked N/A.
 
 For Pollux-touching PRs, authors must provide gate evidence for in-scope TGs.
 
-| Gate  | Author requirement in PR template                          | Reviewer check                                       |
-| ----- | ---------------------------------------------------------- | ---------------------------------------------------- |
-| TG-1  | Fairness harness evidence attached                         | Verify evidence is tied to benchmark/fairness checks |
-| TG-2  | Cross-surface parity evidence attached                     | Verify legacy, agent-session, ACP coverage           |
-| TG-3  | Advisor policy path evidence attached                      | Verify no double-prompt behavior                     |
-| TG-4  | Token accounting evidence attached                         | Verify role/total consistency                        |
-| TG-5  | Schema-config invariant evidence attached                  | Verify settings mapping checks                       |
-| TG-6  | Pollux integration test evidence attached                  | Verify test suite status                             |
-| TG-7  | /pollux command reachability evidence attached             | Verify command surface coverage                      |
-| TG-8  | ACP advisor regression evidence attached                   | Verify ACP behavior remains correct                  |
-| TG-9  | Binary smoke evidence attached for Pollux-touching changes | Verify build smoke pass                              |
-| TG-10 | Doc/spec drift evidence attached                           | Verify docs/spec alignment updates                   |
+| Gate  | Author requirement in PR template                          | Reviewer check                                           |
+| ----- | ---------------------------------------------------------- | -------------------------------------------------------- |
+| TG-1  | Fairness harness evidence attached                         | Verify evidence is tied to benchmark/fairness checks     |
+| TG-2  | Cross-surface parity evidence attached                     | Verify legacy, agent-session, ACP coverage               |
+| TG-3  | Advisor policy path evidence attached                      | Verify no double-prompt behavior                         |
+| TG-4  | Token accounting evidence attached                         | Verify role/total consistency                            |
+| TG-5  | Schema-config invariant evidence attached                  | Verify settings mapping checks                           |
+| TG-6  | Pollux integration test evidence attached                  | Verify test suite status                                 |
+| TG-7  | /pollux command reachability evidence attached             | Verify command surface coverage                          |
+| TG-8  | ACP advisor regression evidence attached                   | Verify ACP behavior remains correct                      |
+| TG-9  | Binary smoke evidence attached for Pollux-touching changes | Verify build smoke pass                                  |
+| TG-10 | Doc/spec drift evidence attached                           | Verify docs/spec alignment updates                       |
+| TG-11 | Observer fail-open evidence attached                       | Assert sensor exception does not abort stream            |
+| TG-12 | Risk-gate precision evidence attached                      | Review seeded dangerous/benign command set               |
+| TG-13 | Calibration report evidence attached                       | Precision threshold on true-negative corpus              |
+| TG-14 | Timing-contract evidence attached                          | §2a.3 matrix honored; pre-tool ordering; I11 single-shot |
+| TG-15 | Same-turn fail-open path evidence attached                 | Policy DENY / budget / throw resume executor untouched   |
 
 Rule:
 
@@ -76,7 +83,7 @@ Rule:
 
 P0-07 is complete when:
 
-1. Repository PR template includes Pollux TG-1..TG-10 mapping section.
+1. Repository PR template includes Pollux TG-1..TG-15 mapping section.
 2. Template has explicit evidence field for each gate.
 3. Pre-merge checklist enforces completion or N/A declaration.
 4. Plan task row and persistent completion notes are updated.
