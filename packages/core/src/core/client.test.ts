@@ -14,7 +14,12 @@ import {
   type Mock,
 } from 'vitest';
 
-import type { Content, GenerateContentResponse, Part } from '@google/genai';
+import {
+  FinishReason,
+  type Content,
+  type GenerateContentResponse,
+  type Part,
+} from '@google/genai';
 import { GeminiClient } from './client.js';
 import {
   AuthType,
@@ -1032,6 +1037,292 @@ describe('Gemini Client (client.ts)', () => {
         ),
       ).toBe(false);
       expect(advisorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs same-turn advisor before yielding high-risk ToolCallRequest events (Phase B pre-tool)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'risk-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/*' },
+              isClientInitiated: false,
+              prompt_id: 'prompt-id-risk',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Avoid destructive delete"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const stream = client.sendMessageStream(
+        [{ text: 'check this command' }],
+        new AbortController().signal,
+        'pollux-phase-b-risk-pre-tool',
+        undefined,
+        false,
+        undefined,
+        false,
+        PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+      );
+      const iterator = stream[Symbol.asyncIterator]();
+
+      let sawToolCall = false;
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) {
+          break;
+        }
+        if (next.value.type === GeminiEventType.ToolCallRequest) {
+          sawToolCall = true;
+          break;
+        }
+      }
+
+      expect(sawToolCall).toBe(true);
+      expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+
+      const remaining: ServerGeminiStreamEvent[] = [];
+      // Drain the stream to avoid leaking pending async work in this test.
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) {
+          break;
+        }
+        remaining.push(next.value);
+      }
+      expect(
+        remaining.some((event) => event.type === GeminiEventType.Finished),
+      ).toBe(true);
+    });
+
+    it('fails open on same-turn risk-gate advisor exceptions and still streams tool events', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'risk-throw-1',
+              name: 'run_shell_command',
+              args: { command: 'git push --force origin main' },
+              isClientInitiated: false,
+              prompt_id: 'prompt-id-risk-throw',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockRejectedValue(new Error('advisor failure'));
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'run risky command' }],
+          new AbortController().signal,
+          'pollux-phase-b-risk-fail-open',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(
+        events.some((event) => event.type === GeminiEventType.ToolCallRequest),
+      ).toBe(true);
+      expect(
+        events.some((event) => event.type === GeminiEventType.Finished),
+      ).toBe(true);
+    });
+
+    it('honors policy deny on same-turn risk-gate path and does not call advisor model', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'risk-deny-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/*' },
+              isClientInitiated: false,
+              prompt_id: 'prompt-id-risk-deny',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.DENY,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'run risky command' }],
+          new AbortController().signal,
+          'pollux-phase-b-risk-policy-deny',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).not.toHaveBeenCalled();
+      expect(
+        events.some((event) => event.type === GeminiEventType.ToolCallRequest),
+      ).toBe(true);
+    });
+
+    it('I11: only one same-turn risk-gate advisor call fires per turn', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'risk-single-shot-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/*' },
+              isClientInitiated: false,
+              prompt_id: 'prompt-id-risk-single-shot',
+            },
+          };
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'risk-single-shot-2',
+              name: 'run_shell_command',
+              args: { command: 'git push --force origin main' },
+              isClientInitiated: false,
+              prompt_id: 'prompt-id-risk-single-shot',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+            maxSameTurnEscalationsPerTurn: 1,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Use safe alternative"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'run risky commands' }],
+          new AbortController().signal,
+          'pollux-phase-b-risk-single-shot',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
+      expect(
+        events.filter(
+          (event) => event.type === GeminiEventType.ToolCallRequest,
+        ),
+      ).toHaveLength(2);
     });
 
     it('keeps legacy non-interactive output baseline-identical when Pollux is disabled (D2 Cell A)', async () => {

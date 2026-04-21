@@ -10,6 +10,7 @@ import {
   AdvisorConsultationStatus,
   DEFAULT_POLLUX_DETECTOR_CONFIG,
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR,
   mergePolluxExperimentalConfig,
   POLLUX_ESCALATION_TIMING,
   PolluxDetectorStrategy,
@@ -97,6 +98,20 @@ describe('pollux/types', () => {
         },
       });
       expect(merged.detector.riskGate.mode).toBe('blocklist');
+    });
+
+    it('clamps detector.fusion.sameTurnAbsoluteFloor to POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR', () => {
+      expect(POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR).toBe(1);
+      expect(
+        mergePolluxExperimentalConfig({
+          detector: { fusion: { sameTurnAbsoluteFloor: 0 } },
+        }).detector.fusion.sameTurnAbsoluteFloor,
+      ).toBe(1);
+      expect(
+        mergePolluxExperimentalConfig({
+          detector: { fusion: { sameTurnAbsoluteFloor: 2.25 } },
+        }).detector.fusion.sameTurnAbsoluteFloor,
+      ).toBe(2.25);
     });
   });
 

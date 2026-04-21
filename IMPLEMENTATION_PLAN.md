@@ -998,6 +998,41 @@ Phase 3 implementation evidence update (2026-04-18):
     - `npm run test --workspace @google/gemini-cli-a2a-server -- src/agent/task.test.ts`
       passes (13 tests).
 
+Phase B risk-gate execution update (2026-04-20):
+
+- Completed same-turn pre-tool risk escalation wiring for high-risk
+  `ToolCallRequest` events in the Pollux live observer path.
+- Delivered deterministic Tier-5 risk classification in
+  `packages/core/src/pollux/observer/sensors/riskGate.ts` with high/elevated/low
+  outcomes covering shell-deny patterns, delete-like tools, path heuristics, and
+  blast-radius elevation.
+- Wired risk intents through `packages/core/src/pollux/observer/observer.ts` and
+  `packages/core/src/core/client.ts` so advisor consultation is attempted
+  pre-tool in the same turn, with fail-open semantics preserved.
+- Added/extended test evidence for this phase:
+  - `packages/core/src/pollux/observer/sensors/riskGate.test.ts`
+  - `packages/core/src/pollux/observer/observer.test.ts`
+  - `packages/core/src/core/client.test.ts`
+- Validation command:
+  - `npm run test -w @google/gemini-cli-core -- src/pollux/observer/sensors/riskGate.test.ts src/pollux/observer/observer.test.ts src/core/client.test.ts`
+  - Result: 3 files passed, 144 tests passed, 1 pre-existing skip; post-test
+    core build completed.
+
+Phase B remediation update (2026-04-21):
+
+- Restored the missing same-turn pre-tool client wiring in
+  `packages/core/src/core/client.ts` by reintroducing live observer ingestion
+  and intent-driven advisor consultation before tool-call dispatch.
+- Re-established per-turn advisor accounting (`polluxAdvisorCallsThisTurn`) so
+  same-turn budget checks and single-shot behavior are applied consistently.
+- Revalidated Phase B gates:
+  - `npm run test -w @google/gemini-cli-core -- src/pollux/observer/sensors/riskGate.test.ts src/pollux/observer/observer.test.ts src/core/client.test.ts`
+    -> 3 files passed, 144 tests passed, 1 pre-existing skip.
+  - `npm run test -w @google/gemini-cli-core -- src/pollux` -> 10 files passed,
+    276 tests passed.
+  - `npm run typecheck -w @google/gemini-cli-core` -> passed.
+  - `npm run build` (workspace root) -> passed.
+
 ## Phase 4: Benchmarking and evaluation (Weeks 6-7)
 
 Goal: produce reproducible A-E benchmark results with valid fairness controls.

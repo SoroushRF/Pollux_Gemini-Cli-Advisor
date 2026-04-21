@@ -15,15 +15,26 @@ import type { ToolCallRequestInfo } from '../../scheduler/types.js';
 /** Where a same-turn pause may occur relative to stream dispatch (§2a.4). */
 export type PolluxObserverPauseBoundary = 'pre_tool' | 'post_event';
 
+/** Sensor taxonomy for composite-evidence gates (plan §D.2). */
+export type PolluxSensorSignalCategory =
+  | 'thought'
+  | 'tool'
+  | 'self'
+  | 'longitudinal'
+  | 'risk';
+
 /**
- * Fusion input from a single sensor activation (Phase D).
- * Stub shape for Phase A skeleton wiring.
+ * Single sensor emission (`DETECTOR_IMPLEMENTATION_PLAN.md` §D.2).
+ * Phase D sensors populate instances; this is the canonical contract shape.
  */
 export interface SensorSignal {
-  readonly signalId: string;
+  readonly id: string;
   readonly weight: number;
+  readonly precisionPrior: number;
+  readonly category: PolluxSensorSignalCategory;
   readonly hardPrecision?: boolean;
-  readonly precisionPrior?: number;
+  readonly tsMs: number;
+  readonly attribution?: string;
 }
 
 /** Fields shared by same-turn and next-turn escalation intents. */

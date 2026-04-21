@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  DEFAULT_POLLUX_DETECTOR_CONFIG,
   mergePolluxExperimentalConfig,
   PolluxDetectorStrategy,
   type PolluxExperimentalConfig,
@@ -22,6 +23,18 @@ describe('Pollux TG-5 schema ↔ ConfigParameters mapping', () => {
       expect(merged).toHaveProperty(key);
     }
     expect(Object.keys(merged).sort()).toEqual([...keys].sort());
+  });
+
+  it('maps experimental.pollux.detector subtree keys through mergePolluxExperimentalConfig', () => {
+    const polluxSchema = getSettingsSchema().experimental.properties.pollux;
+    const detectorSchema = polluxSchema.properties?.detector;
+    expect(detectorSchema?.type).toBe('object');
+    const subtreeKeys = Object.keys(detectorSchema?.properties ?? {});
+    const merged = mergePolluxExperimentalConfig({});
+    for (const key of subtreeKeys) {
+      expect(merged.detector).toHaveProperty(key);
+    }
+    expect(merged.detector).toEqual(DEFAULT_POLLUX_DETECTOR_CONFIG);
   });
 
   it('rejects invalid strategy values by falling back to default', () => {

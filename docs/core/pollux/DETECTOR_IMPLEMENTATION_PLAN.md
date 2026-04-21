@@ -652,6 +652,21 @@ should _always_ get a second opinion regardless of other signals.
 
 Flip `detector.riskGate.enabled = false`. Fully independent from other phases.
 
+### B.7 Completion status (2026-04-21)
+
+- Risk-gate classifier, live observer behavior, and client same-turn pre-tool
+  consultation path are implemented and wired.
+- Client runtime regression in `processTurn` (missing observer interception) was
+  remediated by restoring live observer ingestion and intent-driven consultation
+  before `ToolCallRequest` dispatch.
+- Current validation evidence:
+  - `npm run test -w @google/gemini-cli-core -- src/pollux/observer/sensors/riskGate.test.ts src/pollux/observer/observer.test.ts src/core/client.test.ts`
+    -> 3 files passed, 144 tests passed, 1 pre-existing skip.
+  - `npm run test -w @google/gemini-cli-core -- src/pollux` -> 10 files passed,
+    276 tests passed.
+  - `npm run typecheck -w @google/gemini-cli-core` -> passed.
+  - `npm run build` -> passed.
+
 ---
 
 ## 8) Phase C — LoopDetectionService bridge (Tier 2)

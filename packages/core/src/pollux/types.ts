@@ -73,6 +73,12 @@ export interface PolluxDetectorConfig {
   };
 }
 
+/**
+ * Lower bound for merged {@link PolluxDetectorConfig.fusion.sameTurnAbsoluteFloor}.
+ * Prevents `0` from silently removing the emphatic same-turn floor (plan §2a.2).
+ */
+export const POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR = 1;
+
 export const DEFAULT_POLLUX_DETECTOR_CONFIG = {
   riskGate: { enabled: false, mode: 'blocklist', denyPatterns: [] },
   observer: {
@@ -296,7 +302,7 @@ function mergePolluxDetectorConfig(
         ),
       ),
       sameTurnAbsoluteFloor: Math.max(
-        0,
+        POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR,
         polluxFiniteNumber(
           fusion?.sameTurnAbsoluteFloor,
           d.fusion.sameTurnAbsoluteFloor,

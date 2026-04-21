@@ -83,6 +83,11 @@ import {
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
+  createLiveExecutorObserver,
+  ingestPolluxObserverFailOpen,
+  type SameTurnIntent,
+} from '../pollux/observer/index.js';
+import {
   checkAdvisorInvocationBudget,
   getAdvisorRequestTimeoutMs,
   resolveAdvisorPathFailure,
@@ -202,6 +207,7 @@ export class GeminiClient {
   private lastPromptId: string;
   private currentSequenceModel: string | null = null;
   private readonly polluxModelRegistry = new PolluxModelRegistry([]);
+  private polluxAdvisorCallsThisTurn = 0;
   private polluxAdvisorCallsThisSession = 0;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
@@ -708,6 +714,7 @@ export class GeminiClient {
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
   ): Promise<void> {
+    this.polluxAdvisorCallsThisTurn = 0;
     return this.maybeRunPolluxAdvisorConsultation(
       request,
       signal,
@@ -716,70 +723,51 @@ export class GeminiClient {
     );
   }
 
-  private async maybeRunPolluxAdvisorConsultation(
+  private isPolluxRuntimeSurfaceSupported(
+    runtimeSurface: PolluxRuntimeSurface,
+  ): boolean {
+    return (
+      runtimeSurface === PolluxRuntimeSurface.LEGACY_INTERACTIVE ||
+      runtimeSurface === PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE ||
+      runtimeSurface === PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE ||
+      runtimeSurface === PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE ||
+      runtimeSurface === PolluxRuntimeSurface.ACP
+    );
+  }
+
+  private buildPolluxTurnContext(
     request: PartListUnion,
-    signal: AbortSignal,
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
-  ): Promise<void> {
-    if (
-      runtimeSurface !== PolluxRuntimeSurface.LEGACY_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE &&
-      runtimeSurface !== PolluxRuntimeSurface.ACP
-    ) {
-      return;
-    }
-
-    const experimental = this.config.getPolluxExperimentalConfig();
-    if (!experimental.enabled) {
-      return;
-    }
-
-    // Cheap budget pre-check: avoids building turn context and constructing a
-    // detector when the session-level cap is already exhausted. The detector
-    // re-evaluates the same gate so callers can rely on a single source of
-    // truth for budget decisions (POLLUX_SPEC §5.1, §6).
-    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
-      callsCompletedThisTurn: 0,
-      callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
-    });
-    if (!budgetCheck.allowed) {
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
-        );
-      }
-      return;
-    }
-
+    experimental: PolluxTurnContext['experimental'],
+    pendingToolContextOverride?: string,
+  ): PolluxTurnContext {
     const requestSummary = summarizeRequestForDetector(request);
-    const turnContext: PolluxTurnContext = {
+    return {
       surface: runtimeSurface,
       sessionId: this.config.getSessionId(),
       turnId: `${prompt_id}:${this.sessionTurnCount}`,
       experimental,
-      advisorCallsThisTurn: 0,
+      advisorCallsThisTurn: this.polluxAdvisorCallsThisTurn,
       advisorCallsThisSession: this.polluxAdvisorCallsThisSession,
       userContentDigest: requestSummary.userContentDigest,
-      pendingToolContext: requestSummary.pendingToolContext,
+      pendingToolContext:
+        pendingToolContextOverride ?? requestSummary.pendingToolContext,
     };
+  }
 
-    // POLLUX_SPEC §5.1 step 2: gate the advisor invocation on the configured
-    // detector strategy. The detector itself enforces surface, config, budget,
-    // and strategy mismatches, so a non-escalating result here is the unified
-    // "skip advisor" decision.
-    const detector = buildPolluxDetector(experimental.strategy);
-    const escalation = await detector.shouldEscalate(turnContext);
-    if (!escalation.escalate) {
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor skipped (detector): reason=${escalation.reasonCode} strategy=${escalation.strategy}`,
-        );
-      }
-      return;
-    }
+  private async executePolluxAdvisorConsultation(
+    turnContext: PolluxTurnContext,
+    requestBody: string,
+    signal: AbortSignal,
+    escalationMeta?: {
+      escalationTiming?: 'same_turn' | 'next_turn';
+      pauseBoundary?: 'pre_tool' | 'post_event';
+      contributingSignalIds?: readonly string[];
+      sameTurnDowngraded?: boolean;
+    },
+  ): Promise<void> {
+    const experimental = turnContext.experimental;
 
     const policyResult = await this.config.getPolicyEngine().check(
       {
@@ -801,7 +789,7 @@ export class GeminiClient {
     const advisorPrompt = buildAdvisorConsultationPrompt({
       context: turnContext,
       toolName: ADVISOR_CONSULTATION_TOOL_NAME,
-      body: partListUnionToString(request),
+      body: requestBody,
     });
 
     const timeoutSignal = AbortSignal.timeout(
@@ -823,6 +811,7 @@ export class GeminiClient {
       phase: 'pending',
       advisorModel: advisorModel.canonicalModelId,
       executorModel: experimental.executorModel,
+      ...escalationMeta,
     });
 
     try {
@@ -830,6 +819,7 @@ export class GeminiClient {
         phase: 'consulting',
         advisorModel: advisorModel.canonicalModelId,
         executorModel: experimental.executorModel,
+        ...escalationMeta,
       });
 
       const advisorResponse = await this.generateContent(
@@ -870,6 +860,7 @@ export class GeminiClient {
         failOpenKind = 'parse_error';
       }
     } finally {
+      this.polluxAdvisorCallsThisTurn++;
       this.polluxAdvisorCallsThisSession++;
 
       if (failOpenKind && experimental.emitAdvisorDebug) {
@@ -886,8 +877,131 @@ export class GeminiClient {
       coreEvents.emitPolluxAdvisorPhase({
         phase: 'done',
         executorModel: experimental.executorModel,
+        ...escalationMeta,
       });
     }
+  }
+
+  private async maybeRunPolluxAdvisorConsultation(
+    request: PartListUnion,
+    signal: AbortSignal,
+    prompt_id: string,
+    runtimeSurface: PolluxRuntimeSurface,
+  ): Promise<void> {
+    if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
+      return;
+    }
+
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (!experimental.enabled) {
+      return;
+    }
+
+    // Cheap budget pre-check: avoids building turn context and constructing a
+    // detector when the session-level cap is already exhausted. The detector
+    // re-evaluates the same gate so callers can rely on a single source of
+    // truth for budget decisions (POLLUX_SPEC §5.1, §6).
+    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+      callsCompletedThisTurn: this.polluxAdvisorCallsThisTurn,
+      callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
+    });
+    if (!budgetCheck.allowed) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
+        );
+      }
+      return;
+    }
+
+    const turnContext = this.buildPolluxTurnContext(
+      request,
+      prompt_id,
+      runtimeSurface,
+      experimental,
+    );
+
+    // POLLUX_SPEC §5.1 step 2: gate the advisor invocation on the configured
+    // detector strategy. The detector itself enforces surface, config, budget,
+    // and strategy mismatches, so a non-escalating result here is the unified
+    // "skip advisor" decision.
+    const detector = buildPolluxDetector(experimental.strategy);
+    const escalation = await detector.shouldEscalate(turnContext);
+    if (!escalation.escalate) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (detector): reason=${escalation.reasonCode} strategy=${escalation.strategy}`,
+        );
+      }
+      return;
+    }
+
+    await this.executePolluxAdvisorConsultation(
+      turnContext,
+      partListUnionToString(request),
+      signal,
+    );
+  }
+
+  private async maybeRunPolluxAdvisorConsultationForIntent(
+    request: PartListUnion,
+    signal: AbortSignal,
+    prompt_id: string,
+    runtimeSurface: PolluxRuntimeSurface,
+    intent: SameTurnIntent,
+  ): Promise<void> {
+    if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
+      return;
+    }
+
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (!experimental.enabled) {
+      return;
+    }
+
+    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+      callsCompletedThisTurn: this.polluxAdvisorCallsThisTurn,
+      callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
+    });
+    if (!budgetCheck.allowed) {
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
+        );
+      }
+      return;
+    }
+
+    let pendingToolContextOverride: string | undefined;
+    if (intent.pendingTool) {
+      try {
+        pendingToolContextOverride = JSON.stringify({
+          name: intent.pendingTool.name,
+          args: intent.pendingTool.args,
+        });
+      } catch {
+        pendingToolContextOverride = 'unserializable pending tool context';
+      }
+    }
+
+    const turnContext = this.buildPolluxTurnContext(
+      request,
+      prompt_id,
+      runtimeSurface,
+      experimental,
+      pendingToolContextOverride,
+    );
+
+    await this.executePolluxAdvisorConsultation(
+      turnContext,
+      partListUnionToString(request),
+      signal,
+      {
+        escalationTiming: intent.timing,
+        pauseBoundary: intent.pauseBoundary,
+        contributingSignalIds: intent.contributingSignalIds,
+      },
+    );
   }
 
   private async *processTurn(
@@ -901,6 +1015,12 @@ export class GeminiClient {
   ): AsyncGenerator<ServerGeminiStreamEvent, Turn> {
     // Re-initialize turn (it was empty before if in loop, or new instance)
     let turn = new Turn(this.getChat(), prompt_id);
+
+    this.polluxAdvisorCallsThisTurn = 0;
+    const polluxObserver = createLiveExecutorObserver(
+      this.config.getPolluxExperimentalConfig(),
+    );
+    polluxObserver.beginTurn();
 
     this.sessionTurnCount++;
     if (
@@ -1065,6 +1185,35 @@ export class GeminiClient {
     let loopDetectedAbort = false;
     let loopRecoverResult: { detail?: string } | undefined;
     for await (const event of resultStream) {
+      ingestPolluxObserverFailOpen(polluxObserver, event);
+
+      if (event.type === GeminiEventType.ToolCallRequest) {
+        const preToolIntent = polluxObserver.peekSameTurnIntent();
+        if (preToolIntent?.pauseBoundary === 'pre_tool') {
+          const intent = polluxObserver.consumeSameTurnIntent();
+          if (intent) {
+            try {
+              await this.maybeRunPolluxAdvisorConsultationForIntent(
+                request,
+                signal,
+                prompt_id,
+                runtimeSurface,
+                intent,
+              );
+            } catch (error) {
+              if (signal.aborted) {
+                throw error;
+              }
+              if (this.config.getPolluxExperimentalConfig().emitAdvisorDebug) {
+                debugLogger.warn(
+                  'Pollux same-turn risk-gate consultation failed open.',
+                );
+              }
+            }
+          }
+        }
+      }
+
       const loopResult = this.loopDetector.addAndCheck(event);
       if (loopResult.count > 1) {
         yield { type: GeminiEventType.LoopDetected };

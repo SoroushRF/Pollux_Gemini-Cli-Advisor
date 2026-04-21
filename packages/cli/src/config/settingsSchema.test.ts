@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { DEFAULT_POLLUX_DETECTOR_CONFIG } from '@google/gemini-cli-core';
 import {
   getSettingsSchema,
   SETTINGS_SCHEMA_DEFINITIONS,
@@ -551,12 +552,57 @@ describe('SettingsSchema', () => {
       const detector = pollux.properties.detector;
       expect(detector?.type).toBe('object');
       expect(detector?.mergeStrategy).toBe('shallow_merge');
+      const d = DEFAULT_POLLUX_DETECTOR_CONFIG;
       expect(detector?.properties?.riskGate?.properties?.enabled?.default).toBe(
-        false,
+        d.riskGate.enabled,
+      );
+      expect(detector?.properties?.riskGate?.properties?.mode?.default).toBe(
+        d.riskGate.mode,
+      );
+      expect(detector?.properties?.observer?.properties?.enabled?.default).toBe(
+        d.observer.enabled,
       );
       expect(
+        detector?.properties?.observer?.properties?.maxThoughtWindowChars
+          ?.default,
+      ).toBe(d.observer.maxThoughtWindowChars);
+      expect(
+        detector?.properties?.observer?.properties?.maxToolEventWindow?.default,
+      ).toBe(d.observer.maxToolEventWindow);
+      expect(
+        detector?.properties?.observer?.properties?.decayHalfLifeMs?.default,
+      ).toBe(d.observer.decayHalfLifeMs);
+      expect(
+        detector?.properties?.selfReport?.properties?.enabled?.default,
+      ).toBe(d.selfReport.enabled);
+      expect(
+        detector?.properties?.selfReport?.properties?.promptPrimingEnabled
+          ?.default,
+      ).toBe(d.selfReport.promptPrimingEnabled);
+      expect(
+        detector?.properties?.fusion?.properties?.targetEscalationRate?.default,
+      ).toBe(d.fusion.targetEscalationRate);
+      expect(
+        detector?.properties?.fusion?.properties?.requireComposite?.default,
+      ).toBe(d.fusion.requireComposite);
+      expect(
+        detector?.properties?.fusion?.properties?.lowPrecisionFloor?.default,
+      ).toBe(d.fusion.lowPrecisionFloor);
+      expect(
+        detector?.properties?.fusion?.properties?.sameTurnThresholdMultiplier
+          ?.default,
+      ).toBe(d.fusion.sameTurnThresholdMultiplier);
+      expect(
+        detector?.properties?.fusion?.properties?.sameTurnAbsoluteFloor
+          ?.default,
+      ).toBe(d.fusion.sameTurnAbsoluteFloor);
+      expect(
         detector?.properties?.timing?.properties?.sameTurnEnabled?.default,
-      ).toBe(true);
+      ).toBe(d.timing.sameTurnEnabled);
+      expect(
+        detector?.properties?.timing?.properties?.maxSameTurnEscalationsPerTurn
+          ?.default,
+      ).toBe(d.timing.maxSameTurnEscalationsPerTurn);
     });
   });
 
