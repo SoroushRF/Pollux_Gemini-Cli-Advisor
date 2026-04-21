@@ -84,10 +84,9 @@ import {
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
-  LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
-  LOOP_HARD_CONFIRMED_SIGNAL_ID,
-  LOOP_HARD_CONFIRMED_WEIGHT,
+  buildPolluxHardLoopNextTurnIntent,
   createLiveExecutorObserver,
+  ingestPolluxAfterLoopCheckFailOpen,
   ingestPolluxObserverFailOpen,
   type NextTurnIntent,
   type SameTurnIntent,
@@ -195,31 +194,6 @@ type PolluxIntentConsultationOutcome =
   | 'policy_denied'
   | 'fail_open'
   | 'skipped';
-
-function createHardLoopSameTurnIntent(
-  queuedAtMs: number = Date.now(),
-): SameTurnIntent {
-  return {
-    timing: 'same_turn',
-    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
-    pauseBoundary: 'post_event',
-    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
-    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
-    queuedAtMs,
-  };
-}
-
-function createHardLoopNextTurnIntent(
-  queuedAtMs: number = Date.now(),
-): NextTurnIntent {
-  return {
-    timing: 'next_turn',
-    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
-    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
-    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
-    queuedAtMs,
-  };
-}
 
 type BeforeAgentHookReturn =
   | {
@@ -1076,6 +1050,7 @@ export class GeminiClient {
     this.polluxAdvisorCallsThisTurn = 0;
     const polluxObserver = createLiveExecutorObserver(
       this.config.getPolluxExperimentalConfig(),
+      this.loopDetector,
     );
     polluxObserver.beginTurn();
 
@@ -1272,6 +1247,8 @@ export class GeminiClient {
       }
 
       const loopResult = this.loopDetector.addAndCheck(event);
+      ingestPolluxAfterLoopCheckFailOpen(polluxObserver, event);
+
       const polluxExperimental = this.config.getPolluxExperimentalConfig();
       const loopIntentBridgeEnabled =
         polluxExperimental.enabled &&
@@ -1280,25 +1257,34 @@ export class GeminiClient {
         let sameTurnOutcome: PolluxIntentConsultationOutcome = 'skipped';
 
         if (polluxExperimental.detector.timing.sameTurnEnabled) {
-          const sameTurnIntent = createHardLoopSameTurnIntent();
-          try {
-            sameTurnOutcome =
-              await this.maybeRunPolluxAdvisorConsultationForIntent(
-                request,
-                signal,
-                prompt_id,
-                runtimeSurface,
-                sameTurnIntent,
-              );
-          } catch (error) {
-            if (signal.aborted) {
-              throw error;
-            }
-            sameTurnOutcome = 'fail_open';
-            if (polluxExperimental.emitAdvisorDebug) {
-              debugLogger.warn(
-                'Pollux same-turn hard-loop consultation failed open.',
-              );
+          const postLoopIntent = polluxObserver.peekSameTurnIntent();
+          if (
+            postLoopIntent?.reasonCode ===
+              PolluxEscalationReasonCode.HARD_LOOP &&
+            postLoopIntent.pauseBoundary === 'post_event'
+          ) {
+            const sameTurnIntent = polluxObserver.consumeSameTurnIntent();
+            if (sameTurnIntent) {
+              try {
+                sameTurnOutcome =
+                  await this.maybeRunPolluxAdvisorConsultationForIntent(
+                    request,
+                    signal,
+                    prompt_id,
+                    runtimeSurface,
+                    sameTurnIntent,
+                  );
+              } catch (error) {
+                if (signal.aborted) {
+                  throw error;
+                }
+                sameTurnOutcome = 'fail_open';
+                if (polluxExperimental.emitAdvisorDebug) {
+                  debugLogger.warn(
+                    'Pollux same-turn hard-loop consultation failed open.',
+                  );
+                }
+              }
             }
           }
         }
@@ -1307,7 +1293,8 @@ export class GeminiClient {
           !polluxExperimental.detector.timing.sameTurnEnabled ||
           sameTurnOutcome !== 'consulted'
         ) {
-          this.polluxPendingLoopNextTurnIntent = createHardLoopNextTurnIntent();
+          this.polluxPendingLoopNextTurnIntent =
+            buildPolluxHardLoopNextTurnIntent();
         }
       }
 

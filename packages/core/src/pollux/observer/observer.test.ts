@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   GeminiEventType,
   type ServerGeminiStreamEvent,
 } from '../../core/turn.js';
+import { LoopType } from '../../telemetry/types.js';
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   PolluxEscalationReasonCode,
@@ -16,6 +17,7 @@ import {
 } from '../types.js';
 import {
   createLiveExecutorObserver,
+  ingestPolluxAfterLoopCheckFailOpen,
   ingestPolluxObserverFailOpen,
   LIVE_EXECUTOR_OBSERVER_NO_OP,
 } from './observer.js';
@@ -41,6 +43,7 @@ describe('pollux/observer', () => {
       type: GeminiEventType.LoopDetected,
     };
     expect(() => obs.ingest(loopEvent)).not.toThrow();
+    expect(() => obs.ingestAfterLoopCheck(loopEvent)).not.toThrow();
   });
 
   it('returns no-op when Pollux is on but detector.observer.enabled is false', () => {
@@ -53,14 +56,59 @@ describe('pollux/observer', () => {
     expect(obs).toBe(LIVE_EXECUTOR_OBSERVER_NO_OP);
   });
 
-  it('returns no-op singleton when observer.enabled is true until real observer ships', () => {
+  it('creates loop bridge observer when observer.enabled with loopDetection (Phase C)', () => {
+    const peekState = vi.fn().mockReturnValue({
+      loopDetected: true,
+      lastLoopType: LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+      detail: 'Repeated tool call',
+    });
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({
         enabled: true,
-        detector: { observer: { enabled: true } },
+        detector: {
+          observer: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+      { peekState },
+    );
+    expect(obs).not.toBe(LIVE_EXECUTOR_OBSERVER_NO_OP);
+    obs.beginTurn();
+    const contentEvent: ServerGeminiStreamEvent = {
+      type: GeminiEventType.Content,
+      value: 'x',
+    };
+    obs.ingestAfterLoopCheck(contentEvent);
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        timing: 'same_turn',
+        pauseBoundary: 'post_event',
+        reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
       }),
     );
-    expect(obs).toBe(LIVE_EXECUTOR_OBSERVER_NO_OP);
+  });
+
+  it('loop bridge does not emit same-turn HARD_LOOP when sameTurnEnabled is false', () => {
+    const peekState = vi.fn().mockReturnValue({
+      loopDetected: true,
+      lastLoopType: LoopType.LLM_DETECTED_LOOP,
+      detail: 'analysis',
+    });
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          observer: { enabled: true },
+          timing: { sameTurnEnabled: false, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+      { peekState },
+    );
+    obs.beginTurn();
+    obs.ingestAfterLoopCheck({
+      type: GeminiEventType.Content,
+      value: 'y',
+    });
     expect(obs.peekSameTurnIntent()).toBeUndefined();
   });
 
@@ -104,6 +152,53 @@ describe('pollux/observer', () => {
       }),
     );
     expect(obs.consumeSameTurnIntent()).toEqual(intent);
+  });
+
+  it('composite: risk pre_tool then HARD_LOOP post_event from loop bridge', () => {
+    const peekState = vi.fn().mockReturnValue({
+      loopDetected: true,
+      lastLoopType: LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+      detail: 'loop',
+    });
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          riskGate: { enabled: true },
+          observer: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+      { peekState },
+    );
+    obs.beginTurn();
+
+    const toolEvent: ServerGeminiStreamEvent = {
+      type: GeminiEventType.ToolCallRequest,
+      value: {
+        callId: 'call-1',
+        name: 'run_shell_command',
+        args: { command: 'rm -rf /tmp/*' },
+        isClientInitiated: false,
+        prompt_id: 'prompt-1',
+      },
+    };
+    obs.ingest(toolEvent);
+    expect(obs.peekSameTurnIntent()?.reasonCode).toBe(
+      PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+    );
+    obs.consumeSameTurnIntent();
+
+    obs.ingestAfterLoopCheck({
+      type: GeminiEventType.Content,
+      value: 'chunk',
+    });
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
+        pauseBoundary: 'post_event',
+      }),
+    );
   });
 
   it('I11: after one same-turn escalation in a turn, later high-risk events downgrade to next-turn', () => {
@@ -152,5 +247,20 @@ describe('pollux/observer', () => {
       type: GeminiEventType.LoopDetected,
     };
     expect(() => ingestPolluxObserverFailOpen(throwing, event)).not.toThrow();
+  });
+
+  it('I3: ingestPolluxAfterLoopCheckFailOpen swallows ingestAfterLoopCheck errors', () => {
+    const throwing = {
+      ingestAfterLoopCheck(): void {
+        throw new Error('synthetic loop bridge throw');
+      },
+    };
+    const event: ServerGeminiStreamEvent = {
+      type: GeminiEventType.Content,
+      value: 'z',
+    };
+    expect(() =>
+      ingestPolluxAfterLoopCheckFailOpen(throwing, event),
+    ).not.toThrow();
   });
 });

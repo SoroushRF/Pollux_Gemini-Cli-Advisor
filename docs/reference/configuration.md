@@ -1802,7 +1802,13 @@ their corresponding top-level category object in your `settings.json` file.
   - **Requires restart:** Yes
 
 - **`experimental.pollux.detector.observer.enabled`** (boolean):
-  - **Description:** When true, ingest executor stream events.
+  - **Description:** When true (with Pollux enabled), wires the live executor
+    observer for Phase C loop detection bridge and related stream hooks: a
+    confirmed loop queues a `HARD_LOOP` advisor intent (next-turn when
+    `detector.timing.sameTurnEnabled` is false, or same-turn when true). Flip
+    off to roll back loop-bridge behavior (`DETECTOR_IMPLEMENTATION_PLAN.md`
+    §C.6). Acceptance checks for §C.5 live in
+    `packages/core/src/core/client.test.ts` (search for `Phase C §C.5`).
   - **Default:** `false`
   - **Requires restart:** Yes
 

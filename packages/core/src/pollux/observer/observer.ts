@@ -8,6 +8,7 @@ import {
   GeminiEventType,
   type ServerGeminiStreamEvent,
 } from '../../core/turn.js';
+import type { LoopDetectionService } from '../../services/loopDetectionService.js';
 import {
   PolluxEscalationReasonCode,
   type PolluxExperimentalConfig,
@@ -19,11 +20,48 @@ import {
   RISK_PRE_TOOL_HIGH_SIGNAL_PRECISION,
   RISK_PRE_TOOL_HIGH_SIGNAL_WEIGHT,
 } from './sensors/riskGate.js';
+import {
+  LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+  LOOP_HARD_CONFIRMED_SIGNAL_ID,
+  LOOP_HARD_CONFIRMED_WEIGHT,
+  LoopBridgeSensor,
+} from './sensors/loopBridge.js';
+
+/** Same netScore / ids as {@link LoopBridgeSensor} hard-loop signal (DETECTOR_IMPLEMENTATION_PLAN §C.2). */
+export function buildPolluxHardLoopNextTurnIntent(
+  queuedAtMs: number = Date.now(),
+): NextTurnIntent {
+  return {
+    timing: 'next_turn',
+    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
+    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
+    queuedAtMs,
+  };
+}
+
+function buildPolluxHardLoopSameTurnIntent(
+  queuedAtMs: number = Date.now(),
+): SameTurnIntent {
+  return {
+    timing: 'same_turn',
+    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
+    pauseBoundary: 'post_event',
+    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
+    queuedAtMs,
+  };
+}
 
 /** Live stream observer — ingestion and escalation intents (DETECTOR_IMPLEMENTATION_PLAN §3). */
 export interface LiveExecutorObserver {
   beginTurn(): void;
   ingest(event: ServerGeminiStreamEvent): void;
+  /**
+   * Invoked after `LoopDetectionService.addAndCheck` on the same stream event
+   * so `peekState()` reflects the detection outcome (Phase C loop bridge).
+   */
+  ingestAfterLoopCheck(event: ServerGeminiStreamEvent): void;
   peekSameTurnIntent(): SameTurnIntent | undefined;
   consumeSameTurnIntent(): SameTurnIntent | undefined;
   consumePendingNextTurnIntent(): NextTurnIntent | undefined;
@@ -31,13 +69,12 @@ export interface LiveExecutorObserver {
 
 /**
  * Shared no-op observer (I1: no per-call allocations when Pollux is disabled or
- * `experimental.pollux.detector.observer.enabled` is false).
- * Also returned while Pollux and the observer flag are on but the real observer
- * is not yet wired (Phases A–C).
+ * both detector risk gate and observer subsystems are off).
  */
 export const LIVE_EXECUTOR_OBSERVER_NO_OP: LiveExecutorObserver = {
   beginTurn(): void {},
   ingest(): void {},
+  ingestAfterLoopCheck(): void {},
   peekSameTurnIntent(): undefined {
     return undefined;
   },
@@ -110,6 +147,8 @@ class RiskGateLiveObserver implements LiveExecutorObserver {
     };
   }
 
+  ingestAfterLoopCheck(_event: ServerGeminiStreamEvent): void {}
+
   peekSameTurnIntent(): SameTurnIntent | undefined {
     return this.pendingSameTurnIntent;
   }
@@ -131,20 +170,154 @@ class RiskGateLiveObserver implements LiveExecutorObserver {
 }
 
 /**
- * Factory for the live executor observer. Phases A–C return
- * {@link LIVE_EXECUTOR_OBSERVER_NO_OP}.
- *
- * Returns the shared singleton (no allocation) when Pollux is off, when the
- * live observer subsystem is off, or until a real implementation is registered
- * (Phase D+).
+ * LoopDetectionService bridge: `LoopBridgeSensor` + HARD_LOOP same-turn intent
+ * (DETECTOR_IMPLEMENTATION_PLAN §C.2.2–C.2.3).
+ */
+class LoopHardLiveObserver implements LiveExecutorObserver {
+  private readonly loopSensor: LoopBridgeSensor;
+  private pendingSameTurnIntent: SameTurnIntent | undefined;
+  private sameTurnEscalationsThisTurn = 0;
+
+  constructor(
+    private readonly experimental: Readonly<PolluxExperimentalConfig>,
+    loopDetection: Pick<LoopDetectionService, 'peekState'>,
+  ) {
+    this.loopSensor = new LoopBridgeSensor(loopDetection);
+  }
+
+  beginTurn(): void {
+    this.sameTurnEscalationsThisTurn = 0;
+    this.pendingSameTurnIntent = undefined;
+    this.loopSensor.resetEdgeTracking();
+  }
+
+  ingest(_event: ServerGeminiStreamEvent): void {}
+
+  ingestAfterLoopCheck(event: ServerGeminiStreamEvent): void {
+    if (!this.experimental.detector.observer.enabled) {
+      return;
+    }
+    try {
+      const signals = this.loopSensor.onStreamEvent(event);
+      const hard = signals.find(
+        (s) =>
+          s.id === LOOP_HARD_CONFIRMED_SIGNAL_ID &&
+          s.hardPrecision === true &&
+          s.precisionPrior >= 0.85,
+      );
+      if (!hard) {
+        return;
+      }
+
+      const sameTurnAllowed =
+        this.experimental.detector.timing.sameTurnEnabled &&
+        this.sameTurnEscalationsThisTurn <
+          this.experimental.detector.timing.maxSameTurnEscalationsPerTurn &&
+        this.pendingSameTurnIntent === undefined;
+
+      if (sameTurnAllowed) {
+        this.pendingSameTurnIntent = buildPolluxHardLoopSameTurnIntent(
+          Date.now(),
+        );
+      }
+    } catch {
+      /* fail-open (I3) */
+    }
+  }
+
+  peekSameTurnIntent(): SameTurnIntent | undefined {
+    return this.pendingSameTurnIntent;
+  }
+
+  consumeSameTurnIntent(): SameTurnIntent | undefined {
+    const intent = this.pendingSameTurnIntent;
+    this.pendingSameTurnIntent = undefined;
+    if (intent) {
+      this.sameTurnEscalationsThisTurn++;
+    }
+    return intent;
+  }
+
+  consumePendingNextTurnIntent(): NextTurnIntent | undefined {
+    return undefined;
+  }
+}
+
+class CompositePolluxLiveObserver implements LiveExecutorObserver {
+  constructor(
+    private readonly risk: RiskGateLiveObserver,
+    private readonly loop: LoopHardLiveObserver,
+  ) {}
+
+  beginTurn(): void {
+    this.risk.beginTurn();
+    this.loop.beginTurn();
+  }
+
+  ingest(event: ServerGeminiStreamEvent): void {
+    this.risk.ingest(event);
+  }
+
+  ingestAfterLoopCheck(event: ServerGeminiStreamEvent): void {
+    this.loop.ingestAfterLoopCheck(event);
+  }
+
+  peekSameTurnIntent(): SameTurnIntent | undefined {
+    return this.risk.peekSameTurnIntent() ?? this.loop.peekSameTurnIntent();
+  }
+
+  consumeSameTurnIntent(): SameTurnIntent | undefined {
+    if (this.risk.peekSameTurnIntent()) {
+      return this.risk.consumeSameTurnIntent();
+    }
+    return this.loop.consumeSameTurnIntent();
+  }
+
+  consumePendingNextTurnIntent(): NextTurnIntent | undefined {
+    return (
+      this.risk.consumePendingNextTurnIntent() ??
+      this.loop.consumePendingNextTurnIntent()
+    );
+  }
+}
+
+/**
+ * Factory for the live executor observer (Phase B risk gate + Phase C loop
+ * bridge).
  */
 export function createLiveExecutorObserver(
   experimental: Readonly<PolluxExperimentalConfig>,
+  loopDetection?: Pick<LoopDetectionService, 'peekState'>,
 ): LiveExecutorObserver {
-  if (!experimental.enabled || !experimental.detector.riskGate.enabled) {
+  if (!experimental.enabled) {
     return LIVE_EXECUTOR_OBSERVER_NO_OP;
   }
-  return new RiskGateLiveObserver(experimental);
+
+  const riskOn = experimental.detector.riskGate.enabled;
+  const observerOn = experimental.detector.observer.enabled;
+
+  if (!riskOn && !observerOn) {
+    return LIVE_EXECUTOR_OBSERVER_NO_OP;
+  }
+
+  if (riskOn && observerOn) {
+    if (!loopDetection) {
+      return LIVE_EXECUTOR_OBSERVER_NO_OP;
+    }
+    return new CompositePolluxLiveObserver(
+      new RiskGateLiveObserver(experimental),
+      new LoopHardLiveObserver(experimental, loopDetection),
+    );
+  }
+
+  if (riskOn) {
+    return new RiskGateLiveObserver(experimental);
+  }
+
+  if (!loopDetection) {
+    return LIVE_EXECUTOR_OBSERVER_NO_OP;
+  }
+  return new LoopHardLiveObserver(experimental, loopDetection);
 }
 
 /**
@@ -158,6 +331,17 @@ export function ingestPolluxObserverFailOpen(
 ): void {
   try {
     observer.ingest(event);
+  } catch {
+    /* fail-open */
+  }
+}
+
+export function ingestPolluxAfterLoopCheckFailOpen(
+  observer: Pick<LiveExecutorObserver, 'ingestAfterLoopCheck'>,
+  event: ServerGeminiStreamEvent,
+): void {
+  try {
+    observer.ingestAfterLoopCheck(event);
   } catch {
     /* fail-open */
   }

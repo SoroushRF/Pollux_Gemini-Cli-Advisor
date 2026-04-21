@@ -5,7 +5,9 @@
  */
 
 export {
+  buildPolluxHardLoopNextTurnIntent,
   createLiveExecutorObserver,
+  ingestPolluxAfterLoopCheckFailOpen,
   ingestPolluxObserverFailOpen,
   LIVE_EXECUTOR_OBSERVER_NO_OP,
 } from './observer.js';
