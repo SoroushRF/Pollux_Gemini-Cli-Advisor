@@ -126,6 +126,18 @@ export interface LoopDetectionResult {
   detail?: string;
   confirmedByModel?: string;
 }
+
+/**
+ * Read-only snapshot of loop detection state for external observers (Pollux
+ * Phase C — `DETECTOR_IMPLEMENTATION_PLAN.md` §C.2.1). Never mutates service
+ * state.
+ */
+export interface LoopDetectionPeekState {
+  readonly loopDetected: boolean;
+  readonly lastLoopType?: LoopType;
+  readonly detail?: string;
+  readonly confirmedByModel?: string;
+}
 /**
  * Service for detecting and preventing infinite loops in AI responses.
  * Monitors tool call repetitions and content sentence repetitions.
@@ -149,6 +161,8 @@ export class LoopDetectionService {
   private inCodeBlock = false;
 
   private lastLoopType?: LoopType;
+  /** Set when {@link LoopType.LLM_DETECTED_LOOP} fires; cleared on tool/content loops and reset. */
+  private lastConfirmedByModel?: string;
   // LLM loop track tracking
   private turnsInCurrentPrompt = 0;
   private llmCheckInterval = DEFAULT_LLM_CHECK_INTERVAL;
@@ -170,6 +184,19 @@ export class LoopDetectionService {
       this.context.config,
       new LoopDetectionDisabledEvent(this.promptId),
     );
+  }
+
+  /**
+   * Read-only telemetry snapshot for Pollux observer bridge (Phase C).
+   * Does not read or write stream-processing buffers beyond existing flags.
+   */
+  peekState(): LoopDetectionPeekState {
+    return {
+      loopDetected: this.loopDetected,
+      lastLoopType: this.lastLoopType,
+      detail: this.lastLoopDetail,
+      confirmedByModel: this.lastConfirmedByModel,
+    };
   }
 
   private getToolCallKey(toolCall: { name: string; args: object }): string {
@@ -225,6 +252,7 @@ export class LoopDetectionService {
       this.loopDetected = true;
       this.detectedCount++;
       this.lastLoopDetail = detail;
+      this.lastConfirmedByModel = undefined;
       this.lastLoopType =
         event.type === GeminiEventType.ToolCallRequest
           ? LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS
@@ -287,6 +315,7 @@ export class LoopDetectionService {
         this.detectedCount++;
         this.lastLoopDetail = analysis;
         this.lastLoopType = LoopType.LLM_DETECTED_LOOP;
+        this.lastConfirmedByModel = confirmedByModel;
 
         logLoopDetected(
           this.context.config,
@@ -728,6 +757,7 @@ export class LoopDetectionService {
     this.detectedCount = 0;
     this.lastLoopDetail = undefined;
     this.lastLoopType = undefined;
+    this.lastConfirmedByModel = undefined;
   }
 
   /**

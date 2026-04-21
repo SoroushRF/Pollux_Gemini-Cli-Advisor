@@ -778,6 +778,70 @@ describe('LoopDetectionService', () => {
     });
   });
 
+  describe('peekState', () => {
+    it('reports loopDetected false when idle', () => {
+      expect(service.peekState()).toEqual({
+        loopDetected: false,
+        lastLoopType: undefined,
+        detail: undefined,
+        confirmedByModel: undefined,
+      });
+    });
+
+    it('mirrors a tool-call loop without confirmedByModel', () => {
+      const event = createToolCallRequestEvent('testTool', { param: 'value' });
+      for (let i = 0; i < TOOL_CALL_LOOP_THRESHOLD - 1; i++) {
+        service.addAndCheck(event);
+      }
+      service.addAndCheck(event);
+      expect(service.peekState()).toEqual(
+        expect.objectContaining({
+          loopDetected: true,
+          lastLoopType: LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+          confirmedByModel: undefined,
+        }),
+      );
+      expect(service.peekState().detail).toContain('Repeated tool call');
+    });
+
+    it('is read-only and stable across repeated calls', () => {
+      const event = createToolCallRequestEvent('testTool', { param: 'value' });
+      for (let i = 0; i < TOOL_CALL_LOOP_THRESHOLD; i++) {
+        service.addAndCheck(event);
+      }
+      const a = service.peekState();
+      const b = service.peekState();
+      expect(a).toEqual(b);
+    });
+
+    it('reflects clearDetection for loopDetected only', () => {
+      const event = createToolCallRequestEvent('testTool', { param: 'value' });
+      for (let i = 0; i < TOOL_CALL_LOOP_THRESHOLD; i++) {
+        service.addAndCheck(event);
+      }
+      expect(service.peekState().loopDetected).toBe(true);
+      service.clearDetection();
+      expect(service.peekState().loopDetected).toBe(false);
+      expect(service.peekState().lastLoopType).toBe(
+        LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+      );
+    });
+
+    it('clears snapshot fields on reset', () => {
+      const event = createToolCallRequestEvent('testTool', { param: 'value' });
+      for (let i = 0; i < TOOL_CALL_LOOP_THRESHOLD; i++) {
+        service.addAndCheck(event);
+      }
+      service.reset('new-prompt');
+      expect(service.peekState()).toEqual({
+        loopDetected: false,
+        lastLoopType: undefined,
+        detail: undefined,
+        confirmedByModel: undefined,
+      });
+    });
+  });
+
   describe('General Behavior', () => {
     it('should return 0 count for unhandled event types', () => {
       const otherEvent = {
@@ -904,6 +968,14 @@ describe('LoopDetectionService LLM Checks', () => {
         'event.name': 'loop_detected',
         loop_type: LoopType.LLM_DETECTED_LOOP,
         confirmed_by_model: 'cognitive-loop-v1',
+      }),
+    );
+    expect(service.peekState()).toEqual(
+      expect.objectContaining({
+        loopDetected: true,
+        lastLoopType: LoopType.LLM_DETECTED_LOOP,
+        confirmedByModel: 'cognitive-loop-v1',
+        detail: 'Repetitive actions',
       }),
     );
   });

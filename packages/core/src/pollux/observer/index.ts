@@ -29,5 +29,12 @@ export type { PolluxObserverSensor } from './sensors/base.js';
 export { THOUGHT_SENSOR_ID } from './sensors/thought.js';
 export { TOOL_PATTERN_SENSOR_ID } from './sensors/toolPattern.js';
 export { SELF_REPORT_SENSOR_ID } from './sensors/selfReport.js';
-export { LOOP_BRIDGE_SENSOR_ID } from './sensors/loopBridge.js';
+export {
+  LOOP_BRIDGE_SENSOR_ID,
+  LOOP_HARD_CONFIRMED_SIGNAL_ID,
+  LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+  LOOP_HARD_CONFIRMED_WEIGHT,
+  createLoopBridgeSensor,
+  LoopBridgeSensor,
+} from './sensors/loopBridge.js';
 export { RISK_GATE_SENSOR_ID } from './sensors/riskGate.js';
