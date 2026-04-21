@@ -1325,6 +1325,161 @@ describe('Gemini Client (client.ts)', () => {
       ).toHaveLength(2);
     });
 
+    it('runs same-turn advisor on loop confirmation when observer bridge is enabled (Phase C)', async () => {
+      vi.spyOn(client['loopDetector'], 'turnStarted').mockResolvedValue({
+        count: 0,
+      });
+      vi.spyOn(client['loopDetector'], 'addAndCheck')
+        .mockReturnValueOnce({ count: 1, detail: 'Repetitive tool call' })
+        .mockReturnValue({ count: 0 });
+
+      const sendMessageStreamSpy = vi.spyOn(client, 'sendMessageStream');
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Event' };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: '{"guidance":"Break loop and change approach"}' },
+              ],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-phase-c-loop-same-turn',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(sendMessageStreamSpy).toHaveBeenCalledTimes(2);
+      expect(events).not.toContainEqual({ type: GeminiEventType.LoopDetected });
+    });
+
+    it('queues HARD_LOOP next-turn advisor intent when same-turn loop path is disabled (Phase C fallback)', async () => {
+      vi.spyOn(client['loopDetector'], 'turnStarted').mockResolvedValue({
+        count: 0,
+      });
+      vi.spyOn(client['loopDetector'], 'addAndCheck')
+        .mockReturnValueOnce({ count: 2, detail: 'Strike 2' })
+        .mockReturnValue({ count: 0 });
+
+      mockTurnRunFn
+        .mockImplementationOnce(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'looping event' };
+          })(),
+        )
+        .mockImplementationOnce(() =>
+          (async function* () {
+            yield { type: GeminiEventType.Content, value: 'next user turn' };
+            yield {
+              type: GeminiEventType.Finished,
+              value: { reason: FinishReason.STOP, usageMetadata: undefined },
+            };
+          })(),
+        );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: false,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"Consulted on queued hard loop"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const firstTurnEvents = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'first request' }],
+          new AbortController().signal,
+          'pollux-phase-c-loop-next-turn-1',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(firstTurnEvents).toContainEqual({
+        type: GeminiEventType.LoopDetected,
+      });
+      expect(advisorSpy).toHaveBeenCalledTimes(0);
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'second request' }],
+          new AbortController().signal,
+          'pollux-phase-c-loop-next-turn-2',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('keeps legacy non-interactive output baseline-identical when Pollux is disabled (D2 Cell A)', async () => {
       mockTurnRunFn.mockImplementation(() =>
         (async function* () {

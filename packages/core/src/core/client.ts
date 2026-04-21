@@ -78,13 +78,18 @@ import { PolicyDecision } from '../policy/types.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
   PolluxDetectorStrategy,
+  PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
   type PolluxDetector,
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
+  LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+  LOOP_HARD_CONFIRMED_SIGNAL_ID,
+  LOOP_HARD_CONFIRMED_WEIGHT,
   createLiveExecutorObserver,
   ingestPolluxObserverFailOpen,
+  type NextTurnIntent,
   type SameTurnIntent,
 } from '../pollux/observer/index.js';
 import {
@@ -184,6 +189,38 @@ function summarizeRequestForDetector(request: PartListUnion): {
   };
 }
 
+type PolluxIntentConsultationOutcome =
+  | 'consulted'
+  | 'budget_exhausted'
+  | 'policy_denied'
+  | 'fail_open'
+  | 'skipped';
+
+function createHardLoopSameTurnIntent(
+  queuedAtMs: number = Date.now(),
+): SameTurnIntent {
+  return {
+    timing: 'same_turn',
+    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
+    pauseBoundary: 'post_event',
+    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
+    queuedAtMs,
+  };
+}
+
+function createHardLoopNextTurnIntent(
+  queuedAtMs: number = Date.now(),
+): NextTurnIntent {
+  return {
+    timing: 'next_turn',
+    reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
+    netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
+    contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
+    queuedAtMs,
+  };
+}
+
 type BeforeAgentHookReturn =
   | {
       type: GeminiEventType.AgentExecutionStopped;
@@ -209,6 +246,7 @@ export class GeminiClient {
   private readonly polluxModelRegistry = new PolluxModelRegistry([]);
   private polluxAdvisorCallsThisTurn = 0;
   private polluxAdvisorCallsThisSession = 0;
+  private polluxPendingLoopNextTurnIntent: NextTurnIntent | undefined;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -766,7 +804,7 @@ export class GeminiClient {
       contributingSignalIds?: readonly string[];
       sameTurnDowngraded?: boolean;
     },
-  ): Promise<void> {
+  ): Promise<'consulted' | 'policy_denied' | 'fail_open'> {
     const experimental = turnContext.experimental;
 
     const policyResult = await this.config.getPolicyEngine().check(
@@ -783,7 +821,7 @@ export class GeminiClient {
           `Pollux advisor skipped (policy): ${policyResult.decision}`,
         );
       }
-      return;
+      return 'policy_denied';
     }
 
     const advisorPrompt = buildAdvisorConsultationPrompt({
@@ -797,6 +835,7 @@ export class GeminiClient {
     );
     const advisorSignal = AbortSignal.any([signal, timeoutSignal]);
     let failOpenKind: 'parse_error' | 'timeout' | 'empty_response' | undefined;
+    let consultationSucceeded = false;
 
     // Resolve the advisor model up-front so the UI lifecycle event can include
     // the canonical model id (used for the dynamic footer + status indicator).
@@ -835,19 +874,18 @@ export class GeminiClient {
       const rawAdvisorResponse = getResponseText(advisorResponse);
       if (!rawAdvisorResponse) {
         failOpenKind = 'empty_response';
-        return;
-      }
-
-      const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
-      if (!parsedResponse.ok) {
-        failOpenKind = 'parse_error';
-        return;
-      }
-
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor consulted (confidence=${parsedResponse.structuredConfidence ?? 'n/a'})`,
-        );
+      } else {
+        const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
+        if (!parsedResponse.ok) {
+          failOpenKind = 'parse_error';
+        } else {
+          consultationSucceeded = true;
+          if (experimental.emitAdvisorDebug) {
+            debugLogger.log(
+              `Pollux advisor consulted (confidence=${parsedResponse.structuredConfidence ?? 'n/a'})`,
+            );
+          }
+        }
       }
     } catch (error) {
       if (signal.aborted) {
@@ -880,6 +918,8 @@ export class GeminiClient {
         ...escalationMeta,
       });
     }
+
+    return consultationSucceeded ? 'consulted' : 'fail_open';
   }
 
   private async maybeRunPolluxAdvisorConsultation(
@@ -910,6 +950,21 @@ export class GeminiClient {
         debugLogger.log(
           `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
         );
+      }
+      return;
+    }
+
+    const pendingLoopIntent = this.polluxPendingLoopNextTurnIntent;
+    if (pendingLoopIntent) {
+      const outcome = await this.maybeRunPolluxAdvisorConsultationForIntent(
+        request,
+        signal,
+        prompt_id,
+        runtimeSurface,
+        pendingLoopIntent,
+      );
+      if (outcome !== 'budget_exhausted') {
+        this.polluxPendingLoopNextTurnIntent = undefined;
       }
       return;
     }
@@ -948,15 +1003,15 @@ export class GeminiClient {
     signal: AbortSignal,
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
-    intent: SameTurnIntent,
-  ): Promise<void> {
+    intent: SameTurnIntent | NextTurnIntent,
+  ): Promise<PolluxIntentConsultationOutcome> {
     if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
-      return;
+      return 'skipped';
     }
 
     const experimental = this.config.getPolluxExperimentalConfig();
     if (!experimental.enabled) {
-      return;
+      return 'skipped';
     }
 
     const budgetCheck = checkAdvisorInvocationBudget(experimental, {
@@ -969,11 +1024,11 @@ export class GeminiClient {
           `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
         );
       }
-      return;
+      return 'budget_exhausted';
     }
 
     let pendingToolContextOverride: string | undefined;
-    if (intent.pendingTool) {
+    if (intent.timing === 'same_turn' && intent.pendingTool) {
       try {
         pendingToolContextOverride = JSON.stringify({
           name: intent.pendingTool.name,
@@ -992,16 +1047,18 @@ export class GeminiClient {
       pendingToolContextOverride,
     );
 
-    await this.executePolluxAdvisorConsultation(
+    const outcome = await this.executePolluxAdvisorConsultation(
       turnContext,
       partListUnionToString(request),
       signal,
       {
         escalationTiming: intent.timing,
-        pauseBoundary: intent.pauseBoundary,
+        pauseBoundary:
+          intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
         contributingSignalIds: intent.contributingSignalIds,
       },
     );
+    return outcome;
   }
 
   private async *processTurn(
@@ -1215,6 +1272,45 @@ export class GeminiClient {
       }
 
       const loopResult = this.loopDetector.addAndCheck(event);
+      const polluxExperimental = this.config.getPolluxExperimentalConfig();
+      const loopIntentBridgeEnabled =
+        polluxExperimental.enabled &&
+        polluxExperimental.detector.observer.enabled;
+      if (loopIntentBridgeEnabled && loopResult.count >= 1) {
+        let sameTurnOutcome: PolluxIntentConsultationOutcome = 'skipped';
+
+        if (polluxExperimental.detector.timing.sameTurnEnabled) {
+          const sameTurnIntent = createHardLoopSameTurnIntent();
+          try {
+            sameTurnOutcome =
+              await this.maybeRunPolluxAdvisorConsultationForIntent(
+                request,
+                signal,
+                prompt_id,
+                runtimeSurface,
+                sameTurnIntent,
+              );
+          } catch (error) {
+            if (signal.aborted) {
+              throw error;
+            }
+            sameTurnOutcome = 'fail_open';
+            if (polluxExperimental.emitAdvisorDebug) {
+              debugLogger.warn(
+                'Pollux same-turn hard-loop consultation failed open.',
+              );
+            }
+          }
+        }
+
+        if (
+          !polluxExperimental.detector.timing.sameTurnEnabled ||
+          sameTurnOutcome !== 'consulted'
+        ) {
+          this.polluxPendingLoopNextTurnIntent = createHardLoopNextTurnIntent();
+        }
+      }
+
       if (loopResult.count > 1) {
         yield { type: GeminiEventType.LoopDetected };
         loopDetectedAbort = true;
