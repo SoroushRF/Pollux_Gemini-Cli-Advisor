@@ -43,6 +43,11 @@ const CONFIDENCE_COMMENT_RE = /<!--\s*pollux:confidence:\s*(\d+)\s*-->/gi;
 
 const CONFIDENCE_XML_RE = /<pollux:confidence\b[^>]*\bvalue="(\d+)"[^>]*\/?>/gi;
 
+const STATUS_TAG_RE = /<pollux:status\b[^>]*\/?>/gi;
+
+const STATUS_STUCK_ON_RE = /\bstuck_on\s*=\s*"([^"]*)"/i;
+const STATUS_NEXT_RE = /\bnext\s*=\s*"([^"]*)"/i;
+
 /**
  * Lists pollux confidence tag values in document order (POLLUX_SPEC §7.3).
  */
@@ -66,6 +71,38 @@ export function stripPolluxConfidenceTags(text: string): string {
   return text
     .replace(CONFIDENCE_COMMENT_RE, '')
     .replace(CONFIDENCE_XML_RE, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+export interface PolluxStatusTag {
+  readonly stuckOn?: string;
+  readonly next?: string;
+}
+
+/**
+ * Lists structured Pollux status tags in document order (DETECTOR_IMPLEMENTATION_PLAN Phase E).
+ */
+export function parsePolluxStatusTag(text: string): readonly PolluxStatusTag[] {
+  const out: PolluxStatusTag[] = [];
+  for (const match of text.matchAll(STATUS_TAG_RE)) {
+    const raw = match[0];
+    const stuckOn = STATUS_STUCK_ON_RE.exec(raw)?.[1];
+    const next = STATUS_NEXT_RE.exec(raw)?.[1];
+    out.push({
+      stuckOn: typeof stuckOn === 'string' ? stuckOn : undefined,
+      next: typeof next === 'string' ? next : undefined,
+    });
+  }
+  return out;
+}
+
+/**
+ * Removes Pollux status tags from free text (DETECTOR_IMPLEMENTATION_PLAN Phase E).
+ */
+export function stripPolluxStatusTags(text: string): string {
+  return text
+    .replace(STATUS_TAG_RE, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }

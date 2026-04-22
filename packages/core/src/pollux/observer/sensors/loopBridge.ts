@@ -6,8 +6,11 @@
 
 import type { ServerGeminiStreamEvent } from '../../../core/turn.js';
 import type { LoopDetectionService } from '../../../services/loopDetectionService.js';
-import type { SensorSignal } from '../types.js';
-import type { PolluxObserverSensor } from './base.js';
+import type {
+  SensorInput,
+  SensorSignal,
+  PolluxObserverSensor,
+} from './base.js';
 
 /** Observer sensor id for the loop bridge (module slot). */
 export const LOOP_BRIDGE_SENSOR_ID = 'sensor.loop_bridge' as const;
@@ -39,6 +42,10 @@ export class LoopBridgeSensor implements PolluxObserverSensor {
   constructor(
     private readonly loopDetection: Pick<LoopDetectionService, 'peekState'>,
   ) {}
+
+  observe(input: SensorInput): readonly SensorSignal[] {
+    return this.onStreamEvent(input.event);
+  }
 
   onStreamEvent(_event: ServerGeminiStreamEvent): readonly SensorSignal[] {
     try {

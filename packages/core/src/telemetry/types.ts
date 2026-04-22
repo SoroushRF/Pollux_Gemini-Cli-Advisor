@@ -1089,6 +1089,50 @@ export class RewindEvent implements BaseTelemetryEvent {
   }
 }
 
+export const EVENT_POLLUX_OUTCOME = 'gemini_cli.pollux_outcome';
+export class PolluxOutcomeTelemetryEvent implements BaseTelemetryEvent {
+  'event.name': 'pollux_outcome';
+  'event.timestamp': string;
+  turn_id: string;
+  outcome: string;
+  advisor_consulted: boolean;
+  contributing_signal_ids: readonly string[];
+  user_action_ms: number;
+
+  constructor(params: {
+    turnId: string;
+    outcome: string;
+    advisorConsulted: boolean;
+    contributingSignalIds: readonly string[];
+    userActionMs: number;
+  }) {
+    this['event.name'] = 'pollux_outcome';
+    this['event.timestamp'] = new Date().toISOString();
+    this.turn_id = params.turnId;
+    this.outcome = params.outcome;
+    this.advisor_consulted = params.advisorConsulted;
+    this.contributing_signal_ids = params.contributingSignalIds;
+    this.user_action_ms = params.userActionMs;
+  }
+
+  toOpenTelemetryAttributes(config: Config): LogAttributes {
+    return {
+      ...getCommonAttributes(config),
+      'event.name': EVENT_POLLUX_OUTCOME,
+      'event.timestamp': this['event.timestamp'],
+      turn_id: this.turn_id,
+      outcome: this.outcome,
+      advisor_consulted: this.advisor_consulted,
+      contributing_signal_ids: JSON.stringify(this.contributing_signal_ids),
+      user_action_ms: this.user_action_ms,
+    };
+  }
+
+  toLogBody(): string {
+    return `Pollux outcome recorded (turn=${this.turn_id}, outcome=${this.outcome}).`;
+  }
+}
+
 export const EVENT_CHAT_COMPRESSION = 'gemini_cli.chat_compression';
 export interface ChatCompressionEvent extends BaseTelemetryEvent {
   'event.name': 'chat_compression';

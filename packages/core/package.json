@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:ci": "vitest run",
+    "test:pollux-observer-perf": "vitest run src/pollux/observer/observer.perf.test.ts --reporter=dot",
     "posttest": "npm run build",
     "typecheck": "tsc --noEmit"
   },

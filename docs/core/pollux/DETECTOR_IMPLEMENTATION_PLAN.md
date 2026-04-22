@@ -906,6 +906,34 @@ Observer tests:
 
 Flip `detector.observer.enabled = false`.
 
+### D.12 Completion status (2026-04-22)
+
+- **Bounded windows verified**:
+  - `packages/core/src/pollux/observer/observer.test.ts` includes explicit FIFO
+    eviction tests for `maxThoughtWindowChars` and `maxToolEventWindow`.
+- **Fusion auto-calibration telemetry reason implemented**:
+  - `FUSION_BUDGET_TARGET` is now emitted by
+    `packages/core/src/pollux/observer/fusion.ts` when the auto-calibrated
+    threshold is lowered and the next composite escalation occurs (unit tested
+    in `packages/core/src/pollux/observer/fusion.test.ts`).
+- **Perf evidence (50-event turn)**:
+  - Opt-in perf benchmark test:
+    `packages/core/src/pollux/observer/observer.perf.test.ts`
+  - Run via:
+
+    ```bash
+    npm run test:pollux-observer-perf -w @google/gemini-cli-core
+    ```
+
+  - Guardrail asserts mean time for `beginTurn + ingest(50 events)` stays under
+    **5ms** on the test machine (Phase D.10).
+
+- **Functional test suite**:
+
+  ```bash
+  npm run test -w @google/gemini-cli-core -- src/pollux/observer
+  ```
+
 ---
 
 ## 10) Phase E — Structured self-report (Tier 3)

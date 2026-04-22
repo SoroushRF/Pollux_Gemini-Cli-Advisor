@@ -29,6 +29,7 @@ import { DiscoveredMCPTool } from '../tools/mcp-tool.js';
 import type { AnyDeclarativeTool } from '../tools/tools.js';
 import type { CallableTool } from '@google/genai';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
+import { mergePolluxExperimentalConfig } from '../pollux/types.js';
 
 // Mock tool names if they are dynamically generated or complex
 vi.mock('../tools/ls', () => ({ LSTool: { Name: 'list_directory' } }));
@@ -125,6 +126,9 @@ describe('Core System Prompt (prompts.ts)', () => {
       getApprovalMode: vi.fn().mockReturnValue(ApprovalMode.DEFAULT),
       getApprovedPlanPath: vi.fn().mockReturnValue(undefined),
       isTrackerEnabled: vi.fn().mockReturnValue(false),
+      getPolluxExperimentalConfig: vi
+        .fn()
+        .mockReturnValue(mergePolluxExperimentalConfig({ enabled: false })),
       get config() {
         return this;
       },
@@ -166,6 +170,19 @@ describe('Core System Prompt (prompts.ts)', () => {
     );
     expect(prompt).toContain('</skill>');
     expect(prompt).toContain('</available_skills>');
+    expect(prompt).toMatchSnapshot();
+  });
+
+  it('includes Pollux status-channel prompt priming when enabled', () => {
+    vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: { selfReport: { enabled: true, promptPrimingEnabled: true } },
+      }),
+    );
+    const prompt = getCoreSystemPrompt(mockConfig);
+    expect(prompt).toContain('# Pollux status channel (experimental)');
+    expect(prompt).toContain('<pollux:status stuck_on="');
     expect(prompt).toMatchSnapshot();
   });
 

@@ -50,6 +50,7 @@ export {
   logRewind,
   logOnboardingStart,
   logOnboardingSuccess,
+  logPolluxOutcome,
 } from './loggers.js';
 export {
   logConsecaPolicyGeneration,
@@ -76,6 +77,8 @@ export {
   OnboardingSuccessEvent,
   ConsecaPolicyGenerationEvent,
   ConsecaVerdictEvent,
+  PolluxOutcomeTelemetryEvent,
+  EVENT_POLLUX_OUTCOME,
 } from './types.js';
 export { LlmRole } from './llmRole.js';
 export { makeSlashCommandEvent, makeChatCompressionEvent } from './types.js';

@@ -69,6 +69,9 @@ import {
   debugLogger,
   coreEvents,
   CoreEvent,
+  logPolluxOutcome,
+  PolluxOutcomeTelemetryEvent,
+  type PolluxOutcomeEvent,
   refreshServerHierarchicalMemory,
   flattenMemory,
   type MemoryChangedPayload,
@@ -642,6 +645,20 @@ export const AppContainer = (props: AppContainerProps) => {
       coreEvents.off(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
     };
   }, []);
+
+  useEffect(() => {
+    const handlePolluxOutcome = (payload: PolluxOutcomeEvent) => {
+      try {
+        logPolluxOutcome(config, new PolluxOutcomeTelemetryEvent(payload));
+      } catch (error) {
+        debugLogger.error('Failed to log pollux outcome telemetry:', error);
+      }
+    };
+    coreEvents.on(CoreEvent.PolluxOutcome, handlePolluxOutcome);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxOutcome, handlePolluxOutcome);
+    };
+  }, [config]);
 
   useEffect(() => {
     const handleSettingsChanged = () => {

@@ -226,6 +226,32 @@ export interface PolluxAdvisorPhasePayload {
   sameTurnDowngraded?: boolean;
 }
 
+export type PolluxTurnOutcome =
+  | 'accepted'
+  | 'cancelled'
+  | 'retyped'
+  | 'edited'
+  | 'unknown';
+
+/**
+ * Outcome telemetry for a completed turn (DETECTOR_IMPLEMENTATION_PLAN.md §12).
+ *
+ * Emitted by the UI layer; collected only (no behavior changes in Phase G).
+ */
+export interface PolluxOutcomeEvent {
+  /** Stable correlation id (use `prompt_id` / turn id). */
+  readonly turnId: string;
+  readonly outcome: PolluxTurnOutcome;
+  readonly advisorConsulted: boolean;
+  readonly contributingSignalIds: readonly string[];
+  /** Time between response completion and the user's next action. */
+  readonly userActionMs: number;
+}
+
+export interface PolluxTurnEditedPayload {
+  readonly source: 'modify_with_editor';
+}
+
 export enum CoreEvent {
   UserFeedback = 'user-feedback',
   ModelChanged = 'model-changed',
@@ -252,6 +278,8 @@ export enum CoreEvent {
   TelemetryKeychainAvailability = 'telemetry-keychain-availability',
   TelemetryTokenStorageType = 'telemetry-token-storage-type',
   PolluxAdvisorPhase = 'pollux-advisor-phase',
+  PolluxOutcome = 'pollux-outcome',
+  PolluxTurnEdited = 'pollux-turn-edited',
 }
 
 /**
@@ -287,6 +315,8 @@ export interface CoreEvents extends ExtensionEvents {
   [CoreEvent.TelemetryKeychainAvailability]: [KeychainAvailabilityEvent];
   [CoreEvent.TelemetryTokenStorageType]: [TokenStorageInitializationEvent];
   [CoreEvent.PolluxAdvisorPhase]: [PolluxAdvisorPhasePayload];
+  [CoreEvent.PolluxOutcome]: [PolluxOutcomeEvent];
+  [CoreEvent.PolluxTurnEdited]: [PolluxTurnEditedPayload];
 }
 
 type EventBacklogItem = {
@@ -344,6 +374,14 @@ export class CoreEventEmitter extends EventEmitter<CoreEvents> {
   ): void {
     const payload: UserFeedbackPayload = { severity, message, error };
     this._emitOrQueue(CoreEvent.UserFeedback, payload);
+  }
+
+  emitPolluxOutcome(payload: PolluxOutcomeEvent): void {
+    this._emitOrQueue(CoreEvent.PolluxOutcome, payload);
+  }
+
+  emitPolluxTurnEdited(payload: PolluxTurnEditedPayload): void {
+    this._emitOrQueue(CoreEvent.PolluxTurnEdited, payload);
   }
 
   /**

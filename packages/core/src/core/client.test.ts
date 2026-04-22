@@ -58,8 +58,11 @@ import { LlmRole, LoopType } from '../telemetry/types.js';
 import { PolicyDecision } from '../policy/types.js';
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+  PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
 } from '../pollux/types.js';
+import { buildPolluxHardLoopNextTurnIntent } from '../pollux/observer/index.js';
+import type { PolluxAdvisorPhasePayload } from '../utils/events.js';
 
 /**
  * Input that reliably trips the default heuristic detector (P3-01) so the
@@ -884,6 +887,59 @@ describe('Gemini Client (client.ts)', () => {
       expect(mockPolicyCheck).not.toHaveBeenCalled();
     });
 
+    it('strips <pollux:status> tags from streamed content when selfReport is enabled (Phase E leakage)', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              'x <pollux:status stuck_on="ci fails on windows" next="inspect logs"/> y',
+          };
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              'x <pollux:status next="inspect logs" stuck_on="ci fails on windows"/> y',
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+        },
+      });
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'Hi' }],
+          new AbortController().signal,
+          'pollux-phase-e-leakage',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const contents = events
+        .filter((e) => e.type === GeminiEventType.Content)
+        .map((e) => (e as { value: string }).value)
+        .join('\n');
+      expect(contents).not.toContain('<pollux:status');
+      expect(contents).toContain('x y');
+    });
+
     it('runs advisor internally on allow and preserves visible stream events (Cell B)', async () => {
       mockTurnRunFn.mockImplementation(() =>
         (async function* () {
@@ -1332,11 +1388,23 @@ describe('Gemini Client (client.ts)', () => {
       vi.spyOn(client['loopDetector'], 'addAndCheck')
         .mockReturnValueOnce({ count: 1, detail: 'Repetitive tool call' })
         .mockReturnValue({ count: 0 });
-      vi.spyOn(client['loopDetector'], 'peekState').mockReturnValue({
-        loopDetected: true,
-        lastLoopType: LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
-        detail: 'Repetitive tool call',
-      });
+      // Mimic the real `clearDetection()` that `_recoverFromLoop` runs on
+      // strike 1: peekState reports `loopDetected: true` until the recovery
+      // kicks in, then returns `false` for the recovery turn so the Phase F
+      // observer's loop bridge does not re-fire a second same-turn consult
+      // inside the recursion (Phase C parity).
+      const peekStateSpy = vi
+        .spyOn(client['loopDetector'], 'peekState')
+        .mockReturnValue({
+          loopDetected: true,
+          lastLoopType: LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS,
+          detail: 'Repetitive tool call',
+        });
+      vi.spyOn(client['loopDetector'], 'clearDetection').mockImplementation(
+        () => {
+          peekStateSpy.mockReturnValue({ loopDetected: false });
+        },
+      );
 
       const sendMessageStreamSpy = vi.spyOn(client, 'sendMessageStream');
       mockTurnRunFn.mockImplementation(() =>
@@ -1962,6 +2030,593 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       expect(advisorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // Phase F: advisor consultation lifecycle
+    // Covers DETECTOR_IMPLEMENTATION_PLAN §11.F.3 test checklist.
+    // ──────────────────────────────────────────────────────────────
+
+    /**
+     * Capture every `pollux-advisor-phase` telemetry payload emitted during
+     * a test. Returns a `stop()` function that detaches the listener and
+     * yields the captured payloads in emission order.
+     */
+    function capturePolluxAdvisorPhaseEvents(): {
+      payloads: PolluxAdvisorPhasePayload[];
+      stop: () => PolluxAdvisorPhasePayload[];
+    } {
+      const payloads: PolluxAdvisorPhasePayload[] = [];
+      const listener = (payload: PolluxAdvisorPhasePayload) => {
+        payloads.push(payload);
+      };
+      coreEvents.on(CoreEvent.PolluxAdvisorPhase, listener);
+      return {
+        payloads,
+        stop: () => {
+          coreEvents.off(CoreEvent.PolluxAdvisorPhase, listener);
+          return payloads;
+        },
+      };
+    }
+
+    it('Phase F §11.F.3 7.1: next-turn lifecycle — queued intent from turn N consults on turn N+1 with escalationTiming=next_turn', async () => {
+      // Simulate a soft composite that already fired on a prior turn: the
+      // observer has queued a NextTurnIntent onto the client's slot. The
+      // stream on turn N+1 should consult the advisor at top-of-turn.
+      client['polluxPendingNextTurnIntent'] = {
+        timing: 'next_turn',
+        reasonCode: PolluxEscalationReasonCode.FUSION_COMPOSITE,
+        netScore: 4.2,
+        contributingSignalIds: ['thought.repetition', 'tool.redundant_noop'],
+        queuedAtMs: Date.now() - 10,
+      };
+
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'ok' };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: '{"guidance":"next-turn"}' }] } },
+        ],
+      } as GenerateContentResponse);
+
+      const telemetry = capturePolluxAdvisorPhaseEvents();
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'carry over' }],
+          new AbortController().signal,
+          'pollux-phase-f-next-turn',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const events = telemetry.stop();
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      const pending = events.find((e) => e.phase === 'pending');
+      expect(pending?.escalationTiming).toBe('next_turn');
+      expect(pending?.contributingSignalIds).toEqual([
+        'thought.repetition',
+        'tool.redundant_noop',
+      ]);
+      // The slot is consumed exactly once and cleared.
+      expect(client['polluxPendingNextTurnIntent']).toBeUndefined();
+    });
+
+    it('Phase F §11.F.3 7.4: self-report lifecycle — <pollux:status stuck_on="..."> triggers same-turn consult with SELF_REPORT_STUCK', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              'Checking: <pollux:status stuck_on="cannot resolve merge conflict" next="inspect HEAD"/> continuing.',
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: '{"guidance":"try rebase"}' }] } },
+        ],
+      } as GenerateContentResponse);
+
+      const telemetry = capturePolluxAdvisorPhaseEvents();
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'help with merge conflict' }],
+          new AbortController().signal,
+          'pollux-phase-f-self-report',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const events = telemetry.stop();
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      const pending = events.find((e) => e.phase === 'pending');
+      expect(pending?.escalationTiming).toBe('same_turn');
+      expect(pending?.pauseBoundary).toBe('post_event');
+      expect(pending?.contributingSignalIds).toContain(
+        'self.structured_status_stuck',
+      );
+    });
+
+    it('Phase F §11.F.3 7.6: single-shot guardrail — two same-turn-eligible risk triggers collapse to one consult; second downgrades to next-turn', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'f-single-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/a' },
+              isClientInitiated: false,
+              prompt_id: 'pollux-phase-f-single-shot',
+            },
+          };
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'f-single-2',
+              name: 'run_shell_command',
+              args: { command: 'git push --force origin main' },
+              isClientInitiated: false,
+              prompt_id: 'pollux-phase-f-single-shot',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+            // Deliberately allow >1 per observer cap so the client-level
+            // single-shot (I11) is the enforcing path.
+            maxSameTurnEscalationsPerTurn: 3,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: '{"guidance":"one-shot"}' }] } },
+        ],
+      } as GenerateContentResponse);
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'two risky commands' }],
+          new AbortController().signal,
+          'pollux-phase-f-single-shot',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      // Exactly one same-turn consult fired during the turn.
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      // The second risk trigger must have been downgraded to a next-turn
+      // intent on the client, preserving its reason code.
+      const queued = client['polluxPendingNextTurnIntent'];
+      expect(queued).toBeDefined();
+      expect(queued?.timing).toBe('next_turn');
+      expect(queued?.reasonCode).toBe(
+        PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+      );
+    });
+
+    it('Phase F §11.F.3 7.7: no recursion — after a same-turn consult additional post-event triggers do not consult again', async () => {
+      // Post-event trigger via self-report; then another post-event content
+      // with a second stuck tag should not produce a second same-turn call.
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value: '<pollux:status stuck_on="first obstacle"/>',
+          };
+          yield {
+            type: GeminiEventType.Content,
+            value: '<pollux:status stuck_on="second obstacle"/>',
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: '{"guidance":"no-recursion"}' }] } },
+        ],
+      } as GenerateContentResponse);
+
+      await fromAsync(
+        client.sendMessageStream(
+          // The heuristic detector matches `\b(stuck|blocked|...)\b` in the
+          // user request, so the prompt must NOT contain those words or the
+          // top-of-turn detector path will fire a second generateContent call
+          // that is orthogonal to the post-event same-turn guardrail we are
+          // testing here.
+          [{ text: 'please analyze the situation' }],
+          new AbortController().signal,
+          'pollux-phase-f-no-recursion',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(client['polluxSameTurnFiredThisTurn']).toBe(true);
+    });
+
+    it('Phase F §11.F.3 7.9: budget cap downgrades same-turn to next-turn with sameTurnDowngraded=true telemetry', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'f-budget-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/b' },
+              isClientInitiated: false,
+              prompt_id: 'pollux-phase-f-budget',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        // Exhaust the session-level budget up front: `polluxAdvisorCallsThisTurn`
+        // is reset at `processTurn` entry, but the session counter is not --
+        // using it ensures the budget check at same-turn trigger time is
+        // unavoidable.
+        maxAdvisorCallsPerSession: 1,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      // Pretend the session budget is already exhausted by a prior consult.
+      client['polluxAdvisorCallsThisSession'] = 1;
+
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'risky with budget exhausted' }],
+          new AbortController().signal,
+          'pollux-phase-f-budget',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      // No mid-turn consult should have fired.
+      expect(advisorSpy).not.toHaveBeenCalled();
+      // The risk-gate intent must be parked on the next-turn slot with the
+      // same reason code; the client will re-check budget at the top of the
+      // following turn.
+      const queued = client['polluxPendingNextTurnIntent'];
+      expect(queued).toBeDefined();
+      expect(queued?.reasonCode).toBe(
+        PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+      );
+    });
+
+    it('Phase F §11.F.3 7.11: kill switch — detector.timing.sameTurnEnabled=false forces risk-gate to next-turn queue; no mid-turn consult', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'f-kill-1',
+              name: 'run_shell_command',
+              args: { command: 'rm -rf /tmp/c' },
+              isClientInitiated: false,
+              prompt_id: 'pollux-phase-f-kill',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          riskGate: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.riskGate,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: false,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'kill switch on' }],
+          new AbortController().signal,
+          'pollux-phase-f-kill',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      // No mid-turn consult allowed.
+      expect(advisorSpy).not.toHaveBeenCalled();
+      // Observer / client should have queued a next-turn intent so the
+      // advisor is still consulted on the next turn.
+      const queued = client['polluxPendingNextTurnIntent'];
+      expect(queued).toBeDefined();
+      expect(queued?.timing).toBe('next_turn');
+      expect(queued?.reasonCode).toBe(
+        PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+      );
+    });
+
+    it('Phase F §11.F.3 telemetry attribution: next-turn consult of a same-turn-canonical intent emits sameTurnDowngraded=true', async () => {
+      // Reason code is canonically same-turn (HARD_LOOP), but we queue it on
+      // the next-turn slot. §F.1.6 inference says the next-turn consult must
+      // emit sameTurnDowngraded=true.
+      client['polluxPendingNextTurnIntent'] =
+        buildPolluxHardLoopNextTurnIntent();
+
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'ok' };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          { content: { parts: [{ text: '{"guidance":"downgraded"}' }] } },
+        ],
+      } as GenerateContentResponse);
+
+      const telemetry = capturePolluxAdvisorPhaseEvents();
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'consult queued hard-loop' }],
+          new AbortController().signal,
+          'pollux-phase-f-downgrade-telemetry',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const events = telemetry.stop();
+      const pending = events.find((e) => e.phase === 'pending');
+      expect(pending?.escalationTiming).toBe('next_turn');
+      expect(pending?.sameTurnDowngraded).toBe(true);
+      expect(pending?.contributingSignalIds).toEqual(['loop.hard_confirmed']);
+    });
+
+    it('Phase F §11.F.3 7.10: observer ingest() throwing mid-stream is fail-open; stream completes without escalation', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'keep going' };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+        },
+      });
+      // Force the self-report parse path to throw by monkey-patching a
+      // global function it uses -- but since that module is pure, we instead
+      // spy on the loop detector's peekState (consumed by the loop sensor
+      // via `ingestAfterLoopCheck`) to simulate a mid-stream exception
+      // surface. The fail-open harness at the call site must swallow it.
+      vi.spyOn(client['loopDetector'], 'peekState').mockImplementation(() => {
+        throw new Error('synthetic observer failure');
+      });
+      vi.spyOn(client['loopDetector'], 'turnStarted').mockResolvedValue({
+        count: 0,
+      });
+      vi.spyOn(client['loopDetector'], 'addAndCheck').mockReturnValue({
+        count: 0,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'observer throws' }],
+          new AbortController().signal,
+          'pollux-phase-f-observer-throws',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).not.toHaveBeenCalled();
+      expect(events.some((e) => e.type === GeminiEventType.Content)).toBe(true);
+      expect(events.some((e) => e.type === GeminiEventType.Finished)).toBe(
+        true,
+      );
     });
 
     it('keeps legacy non-interactive output baseline-identical when Pollux is disabled (D2 Cell A)', async () => {

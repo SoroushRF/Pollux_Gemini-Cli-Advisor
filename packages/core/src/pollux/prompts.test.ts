@@ -8,8 +8,10 @@ import { describe, it, expect } from 'vitest';
 import {
   buildAdvisorConsultationPrompt,
   extractPolluxConfidenceTagValues,
+  parsePolluxStatusTag,
   parseAdvisorModelResponse,
   stripPolluxConfidenceTags,
+  stripPolluxStatusTags,
 } from './prompts.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
@@ -49,6 +51,50 @@ describe('pollux/prompts', () => {
           'x <!-- pollux:confidence:3 --> y <pollux:confidence value="8"/>',
         ),
       ).toEqual([3, 8]);
+    });
+  });
+
+  describe('parsePolluxStatusTag / stripPolluxStatusTags', () => {
+    it('parses multiple tags and preserves document order', () => {
+      const tags = parsePolluxStatusTag(
+        'a <pollux:status stuck_on="first obstacle" next="x"/> b <pollux:status stuck_on="second obstacle" next="y"/>',
+      );
+      expect(tags).toEqual([
+        { stuckOn: 'first obstacle', next: 'x' },
+        { stuckOn: 'second obstacle', next: 'y' },
+      ]);
+    });
+
+    it('parses attribute order variations and missing attributes', () => {
+      expect(
+        parsePolluxStatusTag('<pollux:status next="n" stuck_on="stuck here"/>'),
+      ).toEqual([{ stuckOn: 'stuck here', next: 'n' }]);
+      expect(parsePolluxStatusTag('<pollux:status stuck_on="only"/>')).toEqual([
+        { stuckOn: 'only', next: undefined },
+      ]);
+    });
+
+    it('ignores malformed tags and does not throw', () => {
+      expect(parsePolluxStatusTag('no tags here')).toEqual([]);
+      expect(parsePolluxStatusTag('<pollux:status stuck_on=>')).toEqual([
+        { stuckOn: undefined, next: undefined },
+      ]);
+    });
+
+    it('strips tags in both attribute orderings (leakage guard)', () => {
+      expect(
+        stripPolluxStatusTags('x <pollux:status stuck_on="a b" next="c"/> y'),
+      ).toBe('x y');
+      expect(
+        stripPolluxStatusTags('x <pollux:status next="c" stuck_on="a b"/> y'),
+      ).toBe('x y');
+    });
+
+    it('interleaves cleanly with confidence tags (confidence behavior unchanged)', () => {
+      const raw =
+        'x <pollux:status stuck_on="a b" next="c"/> <!-- pollux:confidence:3 --> y';
+      expect(stripPolluxStatusTags(stripPolluxConfidenceTags(raw))).toBe('x y');
+      expect(extractPolluxConfidenceTagValues(raw)).toEqual([3]);
     });
   });
 

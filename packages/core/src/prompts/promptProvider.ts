@@ -33,6 +33,16 @@ import { DiscoveredMCPTool } from '../tools/mcp-tool.js';
 import { getAllGeminiMdFilenames } from '../tools/memoryTool.js';
 import type { AgentLoopContext } from '../config/agent-loop-context.js';
 
+const POLLUX_STATUS_PROMPT_BLOCK = `
+# Pollux status channel (experimental)
+
+You may emit a structured status tag during reasoning, with this shape:
+  <pollux:status stuck_on="<concrete obstacle>" next="<proposed next step>"/>
+- Use it when you notice yourself repeating, backtracking, or unsure how to proceed.
+- The tag is stripped before the user sees your output.
+- Concrete answers only; 'nothing' or 'n/a' in stuck_on is treated as not stuck.
+`.trim();
+
 /**
  * Orchestrates prompt generation by gathering context and building options.
  */
@@ -249,6 +259,15 @@ export class PromptProvider {
 
     // Sanitize erratic newlines from composition
     let sanitizedPrompt = finalPrompt.replace(/\n{3,}/g, '\n\n');
+
+    // Pollux status channel prompt priming (DETECTOR_IMPLEMENTATION_PLAN Phase E).
+    const polluxExperimental = context.config.getPolluxExperimentalConfig?.();
+    if (
+      polluxExperimental?.enabled &&
+      polluxExperimental.detector.selfReport.promptPrimingEnabled
+    ) {
+      sanitizedPrompt += `\n\n${POLLUX_STATUS_PROMPT_BLOCK}`;
+    }
 
     // Context Reinjection (Active Topic)
     if (context.config.isTopicUpdateNarrationEnabled()) {

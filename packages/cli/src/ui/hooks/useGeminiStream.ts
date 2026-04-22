@@ -33,6 +33,7 @@ import {
   coreEvents,
   CoreEvent,
   CoreToolCallStatus,
+  type PolluxAdvisorPhasePayload,
   buildUserSteeringHintPrompt,
   GeminiCliOperation,
   getPlanModeExitMessage,
@@ -44,20 +45,18 @@ import {
   UPDATE_TOPIC_TOOL_NAME,
   UPDATE_TOPIC_DISPLAY_NAME,
   PolluxRuntimeSurface,
-} from '@google/gemini-cli-core';
-import type {
-  Config,
-  EditorType,
-  GeminiClient,
-  ServerGeminiChatCompressedEvent,
-  ServerGeminiContentEvent as ContentEvent,
-  ServerGeminiFinishedEvent,
-  ServerGeminiStreamEvent as GeminiEvent,
-  ThoughtSummary,
-  ToolCallRequestInfo,
-  ToolCallResponseInfo,
-  GeminiErrorEventValue,
-  RetryAttemptPayload,
+  type Config,
+  type EditorType,
+  type GeminiClient,
+  type ServerGeminiChatCompressedEvent,
+  type ServerGeminiContentEvent as ContentEvent,
+  type ServerGeminiFinishedEvent,
+  type ServerGeminiStreamEvent as GeminiEvent,
+  type ThoughtSummary,
+  type ToolCallRequestInfo,
+  type ToolCallResponseInfo,
+  type GeminiErrorEventValue,
+  type RetryAttemptPayload,
 } from '@google/gemini-cli-core';
 import { type Part, type PartListUnion, FinishReason } from '@google/genai';
 import type {
@@ -77,6 +76,7 @@ import {
   ToolCallStatus,
 } from '../types.js';
 import { isAtCommand, isSlashCommand } from '../utils/commandUtils.js';
+import { tokenCosineSimilarity } from '../utils/tokenCosineSimilarity.js';
 import { useExecutionLifecycle } from './useExecutionLifecycle.js';
 import { handleAtCommand } from './atCommandProcessor.js';
 import { findLastSafeSplitPoint } from '../utils/markdownUtilities.js';
@@ -705,6 +705,21 @@ export const useGeminiStream = (
 
   const lastQueryRef = useRef<PartListUnion | null>(null);
   const lastPromptIdRef = useRef<string | null>(null);
+  const lastPromptTextRef = useRef<string | null>(null);
+
+  const polluxTurnStartedAtMsRef = useRef<number | null>(null);
+  const polluxCurrentTurnAdvisorConsultedRef = useRef(false);
+  const polluxCurrentTurnSignalIdsRef = useRef<readonly string[]>([]);
+  const polluxCurrentTurnEditedRef = useRef(false);
+  const polluxPendingOutcomeRef = useRef<{
+    turnId: string;
+    finishedAtMs: number;
+    promptText: string | null;
+    advisorConsulted: boolean;
+    contributingSignalIds: readonly string[];
+    edited: boolean;
+  } | null>(null);
+  const polluxLastEmittedTurnIdRef = useRef<string | null>(null);
   const loopDetectedRef = useRef(false);
   const [
     loopDetectionConfirmationRequest,
@@ -728,6 +743,33 @@ export const useGeminiStream = (
     }
     prevActiveShellPtyIdRef.current = activeShellPtyId;
   }, [activeShellPtyId, addItem, setIsResponding]);
+
+  useEffect(() => {
+    const handlePolluxAdvisorPhase = (payload: PolluxAdvisorPhasePayload) => {
+      if (!isRespondingRef.current) return;
+      if (payload.phase === 'pending') {
+        polluxCurrentTurnAdvisorConsultedRef.current = true;
+        if (payload.contributingSignalIds) {
+          polluxCurrentTurnSignalIdsRef.current = payload.contributingSignalIds;
+        }
+      }
+    };
+    coreEvents.on(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    };
+  }, [isRespondingRef]);
+
+  useEffect(() => {
+    const handlePolluxTurnEdited = () => {
+      if (!isRespondingRef.current) return;
+      polluxCurrentTurnEditedRef.current = true;
+    };
+    coreEvents.on(CoreEvent.PolluxTurnEdited, handlePolluxTurnEdited);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxTurnEdited, handlePolluxTurnEdited);
+    };
+  }, [isRespondingRef]);
 
   useEffect(() => {
     if (
@@ -1125,6 +1167,7 @@ export const useGeminiStream = (
       if (turnCancelledRef.current) {
         return;
       }
+      turnCancelledRef.current = true;
       if (pendingHistoryItemRef.current) {
         if (pendingHistoryItemRef.current.type === 'tool_group') {
           const updatedTools = pendingHistoryItemRef.current.tools.map(
@@ -1151,6 +1194,24 @@ export const useGeminiStream = (
         { type: MessageType.INFO, text: 'User cancelled the request.' },
         userMessageTimestamp,
       );
+
+      const turnId = lastPromptIdRef.current;
+      if (turnId && polluxLastEmittedTurnIdRef.current !== turnId) {
+        const now = Date.now();
+        const startedAt =
+          polluxTurnStartedAtMsRef.current ?? userMessageTimestamp ?? now;
+        const payload = {
+          turnId,
+          outcome: 'cancelled',
+          advisorConsulted: polluxCurrentTurnAdvisorConsultedRef.current,
+          contributingSignalIds: polluxCurrentTurnSignalIdsRef.current,
+          userActionMs: Math.max(0, now - startedAt),
+        } as const;
+        coreEvents.emitPolluxOutcome(payload);
+        polluxLastEmittedTurnIdRef.current = turnId;
+      }
+      polluxPendingOutcomeRef.current = null;
+
       setIsResponding(false);
       setThought(null); // Reset thought when user cancels
     },
@@ -1212,10 +1273,45 @@ export const useGeminiStream = (
     [addItem, pendingHistoryItemRef, setPendingHistoryItem, settings],
   );
 
+  const emitPendingPolluxOutcome = useCallback(
+    (nextPromptText: string | null) => {
+      const pending = polluxPendingOutcomeRef.current;
+      if (!pending) return;
+      if (polluxLastEmittedTurnIdRef.current === pending.turnId) {
+        polluxPendingOutcomeRef.current = null;
+        return;
+      }
+
+      const now = Date.now();
+      const similarity =
+        pending.promptText && nextPromptText
+          ? tokenCosineSimilarity(pending.promptText, nextPromptText)
+          : 0;
+      const outcome = pending.edited
+        ? 'edited'
+        : similarity >= 0.85
+          ? 'retyped'
+          : 'accepted';
+
+      const payload = {
+        turnId: pending.turnId,
+        outcome,
+        advisorConsulted: pending.advisorConsulted,
+        contributingSignalIds: pending.contributingSignalIds,
+        userActionMs: Math.max(0, now - pending.finishedAtMs),
+      } as const;
+
+      coreEvents.emitPolluxOutcome(payload);
+      polluxLastEmittedTurnIdRef.current = pending.turnId;
+      polluxPendingOutcomeRef.current = null;
+    },
+    [],
+  );
+
   const handleFinishedEvent = useCallback(
     (event: ServerGeminiFinishedEvent, userMessageTimestamp: number) => {
       const finishReason = event.value.reason;
-      if (!finishReason) {
+      if (finishReason === undefined || finishReason === null) {
         return;
       }
 
@@ -1256,6 +1352,18 @@ export const useGeminiStream = (
           },
           userMessageTimestamp,
         );
+      }
+
+      const turnId = lastPromptIdRef.current;
+      if (turnId) {
+        polluxPendingOutcomeRef.current = {
+          turnId,
+          finishedAtMs: Date.now(),
+          promptText: lastPromptTextRef.current,
+          advisorConsulted: polluxCurrentTurnAdvisorConsultedRef.current,
+          contributingSignalIds: polluxCurrentTurnSignalIdsRef.current,
+          edited: polluxCurrentTurnEditedRef.current,
+        };
       }
     },
     [addItem],
@@ -1608,6 +1716,18 @@ export const useGeminiStream = (
               return;
             }
 
+            const nextPromptText =
+              typeof queryToSend === 'string' ? queryToSend : null;
+            if (!options?.isContinuation) {
+              emitPendingPolluxOutcome(nextPromptText);
+            }
+
+            polluxTurnStartedAtMsRef.current = userMessageTimestamp;
+            polluxCurrentTurnAdvisorConsultedRef.current = false;
+            polluxCurrentTurnSignalIdsRef.current = [];
+            polluxCurrentTurnEditedRef.current = false;
+            lastPromptTextRef.current = nextPromptText;
+
             if (!options?.isContinuation) {
               if (typeof queryToSend === 'string') {
                 // logging the text prompts only for now
@@ -1748,6 +1868,7 @@ export const useGeminiStream = (
       isRespondingRef,
       settings.merged.billing?.overageStrategy,
       setIsResponding,
+      emitPendingPolluxOutcome,
     ],
   );
 

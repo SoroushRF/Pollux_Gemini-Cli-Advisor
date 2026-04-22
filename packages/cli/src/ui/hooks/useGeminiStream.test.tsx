@@ -55,7 +55,7 @@ import {
   UPDATE_TOPIC_TOOL_NAME,
   PolluxRuntimeSurface,
 } from '@google/gemini-cli-core';
-import type { Part, PartListUnion } from '@google/genai';
+import { FinishReason, type Part, type PartListUnion } from '@google/genai';
 import type { UseHistoryManagerReturn } from './useHistoryManager.js';
 import type {
   SlashCommandProcessorResult,
@@ -4268,5 +4268,161 @@ describe('useGeminiStream', () => {
       await userPromptCall![1]({ metadata: spanMetadata });
     });
     expect(spanMetadata.input).toBe('telemetry test query');
+  });
+
+  describe('Pollux outcome telemetry (Phase G)', () => {
+    function capturePolluxOutcomes(): {
+      payloads: any[];
+      stop: () => any[];
+    } {
+      const payloads: any[] = [];
+      const listener = (payload: any) => payloads.push(payload);
+      coreEvents.on(CoreEvent.PolluxOutcome, listener);
+      return {
+        payloads,
+        stop: () => {
+          coreEvents.off(CoreEvent.PolluxOutcome, listener);
+          return payloads;
+        },
+      };
+    }
+
+    it('emits cancelled outcome immediately on UserCancelled', async () => {
+      mockSendMessageStream.mockReturnValue(
+        (async function* () {
+          yield { type: ServerGeminiEventType.UserCancelled };
+        })(),
+      );
+
+      const telemetry = capturePolluxOutcomes();
+      const { result } = await renderTestHook();
+
+      await act(async () => {
+        await result.current.submitQuery(
+          'q1',
+          { isContinuation: false },
+          'turn-1',
+        );
+      });
+
+      const events = telemetry.stop();
+      expect(events).toEqual([
+        expect.objectContaining({
+          turnId: 'turn-1',
+          outcome: 'cancelled',
+        }),
+      ]);
+    });
+
+    it('emits retyped outcome when the next prompt is highly similar', async () => {
+      mockSendMessageStream.mockImplementation(
+        (q: PartListUnion, _s: any, promptId: string) => {
+          if (promptId === 'turn-1') {
+            return (async function* () {
+              yield { type: ServerGeminiEventType.Content, value: 'ok' };
+              yield {
+                type: ServerGeminiEventType.Finished,
+                value: { reason: FinishReason.STOP, usageMetadata: undefined },
+              };
+            })();
+          }
+          return (async function* () {
+            yield { type: ServerGeminiEventType.Content, value: 'ok2' };
+            yield {
+              type: ServerGeminiEventType.Finished,
+              value: { reason: FinishReason.STOP, usageMetadata: undefined },
+            };
+          })();
+        },
+      );
+
+      const telemetry = capturePolluxOutcomes();
+      const { result } = await renderTestHook();
+
+      await act(async () => {
+        await result.current.submitQuery(
+          'fix the failing tests',
+          { isContinuation: false },
+          'turn-1',
+        );
+      });
+      await waitFor(() => {
+        expect(result.current.streamingState).toBe(StreamingState.Idle);
+      });
+      expect(mockSendMessageStream.mock.calls[0][2]).toBe('turn-1');
+
+      await act(async () => {
+        await result.current.submitQuery(
+          'fix failing tests',
+          { isContinuation: false },
+          'turn-2',
+        );
+      });
+      await waitFor(() => {
+        expect(result.current.streamingState).toBe(StreamingState.Idle);
+      });
+      expect(mockSendMessageStream.mock.calls[1][2]).toBe('turn-2');
+
+      const events = telemetry.stop();
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.find((e) => e.turnId === 'turn-1')).toEqual(
+        expect.objectContaining({
+          outcome: 'retyped',
+        }),
+      );
+    });
+
+    it('emits edited outcome when PolluxTurnEdited is raised during the turn', async () => {
+      let allowFinish: (() => void) | undefined;
+      const finishGate = new Promise<void>((resolve) => {
+        allowFinish = resolve;
+      });
+      mockSendMessageStream.mockReturnValue(
+        (async function* () {
+          yield { type: ServerGeminiEventType.Content, value: 'x' };
+          await finishGate;
+          yield {
+            type: ServerGeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      const telemetry = capturePolluxOutcomes();
+      const { result } = await renderTestHook();
+
+      await act(async () => {
+        void result.current.submitQuery(
+          'first',
+          { isContinuation: false },
+          'turn-1',
+        );
+      });
+      coreEvents.emitPolluxTurnEdited({ source: 'modify_with_editor' });
+      act(() => {
+        allowFinish?.();
+      });
+      await waitFor(() => {
+        expect(result.current.streamingState).toBe(StreamingState.Idle);
+      });
+
+      // Next prompt finalizes the previous turn's outcome.
+      await act(async () => {
+        await result.current.submitQuery(
+          'second',
+          { isContinuation: false },
+          'turn-2',
+        );
+      });
+      expect(mockSendMessageStream.mock.calls[1][2]).toBe('turn-2');
+
+      const events = telemetry.stop();
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.find((e) => e.turnId === 'turn-1')).toEqual(
+        expect.objectContaining({
+          outcome: 'edited',
+        }),
+      );
+    });
   });
 });

@@ -6,7 +6,11 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act } from 'react';
-import type { LegacyAgentProtocol } from '@google/gemini-cli-core';
+import type {
+  LegacyAgentProtocol,
+  PolluxOutcomeEvent,
+} from '@google/gemini-cli-core';
+import { coreEvents, CoreEvent } from '@google/gemini-cli-core';
 import { renderHookWithProviders } from '../../test-utils/render.js';
 
 // --- MOCKS ---
@@ -35,6 +39,22 @@ import { MessageType, StreamingState } from '../types.js';
 describe('useAgentStream', () => {
   const mockAddItem = vi.fn();
   const mockOnCancelSubmit = vi.fn();
+
+  function capturePolluxOutcomes(): {
+    payloads: PolluxOutcomeEvent[];
+    stop: () => PolluxOutcomeEvent[];
+  } {
+    const payloads: PolluxOutcomeEvent[] = [];
+    const listener = (payload: PolluxOutcomeEvent) => payloads.push(payload);
+    coreEvents.on(CoreEvent.PolluxOutcome, listener);
+    return {
+      payloads,
+      stop: () => {
+        coreEvents.off(CoreEvent.PolluxOutcome, listener);
+        return payloads;
+      },
+    };
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -203,5 +223,72 @@ describe('useAgentStream', () => {
 
     expect(mockLegacyAgentProtocol.abort).toHaveBeenCalled();
     expect(mockOnCancelSubmit).toHaveBeenCalledWith(false);
+  });
+
+  it('emits retyped outcome when next prompt is highly similar after agent_end', async () => {
+    let handler: ((event: { type: string }) => void) | undefined;
+    mockLegacyAgentProtocol.subscribe.mockImplementation(
+      (cb: (event: { type: string }) => void) => {
+        handler = cb;
+        return () => {};
+      },
+    );
+    mockLegacyAgentProtocol.send
+      .mockResolvedValueOnce({ streamId: 'stream-1' })
+      .mockResolvedValueOnce({ streamId: 'stream-2' });
+
+    const telemetry = capturePolluxOutcomes();
+    const { result } = await renderHookWithProviders(() =>
+      useAgentStream({
+        agent: mockLegacyAgentProtocol as unknown as LegacyAgentProtocol,
+        addItem: mockAddItem,
+        onCancelSubmit: mockOnCancelSubmit,
+        isShellFocused: false,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.submitQuery('fix failing tests');
+    });
+    act(() => {
+      handler?.({ type: 'agent_end' });
+    });
+
+    await act(async () => {
+      await result.current.submitQuery('fix the failing tests');
+    });
+
+    const events = telemetry.stop();
+    expect(events.find((e) => e.turnId === 'stream-1')).toEqual(
+      expect.objectContaining({ outcome: 'retyped' }),
+    );
+  });
+
+  it('emits cancelled outcome when cancelOngoingRequest aborts an active stream', async () => {
+    mockLegacyAgentProtocol.send.mockResolvedValueOnce({
+      streamId: 'stream-1',
+    });
+    const telemetry = capturePolluxOutcomes();
+
+    const { result } = await renderHookWithProviders(() =>
+      useAgentStream({
+        agent: mockLegacyAgentProtocol as unknown as LegacyAgentProtocol,
+        addItem: mockAddItem,
+        onCancelSubmit: mockOnCancelSubmit,
+        isShellFocused: false,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.submitQuery('hello');
+    });
+    await act(async () => {
+      await result.current.cancelOngoingRequest();
+    });
+
+    const events = telemetry.stop();
+    expect(
+      events.some((e) => e.turnId === 'stream-1' && e.outcome === 'cancelled'),
+    ).toBe(true);
   });
 });

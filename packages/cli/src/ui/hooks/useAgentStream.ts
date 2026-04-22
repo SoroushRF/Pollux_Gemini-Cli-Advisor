@@ -12,6 +12,9 @@ import {
   geminiPartsToContentParts,
   parseThought,
   CoreToolCallStatus,
+  coreEvents,
+  CoreEvent,
+  type PolluxAdvisorPhasePayload,
   type ApprovalMode,
   Kind,
   type ThoughtSummary,
@@ -30,6 +33,7 @@ import type {
 import { StreamingState, MessageType } from '../types.js';
 import { findLastSafeSplitPoint } from '../utils/markdownUtilities.js';
 import { getToolGroupBorderAppearance } from '../utils/borderStyles.js';
+import { tokenCosineSimilarity } from '../utils/tokenCosineSimilarity.js';
 import { type BackgroundTask } from './useExecutionLifecycle.js';
 import type { UseHistoryManagerReturn } from './useHistoryManager.js';
 import { useSessionStats } from '../contexts/SessionContext.js';
@@ -64,6 +68,20 @@ export const useAgentStream = ({
   const [lastOutputTime, setLastOutputTime] = useState<number>(Date.now());
 
   const currentStreamIdRef = useRef<string | null>(null);
+  const currentPromptTextRef = useRef<string | null>(null);
+  const polluxTurnStartedAtMsRef = useRef<number | null>(null);
+  const polluxCurrentTurnAdvisorConsultedRef = useRef(false);
+  const polluxCurrentTurnSignalIdsRef = useRef<readonly string[]>([]);
+  const polluxCurrentTurnEditedRef = useRef(false);
+  const polluxPendingOutcomeRef = useRef<{
+    turnId: string;
+    finishedAtMs: number;
+    promptText: string | null;
+    advisorConsulted: boolean;
+    contributingSignalIds: readonly string[];
+    edited: boolean;
+  } | null>(null);
+  const polluxLastEmittedTurnIdRef = useRef<string | null>(null);
   const userMessageTimestampRef = useRef<number>(0);
   const geminiMessageBufferRef = useRef<string>('');
   const [pendingHistoryItem, pendingHistoryItemRef, setPendingHistoryItem] =
@@ -119,11 +137,85 @@ export const useAgentStream = ({
     }
   }, [addItem, pendingHistoryItemRef, setPendingHistoryItem]);
 
+  useEffect(() => {
+    const handlePolluxAdvisorPhase = (payload: PolluxAdvisorPhasePayload) => {
+      if (streamingState !== StreamingState.Responding) return;
+      if (payload.phase === 'pending') {
+        polluxCurrentTurnAdvisorConsultedRef.current = true;
+        if (payload.contributingSignalIds) {
+          polluxCurrentTurnSignalIdsRef.current = payload.contributingSignalIds;
+        }
+      }
+    };
+    coreEvents.on(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxAdvisorPhase, handlePolluxAdvisorPhase);
+    };
+  }, [streamingState]);
+
+  useEffect(() => {
+    const handlePolluxTurnEdited = () => {
+      if (streamingState !== StreamingState.Responding) return;
+      polluxCurrentTurnEditedRef.current = true;
+    };
+    coreEvents.on(CoreEvent.PolluxTurnEdited, handlePolluxTurnEdited);
+    return () => {
+      coreEvents.off(CoreEvent.PolluxTurnEdited, handlePolluxTurnEdited);
+    };
+  }, [streamingState]);
+
+  const emitPendingPolluxOutcome = useCallback(
+    (nextPromptText: string | null) => {
+      const pending = polluxPendingOutcomeRef.current;
+      if (!pending) return;
+      if (polluxLastEmittedTurnIdRef.current === pending.turnId) {
+        polluxPendingOutcomeRef.current = null;
+        return;
+      }
+
+      const similarity =
+        pending.promptText && nextPromptText
+          ? tokenCosineSimilarity(pending.promptText, nextPromptText)
+          : 0;
+      const outcome = pending.edited
+        ? 'edited'
+        : similarity >= 0.85
+          ? 'retyped'
+          : 'accepted';
+
+      coreEvents.emitPolluxOutcome({
+        turnId: pending.turnId,
+        outcome,
+        advisorConsulted: pending.advisorConsulted,
+        contributingSignalIds: pending.contributingSignalIds,
+        userActionMs: Math.max(0, Date.now() - pending.finishedAtMs),
+      });
+      polluxLastEmittedTurnIdRef.current = pending.turnId;
+      polluxPendingOutcomeRef.current = null;
+    },
+    [],
+  );
+
   const cancelOngoingRequest = useCallback(async () => {
     if (agent) {
       await agent.abort();
       setStreamingState(StreamingState.Idle);
       onCancelSubmit(false);
+
+      const turnId = currentStreamIdRef.current;
+      if (turnId && polluxLastEmittedTurnIdRef.current !== turnId) {
+        const now = Date.now();
+        const startedAt = polluxTurnStartedAtMsRef.current ?? now;
+        coreEvents.emitPolluxOutcome({
+          turnId,
+          outcome: 'cancelled',
+          advisorConsulted: polluxCurrentTurnAdvisorConsultedRef.current,
+          contributingSignalIds: polluxCurrentTurnSignalIdsRef.current,
+          userActionMs: Math.max(0, now - startedAt),
+        });
+        polluxLastEmittedTurnIdRef.current = turnId;
+      }
+      polluxPendingOutcomeRef.current = null;
     }
   }, [agent, onCancelSubmit]);
 
@@ -145,6 +237,19 @@ export const useAgentStream = ({
         case 'agent_end':
           setStreamingState(StreamingState.Idle);
           flushPendingText();
+          {
+            const turnId = currentStreamIdRef.current;
+            if (turnId) {
+              polluxPendingOutcomeRef.current = {
+                turnId,
+                finishedAtMs: Date.now(),
+                promptText: currentPromptTextRef.current,
+                advisorConsulted: polluxCurrentTurnAdvisorConsultedRef.current,
+                contributingSignalIds: polluxCurrentTurnSignalIdsRef.current,
+                edited: polluxCurrentTurnEditedRef.current,
+              };
+            }
+          }
           break;
         case 'message':
           if (event.role === 'agent') {
@@ -325,6 +430,16 @@ export const useAgentStream = ({
 
       geminiMessageBufferRef.current = '';
 
+      const nextPromptText = typeof query === 'string' ? query : null;
+      if (!options?.isContinuation) {
+        emitPendingPolluxOutcome(nextPromptText);
+      }
+      polluxTurnStartedAtMsRef.current = timestamp;
+      polluxCurrentTurnAdvisorConsultedRef.current = false;
+      polluxCurrentTurnSignalIdsRef.current = [];
+      polluxCurrentTurnEditedRef.current = false;
+      currentPromptTextRef.current = nextPromptText;
+
       if (!options?.isContinuation) {
         if (typeof query === 'string') {
           addItem({ type: MessageType.USER, text: query }, timestamp);
@@ -349,7 +464,7 @@ export const useAgentStream = ({
         );
       }
     },
-    [agent, addItem, logger, startNewPrompt],
+    [agent, addItem, emitPendingPolluxOutcome, logger, startNewPrompt],
   );
 
   useEffect(() => {

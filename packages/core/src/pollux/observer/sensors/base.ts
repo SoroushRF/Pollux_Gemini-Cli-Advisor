@@ -5,10 +5,70 @@
  */
 
 import type { ServerGeminiStreamEvent } from '../../../core/turn.js';
-import type { SensorSignal } from '../types.js';
+import type {
+  ToolCallRequestInfo,
+  ToolCallResponseInfo,
+} from '../../../scheduler/types.js';
+import type { ThoughtSummary } from '../../../utils/thoughtUtils.js';
 
-/** Observer sensor contract (DETECTOR_IMPLEMENTATION_PLAN §3.2). */
-export interface PolluxObserverSensor {
-  readonly id: string;
-  onStreamEvent(event: ServerGeminiStreamEvent): readonly SensorSignal[];
+/** Sensor taxonomy for composite-evidence gates (DETECTOR_IMPLEMENTATION_PLAN §D.2). */
+export type PolluxSensorSignalCategory =
+  | 'thought'
+  | 'tool'
+  | 'self'
+  | 'longitudinal'
+  | 'risk';
+
+export interface ToolEventRecord {
+  readonly tsMs: number;
+  readonly callId?: string;
+  readonly name: string;
+  readonly argsHash: string;
+  readonly readOnly: boolean;
+  readonly mutation: boolean;
+  readonly phase: 'request' | 'response';
+  readonly request?: ToolCallRequestInfo;
+  readonly response?: ToolCallResponseInfo;
+  readonly exitCode?: number;
+  readonly schemaError?: boolean;
 }
+
+/**
+ * Canonical sensor input contract from Phase D §D.2.
+ * Additional optional fields are observer-owned, derived context used by
+ * specific sensors while preserving pure sensor behavior.
+ */
+export interface SensorInput {
+  readonly event: ServerGeminiStreamEvent;
+  readonly turnElapsedMs: number;
+  readonly toolEventWindow: readonly ToolEventRecord[];
+  readonly thoughtWindow: readonly ThoughtSummary[];
+  readonly userPromptText?: string;
+  readonly currentTurnTokenCount?: number;
+  readonly sessionMedianSuccessfulTurnTokens?: number;
+  readonly sessionMedianDistinctSubjectsPerMinute?: number;
+  readonly currentTurnModelOutput?: string;
+  readonly recentAdvisorSuccessWithinTurns?: boolean;
+  readonly turnToolCallCount?: number;
+  readonly loopBridgeLoopDetected?: boolean;
+  readonly loopBridgeAttribution?: string;
+}
+
+export interface SensorSignal {
+  readonly id: string;
+  readonly weight: number;
+  readonly precisionPrior: number;
+  readonly category: PolluxSensorSignalCategory;
+  readonly hardPrecision?: boolean;
+  readonly tsMs: number;
+  readonly attribution?: string;
+}
+
+/** Observer sensor contract (DETECTOR_IMPLEMENTATION_PLAN §D.2). */
+export interface Sensor {
+  readonly id: string;
+  observe(input: SensorInput): readonly SensorSignal[];
+}
+
+/** Back-compat alias for phase A/B/C references. */
+export type PolluxObserverSensor = Sensor;

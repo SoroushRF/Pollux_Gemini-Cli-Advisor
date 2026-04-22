@@ -172,3 +172,30 @@ seam in `client.ts`), which removes the dead-code risk of having the detectors
 implemented in P3-01..P3-03 without any runtime gate, and re-uses the telemetry
 attribution invariants documented here for every advisor call that the detector
 gate now actually authorizes.
+
+---
+
+## 8) Phase G addendum — Pollux outcome telemetry (collect-only)
+
+Phase G introduces a new **collect-only** telemetry event for closed-loop
+calibration. It is **not consumed by any runtime behavior**.
+
+### 8.1 Event name
+
+- `gemini_cli.pollux_outcome`
+
+### 8.2 Payload fields
+
+- **turn_id**: correlation id (uses `prompt_id` / turn id)
+- **outcome**: one of `accepted | cancelled | retyped | edited | unknown`
+- **advisor_consulted**: boolean (whether an advisor consult occurred during the
+  turn)
+- **contributing_signal_ids**: JSON array of sensor signal ids (when available)
+- **user_action_ms**: time from response completion to the user's next action
+  (or cancellation)
+
+### 8.3 Emission points
+
+- UI layer emits `CoreEvent.PolluxOutcome` from both interactive surfaces.
+- Telemetry is routed through the **existing sinks** by calling
+  `logPolluxOutcome(...)` (no parallel sink is introduced).

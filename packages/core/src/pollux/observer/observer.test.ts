@@ -122,6 +122,43 @@ describe('pollux/observer', () => {
     expect(obs).not.toBe(LIVE_EXECUTOR_OBSERVER_NO_OP);
   });
 
+  it('creates a live observer when selfReport.enabled is true (Phase E)', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: { selfReport: { enabled: true } },
+      }),
+    );
+    expect(obs).not.toBe(LIVE_EXECUTOR_OBSERVER_NO_OP);
+  });
+
+  it('self-report status tag produces a post-event same-turn intent', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value:
+        'x <pollux:status stuck_on="ci fails on windows" next="inspect logs"/> y',
+    });
+
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        timing: 'same_turn',
+        pauseBoundary: 'post_event',
+        reasonCode: PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+      }),
+    );
+  });
+
   it('emits a pre-tool same-turn intent for high-risk shell commands', () => {
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({
@@ -262,5 +299,83 @@ describe('pollux/observer', () => {
     expect(() =>
       ingestPolluxAfterLoopCheckFailOpen(throwing, event),
     ).not.toThrow();
+  });
+
+  it('bounded: evicts oldest thought entries when maxThoughtWindowChars is exceeded (FIFO)', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          // mergePolluxDetectorConfig enforces a minimum maxThoughtWindowChars of 1024.
+          observer: { enabled: true, maxThoughtWindowChars: 1024 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    const thought = (
+      subject: string,
+      description: string,
+    ): ServerGeminiStreamEvent => ({
+      type: GeminiEventType.Thought,
+      value: { subject, description },
+    });
+
+    const chunk = (ch: string, size: number) => ch.repeat(size);
+    obs.ingest(thought('s1', chunk('a', 400)));
+    obs.ingest(thought('s2', chunk('b', 400)));
+    obs.ingest(thought('s3', chunk('c', 400))); // pushes over 1024 -> evict oldest
+
+    const window = (
+      obs as unknown as {
+        thoughtWindow?: {
+          entries: Array<{ subject: string; description: string }>;
+        };
+      }
+    ).thoughtWindow?.entries;
+    expect(window).toBeDefined();
+    expect(window!.map((entry) => entry.subject)).toEqual(['s2', 's3']);
+  });
+
+  it('bounded: tool event window keeps only the last maxToolEventWindow events (FIFO)', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          observer: { enabled: true, maxToolEventWindow: 3 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    const request = (callId: string): ServerGeminiStreamEvent => ({
+      type: GeminiEventType.ToolCallRequest,
+      value: {
+        callId,
+        name: 'run_shell_command',
+        args: { command: 'ls' },
+        isClientInitiated: false,
+        prompt_id: 'prompt-1',
+      },
+    });
+
+    // Each request adds one ToolEventRecord; ingest 5 -> keep last 3.
+    obs.ingest(request('c1'));
+    obs.ingest(request('c2'));
+    obs.ingest(request('c3'));
+    obs.ingest(request('c4'));
+    obs.ingest(request('c5'));
+
+    const toolWindow = (
+      obs as unknown as {
+        toolEventWindow?: Array<{ callId?: string }>;
+      }
+    ).toolEventWindow;
+    expect(toolWindow).toBeDefined();
+    expect(toolWindow!.map((entry) => entry.callId)).toEqual([
+      'c3',
+      'c4',
+      'c5',
+    ]);
   });
 });

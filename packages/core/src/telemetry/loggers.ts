@@ -12,6 +12,7 @@ import {
   EVENT_API_RESPONSE,
   EVENT_TOOL_CALL,
   EVENT_REWIND,
+  EVENT_POLLUX_OUTCOME,
   type ApiErrorEvent,
   type ApiRequestEvent,
   type ApiResponseEvent,
@@ -59,6 +60,7 @@ import {
   type TokenStorageInitializationEvent,
   type OnboardingStartEvent,
   type OnboardingSuccessEvent,
+  type PolluxOutcomeTelemetryEvent,
 } from './types.js';
 import {
   recordApiErrorMetrics,
@@ -415,6 +417,28 @@ export function logRewind(config: Config, event: RewindEvent): void {
   } as UiEvent;
   uiTelemetryService.addEvent(uiEvent);
   ClearcutLogger.getInstance(config)?.logRewindEvent(event);
+  bufferTelemetryEvent(() => {
+    const logger = logs.getLogger(SERVICE_NAME);
+    const logRecord: LogRecord = {
+      body: event.toLogBody(),
+      attributes: event.toOpenTelemetryAttributes(config),
+    };
+    logger.emit(logRecord);
+  });
+}
+
+export function logPolluxOutcome(
+  config: Config,
+  event: PolluxOutcomeTelemetryEvent,
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  const uiEvent = {
+    // eslint-disable-next-line @typescript-eslint/no-misused-spread
+    ...event,
+    'event.name': EVENT_POLLUX_OUTCOME,
+    'event.timestamp': new Date().toISOString(),
+  } as UiEvent;
+  uiTelemetryService.addEvent(uiEvent);
   bufferTelemetryEvent(() => {
     const logger = logs.getLogger(SERVICE_NAME);
     const logRecord: LogRecord = {

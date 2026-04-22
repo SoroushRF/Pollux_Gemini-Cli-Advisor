@@ -77,8 +77,8 @@ import { coreEvents, CoreEvent } from '../utils/events.js';
 import { PolicyDecision } from '../policy/types.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
+  POLLUX_ESCALATION_TIMING,
   PolluxDetectorStrategy,
-  PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
   type PolluxDetector,
   type PolluxTurnContext,
@@ -88,6 +88,7 @@ import {
   createLiveExecutorObserver,
   ingestPolluxAfterLoopCheckFailOpen,
   ingestPolluxObserverFailOpen,
+  type LiveExecutorObserver,
   type NextTurnIntent,
   type SameTurnIntent,
 } from '../pollux/observer/index.js';
@@ -99,6 +100,7 @@ import {
 import {
   buildAdvisorConsultationPrompt,
   parseAdvisorModelResponse,
+  stripPolluxStatusTags,
 } from '../pollux/prompts.js';
 import {
   PolluxModelRegistry,
@@ -195,6 +197,25 @@ type PolluxIntentConsultationOutcome =
   | 'fail_open'
   | 'skipped';
 
+/**
+ * Phase F §F.1.4: build a `NextTurnIntent` from a same-turn intent that was
+ * blocked by an explicit guardrail (single-shot, kill switch, or budget).
+ * The reason code and contributing signal ids are preserved verbatim so the
+ * downstream consult still carries the same attribution.
+ */
+function buildPolluxDowngradedNextTurnIntent(
+  sameTurn: SameTurnIntent,
+  queuedAtMs: number = Date.now(),
+): NextTurnIntent {
+  return {
+    timing: 'next_turn',
+    reasonCode: sameTurn.reasonCode,
+    netScore: sameTurn.netScore,
+    contributingSignalIds: sameTurn.contributingSignalIds,
+    queuedAtMs,
+  };
+}
+
 type BeforeAgentHookReturn =
   | {
       type: GeminiEventType.AgentExecutionStopped;
@@ -221,6 +242,25 @@ export class GeminiClient {
   private polluxAdvisorCallsThisTurn = 0;
   private polluxAdvisorCallsThisSession = 0;
   private polluxPendingLoopNextTurnIntent: NextTurnIntent | undefined;
+  /**
+   * Phase F §F.1.2: generic next-turn intent slot populated by the live
+   * observer (or by an explicit same-turn downgrade). Consumed exactly once
+   * at the top of the following turn by `maybeRunPolluxAdvisorConsultation`.
+   */
+  private polluxPendingNextTurnIntent: NextTurnIntent | undefined;
+  /**
+   * Phase F §F.1.2: mirrors the observer's same-turn intent slot on the
+   * client for parity / introspection. The authoritative same-turn intent
+   * still lives on the observer; this slot is informational only (reserved
+   * for future cross-boundary same-turn promotions).
+   */
+  private polluxPendingSameTurnIntent: SameTurnIntent | undefined;
+  /**
+   * Phase F §F.1.4 single-shot guardrail (I11): flips to `true` once a same-
+   * turn consult has completed (or was attempted) in the current turn, so
+   * subsequent same-turn-eligible intents must downgrade to next-turn.
+   */
+  private polluxSameTurnFiredThisTurn = false;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -928,16 +968,23 @@ export class GeminiClient {
       return;
     }
 
-    const pendingLoopIntent = this.polluxPendingLoopNextTurnIntent;
-    if (pendingLoopIntent) {
+    // F.1.1: prefer the unified next-turn intent slot introduced in Phase F.
+    // It supersedes the Phase C loop-only slot when both are set (the loop
+    // slot is kept for backward compatibility and tested migration paths).
+    const pendingNextTurnIntent =
+      this.polluxPendingNextTurnIntent ?? this.polluxPendingLoopNextTurnIntent;
+    if (pendingNextTurnIntent) {
       const outcome = await this.maybeRunPolluxAdvisorConsultationForIntent(
         request,
         signal,
         prompt_id,
         runtimeSurface,
-        pendingLoopIntent,
+        pendingNextTurnIntent,
       );
       if (outcome !== 'budget_exhausted') {
+        // Consumed (or dropped via policy/fail-open) -> clear both slots so
+        // the intent is not replayed on subsequent turns.
+        this.polluxPendingNextTurnIntent = undefined;
         this.polluxPendingLoopNextTurnIntent = undefined;
       }
       return;
@@ -978,6 +1025,7 @@ export class GeminiClient {
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
     intent: SameTurnIntent | NextTurnIntent,
+    options: { sameTurnDowngraded?: boolean } = {},
   ): Promise<PolluxIntentConsultationOutcome> {
     if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
       return 'skipped';
@@ -1021,6 +1069,18 @@ export class GeminiClient {
       pendingToolContextOverride,
     );
 
+    // F.1.6 attribution: mark `sameTurnDowngraded` when either the caller
+    // explicitly flags it (single-shot / kill switch / budget) OR the intent
+    // carries a canonically same-turn reason code but is being run next-turn
+    // (I11 inference so legacy paths still surface downgrades in telemetry).
+    const inferredDowngrade =
+      intent.timing === 'next_turn' &&
+      POLLUX_ESCALATION_TIMING[intent.reasonCode] === 'same_turn';
+    const sameTurnDowngraded =
+      options.sameTurnDowngraded === true || inferredDowngrade
+        ? true
+        : undefined;
+
     const outcome = await this.executePolluxAdvisorConsultation(
       turnContext,
       partListUnionToString(request),
@@ -1030,9 +1090,122 @@ export class GeminiClient {
         pauseBoundary:
           intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
         contributingSignalIds: intent.contributingSignalIds,
+        sameTurnDowngraded,
       },
     );
     return outcome;
+  }
+
+  /**
+   * Phase F §F.1.3 + §F.1.4: execute a same-turn consult if the guardrail
+   * chain permits, else explicitly downgrade the intent to a next-turn slot
+   * on the client.
+   *
+   * Guardrails (in order):
+   *   1. Single-shot: only one same-turn consult per turn (I11).
+   *   2. Kill switch: `detector.timing.sameTurnEnabled === false` -> downgrade.
+   *   3. Budget cap: if a pre-check would be refused (I6) -> downgrade.
+   *
+   * On a successful same-turn consult, `polluxSameTurnFiredThisTurn` is set
+   * so subsequent same-turn-eligible intents in the same turn are forced to
+   * downgrade (I11 / no recursion).
+   *
+   * On downgrade, the caller's same-turn intent is preserved into
+   * `polluxPendingNextTurnIntent` with its `reasonCode` + `contributingSignalIds`
+   * intact; `sameTurnDowngraded: true` is emitted with the telemetry.
+   *
+   * Fail-open: any thrown error (policy, transport, timeout) is swallowed
+   * unless the outer signal is aborted. Observer state is untouched.
+   */
+  private async runPolluxSameTurnConsult(
+    request: PartListUnion,
+    signal: AbortSignal,
+    prompt_id: string,
+    runtimeSurface: PolluxRuntimeSurface,
+    intent: SameTurnIntent,
+    polluxObserver: LiveExecutorObserver,
+  ): Promise<PolluxIntentConsultationOutcome> {
+    const experimental = this.config.getPolluxExperimentalConfig();
+    const sameTurnEnabled = experimental.detector.timing.sameTurnEnabled;
+
+    const singleShotBlocked = this.polluxSameTurnFiredThisTurn;
+    const killSwitchBlocked = !sameTurnEnabled;
+
+    // Pre-check budget at same-turn trigger time. The nested
+    // `maybeRunPolluxAdvisorConsultationForIntent` also enforces this, but the
+    // explicit pre-check is required so we can record the downgrade as such
+    // (instead of letting the same-turn path silently turn into budget_exhausted).
+    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+      callsCompletedThisTurn: this.polluxAdvisorCallsThisTurn,
+      callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
+    });
+    const budgetBlocked = !budgetCheck.allowed;
+
+    const downgradeRequired =
+      singleShotBlocked || killSwitchBlocked || budgetBlocked;
+
+    if (downgradeRequired) {
+      const downgraded = buildPolluxDowngradedNextTurnIntent(intent);
+      // Preserve any prior pending next-turn intent only if it is strictly
+      // higher priority (hard-precision > composite). Otherwise, latest wins.
+      this.polluxPendingNextTurnIntent = downgraded;
+      if (experimental.emitAdvisorDebug) {
+        const reason = singleShotBlocked
+          ? 'single_shot'
+          : killSwitchBlocked
+            ? 'kill_switch'
+            : 'budget';
+        debugLogger.log(
+          `Pollux same-turn downgrade (${reason}) reason=${intent.reasonCode}`,
+        );
+      }
+      return 'skipped';
+    }
+
+    // F.1.2 introspection: mirror the in-flight same-turn intent on the
+    // client so tests (and future diagnostic tooling) can observe the
+    // pause-boundary state without reaching into the observer instance.
+    this.polluxPendingSameTurnIntent = intent;
+    try {
+      const outcome = await this.maybeRunPolluxAdvisorConsultationForIntent(
+        request,
+        signal,
+        prompt_id,
+        runtimeSurface,
+        intent,
+      );
+      if (outcome === 'consulted') {
+        this.polluxSameTurnFiredThisTurn = true;
+        polluxObserver.noteAdvisorSuccess(true);
+      } else if (outcome === 'budget_exhausted') {
+        // Budget went from allowed at pre-check to exhausted during execution
+        // (race with parallel surface). Treat as a downgrade so the attempt
+        // still lands in the next-turn queue with telemetry.
+        const downgraded = buildPolluxDowngradedNextTurnIntent(intent);
+        this.polluxPendingNextTurnIntent = downgraded;
+      } else {
+        // policy_denied | fail_open | skipped -- the single-shot guardrail
+        // still consumes the slot to prevent rapid retries within a turn,
+        // mirroring the observer's per-reason cap behavior (§F.1.4).
+        this.polluxSameTurnFiredThisTurn = true;
+        polluxObserver.noteAdvisorSuccess(false);
+      }
+      return outcome;
+    } catch (error) {
+      if (signal.aborted) {
+        throw error;
+      }
+      if (experimental.emitAdvisorDebug) {
+        const inFlight = this.polluxPendingSameTurnIntent?.reasonCode;
+        debugLogger.warn(
+          `Pollux same-turn consult failed open (reason=${inFlight ?? intent.reasonCode}).`,
+        );
+      }
+      // Fail-open: the executor proceeds even when the consult throws.
+      return 'fail_open';
+    } finally {
+      this.polluxPendingSameTurnIntent = undefined;
+    }
   }
 
   private async *processTurn(
@@ -1048,11 +1221,15 @@ export class GeminiClient {
     let turn = new Turn(this.getChat(), prompt_id);
 
     this.polluxAdvisorCallsThisTurn = 0;
+    // F.1.4: reset the single-shot same-turn guardrail at turn entry so each
+    // new turn is allowed exactly one same-turn consult (per I11).
+    this.polluxSameTurnFiredThisTurn = false;
+    this.polluxPendingSameTurnIntent = undefined;
     const polluxObserver = createLiveExecutorObserver(
       this.config.getPolluxExperimentalConfig(),
       this.loopDetector,
     );
-    polluxObserver.beginTurn();
+    polluxObserver.beginTurn(partListUnionToString(request));
 
     this.sessionTurnCount++;
     if (
@@ -1219,29 +1396,22 @@ export class GeminiClient {
     for await (const event of resultStream) {
       ingestPolluxObserverFailOpen(polluxObserver, event);
 
+      // F.1.3 pre-tool same-turn handler: route through the generic consult
+      // helper so single-shot, kill-switch, and budget guardrails apply
+      // uniformly to the risk-gate path.
       if (event.type === GeminiEventType.ToolCallRequest) {
         const preToolIntent = polluxObserver.peekSameTurnIntent();
         if (preToolIntent?.pauseBoundary === 'pre_tool') {
           const intent = polluxObserver.consumeSameTurnIntent();
           if (intent) {
-            try {
-              await this.maybeRunPolluxAdvisorConsultationForIntent(
-                request,
-                signal,
-                prompt_id,
-                runtimeSurface,
-                intent,
-              );
-            } catch (error) {
-              if (signal.aborted) {
-                throw error;
-              }
-              if (this.config.getPolluxExperimentalConfig().emitAdvisorDebug) {
-                debugLogger.warn(
-                  'Pollux same-turn risk-gate consultation failed open.',
-                );
-              }
-            }
+            await this.runPolluxSameTurnConsult(
+              request,
+              signal,
+              prompt_id,
+              runtimeSurface,
+              intent,
+              polluxObserver,
+            );
           }
         }
       }
@@ -1250,52 +1420,46 @@ export class GeminiClient {
       ingestPolluxAfterLoopCheckFailOpen(polluxObserver, event);
 
       const polluxExperimental = this.config.getPolluxExperimentalConfig();
-      const loopIntentBridgeEnabled =
-        polluxExperimental.enabled &&
-        polluxExperimental.detector.observer.enabled;
-      if (loopIntentBridgeEnabled && loopResult.count >= 1) {
-        let sameTurnOutcome: PolluxIntentConsultationOutcome = 'skipped';
 
-        if (polluxExperimental.detector.timing.sameTurnEnabled) {
-          const postLoopIntent = polluxObserver.peekSameTurnIntent();
-          if (
-            postLoopIntent?.reasonCode ===
-              PolluxEscalationReasonCode.HARD_LOOP &&
-            postLoopIntent.pauseBoundary === 'post_event'
-          ) {
-            const sameTurnIntent = polluxObserver.consumeSameTurnIntent();
-            if (sameTurnIntent) {
-              try {
-                sameTurnOutcome =
-                  await this.maybeRunPolluxAdvisorConsultationForIntent(
-                    request,
-                    signal,
-                    prompt_id,
-                    runtimeSurface,
-                    sameTurnIntent,
-                  );
-              } catch (error) {
-                if (signal.aborted) {
-                  throw error;
-                }
-                sameTurnOutcome = 'fail_open';
-                if (polluxExperimental.emitAdvisorDebug) {
-                  debugLogger.warn(
-                    'Pollux same-turn hard-loop consultation failed open.',
-                  );
-                }
-              }
-            }
+      // F.1.3 post-event same-turn handler: generic path covering HARD_LOOP,
+      // SELF_REPORT_STUCK, and FUSION_COMPOSITE_EMPHATIC. Consumes any intent
+      // with `pauseBoundary === 'post_event'` and routes it through the same
+      // guardrail chain as the pre-tool path.
+      {
+        const postIntent = polluxObserver.peekSameTurnIntent();
+        if (postIntent?.pauseBoundary === 'post_event') {
+          const consumed = polluxObserver.consumeSameTurnIntent();
+          if (consumed) {
+            await this.runPolluxSameTurnConsult(
+              request,
+              signal,
+              prompt_id,
+              runtimeSurface,
+              consumed,
+              polluxObserver,
+            );
           }
         }
+      }
 
-        if (
-          !polluxExperimental.detector.timing.sameTurnEnabled ||
-          sameTurnOutcome !== 'consulted'
-        ) {
-          this.polluxPendingLoopNextTurnIntent =
-            buildPolluxHardLoopNextTurnIntent();
-        }
+      // Phase C compatibility: the loop detector's own `count >= 1` signal
+      // remains the authoritative source for the legacy HARD_LOOP fallback.
+      // Queue it whenever a loop was confirmed AND no same-turn consult has
+      // already fired this turn. This covers:
+      //   (a) rollback paths where the Phase D observer is disabled,
+      //   (b) sameTurnEnabled=false kill-switch (observer queues next-turn
+      //       via `pendingNextTurnIntent`, but mocks in Phase C tests may not
+      //       surface it; the legacy slot stays as a safety net), and
+      //   (c) same-turn attempts that did NOT produce a 'consulted' outcome
+      //       (policy denied, fail-open, or downgraded) so the loop still
+      //       gets consulted on the recovery turn.
+      if (
+        polluxExperimental.enabled &&
+        loopResult.count >= 1 &&
+        !this.polluxSameTurnFiredThisTurn
+      ) {
+        this.polluxPendingLoopNextTurnIntent =
+          buildPolluxHardLoopNextTurnIntent();
       }
 
       if (loopResult.count > 1) {
@@ -1311,7 +1475,18 @@ export class GeminiClient {
         loopRecoverResult = loopResult;
         break;
       }
-      yield event;
+      if (
+        event.type === GeminiEventType.Content &&
+        polluxExperimental.enabled &&
+        polluxExperimental.detector.selfReport.enabled
+      ) {
+        yield {
+          ...event,
+          value: stripPolluxStatusTags(event.value),
+        };
+      } else {
+        yield event;
+      }
 
       this.updateTelemetryTokenCount();
 
@@ -1321,6 +1496,25 @@ export class GeminiClient {
       if (event.type === GeminiEventType.Error) {
         isError = true;
       }
+    }
+
+    // F.1.1 / F.1.2: harvest the observer's pending next-turn intent before
+    // the local observer instance is garbage-collected. This is what carries
+    // observer-driven escalations (soft composite, downgraded hard-precision)
+    // across turn boundaries into `polluxPendingNextTurnIntent`.
+    try {
+      const harvested = polluxObserver.consumePendingNextTurnIntent();
+      if (harvested) {
+        // Explicit downgrades staged by `runPolluxSameTurnConsult` already
+        // set the slot; only overwrite when empty OR the harvested intent
+        // has a strictly higher netScore (keeps the strongest signal).
+        const existing = this.polluxPendingNextTurnIntent;
+        if (!existing || harvested.netScore >= existing.netScore) {
+          this.polluxPendingNextTurnIntent = harvested;
+        }
+      }
+    } catch {
+      // Fail-open (I3): observer harvest must never abort the turn.
     }
 
     if (loopDetectedAbort) {

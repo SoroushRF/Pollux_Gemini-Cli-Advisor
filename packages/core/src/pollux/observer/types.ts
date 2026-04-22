@@ -9,33 +9,17 @@
  * (`DETECTOR_IMPLEMENTATION_PLAN.md` §6.A.1 task 6).
  */
 
-import type { PolluxEscalationReasonCode } from '../types.js';
 import type { ToolCallRequestInfo } from '../../scheduler/types.js';
+import type { PolluxEscalationReasonCode } from '../types.js';
+import type {
+  PolluxSensorSignalCategory,
+  SensorSignal,
+} from './sensors/base.js';
 
 /** Where a same-turn pause may occur relative to stream dispatch (§2a.4). */
 export type PolluxObserverPauseBoundary = 'pre_tool' | 'post_event';
 
-/** Sensor taxonomy for composite-evidence gates (plan §D.2). */
-export type PolluxSensorSignalCategory =
-  | 'thought'
-  | 'tool'
-  | 'self'
-  | 'longitudinal'
-  | 'risk';
-
-/**
- * Single sensor emission (`DETECTOR_IMPLEMENTATION_PLAN.md` §D.2).
- * Phase D sensors populate instances; this is the canonical contract shape.
- */
-export interface SensorSignal {
-  readonly id: string;
-  readonly weight: number;
-  readonly precisionPrior: number;
-  readonly category: PolluxSensorSignalCategory;
-  readonly hardPrecision?: boolean;
-  readonly tsMs: number;
-  readonly attribution?: string;
-}
+export type { PolluxSensorSignalCategory, SensorSignal };
 
 /** Fields shared by same-turn and next-turn escalation intents. */
 export interface BaseEscalationIntent {

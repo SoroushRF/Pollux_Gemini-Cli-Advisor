@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { GeminiEventType } from '../../../core/turn.js';
 import type { ToolCallRequestInfo } from '../../../scheduler/types.js';
 import type { PolluxDetectorConfig } from '../../types.js';
+import type { Sensor, SensorInput, SensorSignal } from './base.js';
 import {
   EDIT_TOOL_NAME,
   PARAM_FILE_PATH,
@@ -346,4 +348,44 @@ export function classifyToolCallRisk(
   }
 
   return { risk: 'low' };
+}
+
+/** Pure pre-tool risk sensor wrapper for the Phase D observer pipeline. */
+export class RiskGateSensor implements Sensor {
+  readonly id = RISK_GATE_SENSOR_ID;
+
+  constructor(
+    private readonly riskGateConfig: Readonly<PolluxDetectorConfig['riskGate']>,
+  ) {}
+
+  observe(input: SensorInput): readonly SensorSignal[] {
+    try {
+      if (!this.riskGateConfig.enabled) {
+        return [];
+      }
+      if (input.event.type !== GeminiEventType.ToolCallRequest) {
+        return [];
+      }
+      const classification = classifyToolCallRisk(
+        input.event.value,
+        this.riskGateConfig,
+      );
+      if (classification.risk !== 'high') {
+        return [];
+      }
+      return [
+        {
+          id: RISK_PRE_TOOL_HIGH_SIGNAL_ID,
+          weight: RISK_PRE_TOOL_HIGH_SIGNAL_WEIGHT,
+          precisionPrior: RISK_PRE_TOOL_HIGH_SIGNAL_PRECISION,
+          category: 'risk',
+          hardPrecision: true,
+          tsMs: Date.now(),
+          attribution: classification.reason ?? classification.matchedPattern,
+        },
+      ];
+    } catch {
+      return [];
+    }
+  }
 }

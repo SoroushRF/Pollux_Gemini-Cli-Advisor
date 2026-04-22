@@ -20,6 +20,7 @@ import {
   type ToolConfirmationPayload,
   type SerializableConfirmationDetails,
   debugLogger,
+  coreEvents,
 } from '@google/gemini-cli-core';
 import type { IndividualToolCallDisplay } from '../types.js';
 
@@ -133,6 +134,13 @@ export const ToolActionsProvider: React.FC<ToolActionsProviderProps> = (
       }
 
       const details = tool.confirmationDetails;
+
+      if (
+        details?.type === 'edit' &&
+        outcome === ToolConfirmationOutcome.ModifyWithEditor
+      ) {
+        coreEvents.emitPolluxTurnEdited({ source: 'modify_with_editor' });
+      }
 
       // 1. Handle Side Effects (IDE Diff)
       if (
