@@ -41,6 +41,35 @@ export interface BenchmarkCondition {
   executorModel: string;
   advisorModel?: string; // Not present in baseline conditions
   strategy?: 'heuristic' | 'structured' | 'hybrid';
+  /**
+   * Optional observer-detector overrides for condition F (redesigned detector).
+   * Typed locally to avoid importing deep core config surfaces into test-utils.
+   */
+  detector?: {
+    riskGate?: {
+      enabled?: boolean;
+      mode?: 'allowlist' | 'blocklist';
+      denyPatterns?: string[];
+    };
+    observer?: {
+      enabled?: boolean;
+      maxThoughtWindowChars?: number;
+      maxToolEventWindow?: number;
+      decayHalfLifeMs?: number;
+    };
+    selfReport?: { enabled?: boolean; promptPrimingEnabled?: boolean };
+    fusion?: {
+      targetEscalationRate?: number;
+      requireComposite?: boolean;
+      lowPrecisionFloor?: number;
+      sameTurnThresholdMultiplier?: number;
+      sameTurnAbsoluteFloor?: number;
+    };
+    timing?: {
+      sameTurnEnabled?: boolean;
+      maxSameTurnEscalationsPerTurn?: number;
+    };
+  };
 }
 
 export interface BenchmarkRunOptions {
@@ -154,6 +183,7 @@ export interface BenchmarkSettingsOverrides {
       executorModel: string;
       advisorModel?: string;
       strategy?: 'heuristic' | 'structured' | 'hybrid';
+      detector?: BenchmarkCondition['detector'];
     };
   };
 }
@@ -360,6 +390,7 @@ export class BenchmarkHarness {
           executorModel: condition.executorModel,
           advisorModel: condition.advisorModel,
           strategy: condition.strategy,
+          detector: condition.detector,
         },
       },
     };

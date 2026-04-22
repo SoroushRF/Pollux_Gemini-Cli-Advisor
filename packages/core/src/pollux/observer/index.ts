@@ -24,7 +24,12 @@ export type {
 } from './types.js';
 
 export { FusionLayer } from './fusion.js';
-export { OBSERVER_CALIBRATION_STUB } from './calibration.js';
+export {
+  CALIBRATION_CORPUS,
+  KNOWN_SIGNAL_IDS,
+  runCalibrationCorpus,
+  runCalibrationTrace,
+} from './calibration.js';
 
 export type { PolluxObserverSensor } from './sensors/base.js';
 

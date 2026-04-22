@@ -382,13 +382,14 @@ integration tests.
 
 ### 10.1 Conditions
 
-| ID  | Executor | Advisor | Strategy   |
-| --- | -------- | ------- | ---------- |
-| A   | Flash    | None    | None       |
-| B   | Flash    | Pro     | Heuristic  |
-| C   | Flash    | Pro     | Structured |
-| D   | Flash    | Pro     | Hybrid     |
-| E   | Pro      | None    | None       |
+| ID  | Executor | Advisor | Strategy                                |
+| --- | -------- | ------- | --------------------------------------- |
+| A   | Flash    | None    | None                                    |
+| B   | Flash    | Pro     | Heuristic                               |
+| C   | Flash    | Pro     | Structured                              |
+| D   | Flash    | Pro     | Hybrid                                  |
+| E   | Pro      | None    | None                                    |
+| F   | Flash    | Pro     | Redesigned detector — observer + fusion |
 
 ### 10.2 Fairness pins (mandatory)
 

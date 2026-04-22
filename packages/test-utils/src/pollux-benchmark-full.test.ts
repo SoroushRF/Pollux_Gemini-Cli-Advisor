@@ -14,8 +14,16 @@ import {
   runPolluxFullBenchmark,
 } from './pollux-benchmark-full.js';
 
+function safeDiv(n: number, d: number): number {
+  return d === 0 ? 0 : n / d;
+}
+
+function f1(p: number, r: number): number {
+  return p + r === 0 ? 0 : (2 * p * r) / (p + r);
+}
+
 describe('Pollux full benchmark session-resume continuity', () => {
-  it('runs the full A-E matrix and preserves fairness state across resume', async () => {
+  it('runs the full A-F matrix and preserves fairness state across resume', async () => {
     const report = await runPolluxFullBenchmark();
 
     writeFileSync(
@@ -40,11 +48,11 @@ describe('Pollux full benchmark session-resume continuity', () => {
     // P4-04 senior review: at least one cell must observe a
     // `utility_advisor` telemetry event, otherwise the entire benchmark
     // collapsed to the executor path. Specifically the ESCALATING task
-    // under conditions B/C/D (Pollux on, prompt trips detector) must
+    // under conditions B/C/D/F (Pollux on, prompt trips detector) must
     // produce non-zero advisor calls; the same task under A/E (Pollux
     // off) must produce zero.
     const escalatingPolluxOnCells = report.cells.filter(
-      (c) => c.taskEscalates && ['B', 'C', 'D'].includes(c.conditionId),
+      (c) => c.taskEscalates && ['B', 'C', 'D', 'F'].includes(c.conditionId),
     );
     expect(escalatingPolluxOnCells.length).toBeGreaterThan(0);
     for (const cell of escalatingPolluxOnCells) {
@@ -69,5 +77,45 @@ describe('Pollux full benchmark session-resume continuity', () => {
       expect(cell.initialRun.metrics.observedAdvisorCalls).toBe(0);
       expect(cell.resumedRun.metrics.observedAdvisorCalls).toBe(0);
     }
+
+    // ---------------------------------------------------------------------
+    // Phase H acceptance gate: redesigned detector (F) must match or exceed
+    // legacy hybrid (D) on F1 for advisor-call detection on the shared task set.
+    //
+    // Definitions:
+    // - expected positive: task.escalates === true (benchmark corpus contract)
+    // - predicted positive: observedAdvisorCalls > 0 (runtime telemetry)
+    // ---------------------------------------------------------------------
+    const byCondition = (id: string) =>
+      report.cells.filter((c) => c.conditionId === id);
+
+    const computeConfusion = (cells: typeof report.cells) => {
+      let tp = 0;
+      let fp = 0;
+      let fn = 0;
+      let tn = 0;
+      for (const cell of cells) {
+        const expectedPos = cell.taskEscalates === true;
+        const predictedPos = cell.initialRun.metrics.observedAdvisorCalls > 0;
+        if (expectedPos && predictedPos) tp++;
+        else if (!expectedPos && predictedPos) fp++;
+        else if (expectedPos && !predictedPos) fn++;
+        else tn++;
+      }
+      const precision = safeDiv(tp, tp + fp);
+      const recall = safeDiv(tp, tp + fn);
+      return { tp, fp, fn, tn, precision, recall, f1: f1(precision, recall) };
+    };
+
+    const legacyD = computeConfusion(byCondition('D'));
+    const redesignedF = computeConfusion(byCondition('F'));
+
+    expect(redesignedF.f1).toBeGreaterThanOrEqual(legacyD.f1);
+
+    const tnPrecisionF =
+      redesignedF.tn + redesignedF.fp === 0
+        ? 1
+        : redesignedF.tn / (redesignedF.tn + redesignedF.fp);
+    expect(tnPrecisionF).toBeGreaterThanOrEqual(0.9);
   }, 600000);
 });

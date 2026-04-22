@@ -59,6 +59,25 @@ const FULL_CONDITIONS: BenchmarkCondition[] = [
     id: 'E',
     executorModel: 'gemini-3-pro-preview',
   },
+  {
+    id: 'F',
+    executorModel: 'gemini-2.5-flash',
+    advisorModel: 'gemini-3-pro-preview',
+    strategy: 'hybrid',
+    detector: {
+      riskGate: { enabled: true },
+      observer: { enabled: true },
+      selfReport: { enabled: true },
+      fusion: {
+        requireComposite: true,
+        targetEscalationRate: 0.05,
+        lowPrecisionFloor: 0.5,
+        sameTurnThresholdMultiplier: 1.5,
+        sameTurnAbsoluteFloor: 3.5,
+      },
+      timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+    },
+  },
 ];
 
 const FULL_FIXTURES: Record<string, string> = {
