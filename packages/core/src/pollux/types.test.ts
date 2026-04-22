@@ -13,16 +13,13 @@ import {
   POLLUX_MIN_SAME_TURN_ABSOLUTE_FLOOR,
   mergePolluxExperimentalConfig,
   POLLUX_ESCALATION_TIMING,
-  PolluxDetectorStrategy,
   PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
   type AdvisorConsultationInput,
   type AdvisorConsultationResult,
   type PolluxAdvisor,
-  type PolluxDetector,
   type PolluxExperimentalConfig,
   type PolluxTurnContext,
-  type ShouldEscalateResult,
 } from './types.js';
 
 describe('pollux/types', () => {
@@ -37,14 +34,8 @@ describe('pollux/types', () => {
       expect(
         mergePolluxExperimentalConfig({
           maxAdvisorCallsPerTurn: Number.NaN,
-          confidenceThreshold: Number.POSITIVE_INFINITY,
         }).maxAdvisorCallsPerTurn,
       ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsPerTurn);
-      expect(
-        mergePolluxExperimentalConfig({
-          confidenceThreshold: Number.NaN,
-        }).confidenceThreshold,
-      ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.confidenceThreshold);
       expect(
         mergePolluxExperimentalConfig({
           advisorRequestTimeoutMs: Number.NaN,
@@ -56,16 +47,9 @@ describe('pollux/types', () => {
       const clampedLow = mergePolluxExperimentalConfig({
         maxAdvisorCallsPerTurn: -5,
         maxAdvisorCallsPerSession: 0,
-        confidenceThreshold: -1,
       });
       expect(clampedLow.maxAdvisorCallsPerTurn).toBe(1);
       expect(clampedLow.maxAdvisorCallsPerSession).toBe(1);
-      expect(clampedLow.confidenceThreshold).toBe(1);
-
-      const clampedHigh = mergePolluxExperimentalConfig({
-        confidenceThreshold: 99,
-      });
-      expect(clampedHigh.confidenceThreshold).toBe(10);
     });
 
     it('clamps advisorRequestTimeoutMs to minimum', () => {
@@ -123,10 +107,8 @@ describe('pollux/types', () => {
       expect(cfg.enabled).toBe(false);
       expect(cfg.executorModel).toBe('gemini-2.5-flash');
       expect(cfg.advisorModel).toBe('gemini-3.1-pro-preview');
-      expect(cfg.strategy).toBe(PolluxDetectorStrategy.HYBRID);
       expect(cfg.maxAdvisorCallsPerTurn).toBe(2);
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
-      expect(cfg.confidenceThreshold).toBe(6);
       expect(cfg.emitAdvisorDebug).toBe(false);
       expect(cfg.advisorRequestTimeoutMs).toBe(120_000);
       expect(cfg.detector).toEqual(DEFAULT_POLLUX_DETECTOR_CONFIG);
@@ -161,13 +143,10 @@ describe('pollux/types', () => {
           "pollux.escalation.fusion_composite": "next_turn",
           "pollux.escalation.fusion_composite_emphatic": "same_turn",
           "pollux.escalation.hard_loop": "same_turn",
-          "pollux.escalation.heuristic_match": "next_turn",
-          "pollux.escalation.hybrid_resolution": "next_turn",
           "pollux.escalation.live_observer_match": "next_turn",
           "pollux.escalation.none": "next_turn",
           "pollux.escalation.risk_gate_block": "same_turn",
           "pollux.escalation.self_report_stuck": "same_turn",
-          "pollux.escalation.structured_tag": "next_turn",
         }
       `);
     });
@@ -192,7 +171,7 @@ describe('pollux/types', () => {
   });
 
   describe('fixture typing', () => {
-    it('accepts a PolluxTurnContext and detector/advisor implementations', async () => {
+    it('accepts a PolluxTurnContext and advisor implementations', async () => {
       const ctx: PolluxTurnContext = {
         surface: PolluxRuntimeSurface.LEGACY_INTERACTIVE,
         sessionId: 'sess-1',
@@ -201,16 +180,6 @@ describe('pollux/types', () => {
         advisorCallsThisTurn: 0,
         advisorCallsThisSession: 0,
         userContentDigest: 'sha256:fixture',
-      };
-
-      const detector: PolluxDetector = {
-        async shouldEscalate(): Promise<ShouldEscalateResult> {
-          return {
-            escalate: false,
-            reasonCode: PolluxEscalationReasonCode.CONFIG_DISABLED,
-            strategy: PolluxDetectorStrategy.HEURISTIC,
-          };
-        },
       };
 
       const advisor: PolluxAdvisor = {
@@ -224,9 +193,6 @@ describe('pollux/types', () => {
           };
         },
       };
-
-      const escalation = await detector.shouldEscalate(ctx);
-      expect(escalation.escalate).toBe(false);
 
       const input: AdvisorConsultationInput = {
         context: ctx,

@@ -8,8 +8,6 @@ import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_POLLUX_DETECTOR_CONFIG,
   mergePolluxExperimentalConfig,
-  PolluxDetectorStrategy,
-  type PolluxExperimentalConfig,
 } from '@google/gemini-cli-core';
 import { getSettingsSchema } from './settingsSchema.js';
 
@@ -35,12 +33,5 @@ describe('Pollux TG-5 schema ↔ ConfigParameters mapping', () => {
       expect(merged.detector).toHaveProperty(key);
     }
     expect(merged.detector).toEqual(DEFAULT_POLLUX_DETECTOR_CONFIG);
-  });
-
-  it('rejects invalid strategy values by falling back to default', () => {
-    const merged = mergePolluxExperimentalConfig({
-      strategy: 'invalid' as PolluxExperimentalConfig['strategy'],
-    });
-    expect(merged.strategy).toBe(PolluxDetectorStrategy.HYBRID);
   });
 });

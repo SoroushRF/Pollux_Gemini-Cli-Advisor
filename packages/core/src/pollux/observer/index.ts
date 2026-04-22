@@ -13,6 +13,12 @@ export {
 } from './observer.js';
 export type { LiveExecutorObserver } from './observer.js';
 
+export {
+  checkPolluxEligibility,
+  isPolluxRuntimeSurfaceSupported,
+  type PolluxEligibilityResult,
+} from './eligibility.js';
+
 export type {
   BaseEscalationIntent,
   EscalationIntent,

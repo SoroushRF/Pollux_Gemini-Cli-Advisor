@@ -1752,12 +1752,6 @@ their corresponding top-level category object in your `settings.json` file.
   - **Default:** `"gemini-3.1-pro-preview"`
   - **Requires restart:** Yes
 
-- **`experimental.pollux.strategy`** (enum):
-  - **Description:** How to decide whether to escalate a turn to the advisor.
-  - **Default:** `"hybrid"`
-  - **Values:** `"heuristic"`, `"structured"`, `"hybrid"`
-  - **Requires restart:** Yes
-
 - **`experimental.pollux.maxAdvisorCallsPerTurn`** (number):
   - **Description:** Upper bound on advisor consultations for a single turn.
   - **Default:** `2`
@@ -1766,12 +1760,6 @@ their corresponding top-level category object in your `settings.json` file.
 - **`experimental.pollux.maxAdvisorCallsPerSession`** (number):
   - **Description:** Upper bound on advisor consultations across the session.
   - **Default:** `20`
-  - **Requires restart:** Yes
-
-- **`experimental.pollux.confidenceThreshold`** (number):
-  - **Description:** Minimum structured confidence (1–10) before escalation on
-    structured/hybrid paths.
-  - **Default:** `6`
   - **Requires restart:** Yes
 
 - **`experimental.pollux.emitAdvisorDebug`** (boolean):
@@ -1802,13 +1790,7 @@ their corresponding top-level category object in your `settings.json` file.
   - **Requires restart:** Yes
 
 - **`experimental.pollux.detector.observer.enabled`** (boolean):
-  - **Description:** When true (with Pollux enabled), wires the live executor
-    observer for Phase C loop detection bridge and related stream hooks: a
-    confirmed loop queues a `HARD_LOOP` advisor intent (next-turn when
-    `detector.timing.sameTurnEnabled` is false, or same-turn when true). Flip
-    off to roll back loop-bridge behavior (`DETECTOR_IMPLEMENTATION_PLAN.md`
-    §C.6). Acceptance checks for §C.5 live in
-    `packages/core/src/core/client.test.ts` (search for `Phase C §C.5`).
+  - **Description:** When true, ingest executor stream events.
   - **Default:** `false`
   - **Requires restart:** Yes
 

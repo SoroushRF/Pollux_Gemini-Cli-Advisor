@@ -38,24 +38,6 @@ const FULL_CONDITIONS: BenchmarkCondition[] = [
     executorModel: 'gemini-2.5-flash',
   },
   {
-    id: 'B',
-    executorModel: 'gemini-2.5-flash',
-    advisorModel: 'gemini-3-pro-preview',
-    strategy: 'heuristic',
-  },
-  {
-    id: 'C',
-    executorModel: 'gemini-2.5-flash',
-    advisorModel: 'gemini-3-pro-preview',
-    strategy: 'structured',
-  },
-  {
-    id: 'D',
-    executorModel: 'gemini-2.5-flash',
-    advisorModel: 'gemini-3-pro-preview',
-    strategy: 'hybrid',
-  },
-  {
     id: 'E',
     executorModel: 'gemini-3-pro-preview',
   },
@@ -63,7 +45,6 @@ const FULL_CONDITIONS: BenchmarkCondition[] = [
     id: 'F',
     executorModel: 'gemini-2.5-flash',
     advisorModel: 'gemini-3-pro-preview',
-    strategy: 'hybrid',
     detector: {
       riskGate: { enabled: true },
       observer: { enabled: true },
@@ -136,7 +117,6 @@ export interface PolluxFullCellRun {
   conditionId: string;
   executorModel: string;
   advisorModel: string | null;
-  strategy: string | null;
   fakeResponsesPath: string;
   initialRun: BenchmarkRunMetadata;
   resumedRun: BenchmarkRunMetadata;
@@ -230,7 +210,6 @@ export async function runPolluxFullBenchmark(
         conditionId: condition.id,
         executorModel: condition.executorModel,
         advisorModel: condition.advisorModel ?? null,
-        strategy: condition.strategy ?? null,
         fakeResponsesPath,
         initialRun: result.initialRun,
         resumedRun: result.resumedRun,
@@ -284,7 +263,7 @@ export function renderPolluxFullBenchmarkReport(
   lines.push('| --- | --- | --- | --- |');
   for (const condition of FULL_CONDITIONS) {
     lines.push(
-      `| ${condition.id} | ${condition.executorModel} | ${condition.advisorModel ?? 'none'} | ${condition.strategy ?? 'none'} |`,
+      `| ${condition.id} | ${condition.executorModel} | ${condition.advisorModel ?? 'none'} | ${condition.id === 'F' ? 'observer+fusion' : 'none'} |`,
     );
   }
   lines.push('');

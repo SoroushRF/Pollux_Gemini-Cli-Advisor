@@ -66,7 +66,7 @@ describe('ACP PolluxCommand', () => {
     expect(data).toContain('Executor alignment: [MATCH]');
     expect(data).toContain('Executor model (resolved): gemini-2.5-flash');
     expect(data).toContain('Advisor model: gemini-3.1-pro-preview');
-    expect(data).toContain('Detector strategy: hybrid');
+    expect(data).toContain('Detector flags:');
     expect(data).toContain('Settings path: experimental.pollux.*');
   });
 

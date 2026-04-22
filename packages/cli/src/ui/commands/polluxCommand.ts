@@ -52,7 +52,7 @@ export function parsePolluxCommandArgs(
 /**
  * Read-only Pollux status command. Emits the active Pollux experimental
  * config snapshot so users can verify which executor / advisor models, which
- * detector strategy, and which advisor-call budget the runtime is using.
+ * detector flags, and which advisor-call budget the runtime is using.
  *
  * Pollux contract reference: POLLUX_SPEC.md sections 6 (advisor call), 7
  * (detector strategy), 8 (settings). This command intentionally does not
@@ -133,8 +133,9 @@ export function formatPolluxStatus(
   lines.push(`Executor model (resolved): ${resolvedExecutor}`);
   lines.push(`Executor model (configured): ${pollux.executorModel}`);
   lines.push(`Advisor model: ${pollux.advisorModel}`);
-  lines.push(`Detector strategy: ${pollux.strategy}`);
-  lines.push(`Confidence threshold: ${pollux.confidenceThreshold}`);
+  lines.push(
+    `Detector flags: riskGate=${pollux.detector.riskGate.enabled ? 'on' : 'off'} observer=${pollux.detector.observer.enabled ? 'on' : 'off'} selfReport=${pollux.detector.selfReport.enabled ? 'on' : 'off'} sameTurn=${pollux.detector.timing.sameTurnEnabled ? 'on' : 'off'}`,
+  );
   lines.push(
     `Advisor call budget: ${pollux.maxAdvisorCallsPerTurn}/turn, ${pollux.maxAdvisorCallsPerSession}/session`,
   );
@@ -145,18 +146,16 @@ export function formatPolluxStatus(
     lines.push('Debug details:');
     lines.push(`- status_indicator=${statusIndicator}`);
     lines.push(`- executor_alignment=${alignmentIndicator}`);
-    lines.push(`- detector_strategy=${pollux.strategy}`);
     lines.push(
       `- raw_snapshot=${JSON.stringify({
         enabled: pollux.enabled,
         executorModel: pollux.executorModel,
         advisorModel: pollux.advisorModel,
-        strategy: pollux.strategy,
         maxAdvisorCallsPerTurn: pollux.maxAdvisorCallsPerTurn,
         maxAdvisorCallsPerSession: pollux.maxAdvisorCallsPerSession,
-        confidenceThreshold: pollux.confidenceThreshold,
         emitAdvisorDebug: pollux.emitAdvisorDebug,
         advisorRequestTimeoutMs: pollux.advisorRequestTimeoutMs,
+        detector: pollux.detector,
       })}`,
     );
   }

@@ -78,13 +78,13 @@ import { PolicyDecision } from '../policy/types.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
   POLLUX_ESCALATION_TIMING,
-  PolluxDetectorStrategy,
   PolluxRuntimeSurface,
-  type PolluxDetector,
+  POLLUX_TURN_DIGEST_MAX_CHARS,
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
   buildPolluxHardLoopNextTurnIntent,
+  checkPolluxEligibility,
   createLiveExecutorObserver,
   ingestPolluxAfterLoopCheckFailOpen,
   ingestPolluxObserverFailOpen,
@@ -107,32 +107,8 @@ import {
   PolluxModelRole,
   resolvePolluxModel,
 } from '../pollux/models.js';
-import {
-  DETECTOR_MAX_FIELD_LENGTH,
-  createHeuristicDetector,
-  createHybridDetector,
-  createStructuredDetector,
-} from '../pollux/detector.js';
 
 const MAX_TURNS = 100;
-
-/**
- * Selects the configured detector implementation. Defaults to the hybrid
- * detector to match {@link DEFAULT_POLLUX_EXPERIMENTAL_CONFIG}; unknown values
- * also fall back to hybrid so a misconfigured strategy never silently bypasses
- * the gate (POLLUX_SPEC §7).
- */
-function buildPolluxDetector(strategy: PolluxDetectorStrategy): PolluxDetector {
-  switch (strategy) {
-    case PolluxDetectorStrategy.HEURISTIC:
-      return createHeuristicDetector();
-    case PolluxDetectorStrategy.STRUCTURED:
-      return createStructuredDetector();
-    case PolluxDetectorStrategy.HYBRID:
-    default:
-      return createHybridDetector();
-  }
-}
 
 /**
  * Splits a turn's `PartListUnion` into the bounded `userContentDigest` and
@@ -143,7 +119,7 @@ function buildPolluxDetector(strategy: PolluxDetectorStrategy): PolluxDetector {
  * dropped from the detector inputs to keep the digest free of binary blobs and
  * model-emitted artifacts (POLLUX_SPEC §5.1, §7).
  *
- * Both fields are clamped to {@link DETECTOR_MAX_FIELD_LENGTH} so the detector
+ * Both fields are clamped to {@link POLLUX_TURN_DIGEST_MAX_CHARS} so the detector
  * receives a stable, bounded view regardless of upstream request size.
  */
 function summarizeRequestForDetector(request: PartListUnion): {
@@ -183,10 +159,12 @@ function summarizeRequestForDetector(request: PartListUnion): {
   }
 
   return {
-    userContentDigest: userParts.join('\n').slice(0, DETECTOR_MAX_FIELD_LENGTH),
+    userContentDigest: userParts
+      .join('\n')
+      .slice(0, POLLUX_TURN_DIGEST_MAX_CHARS),
     pendingToolContext: toolParts
       .join('\n')
-      .slice(0, DETECTOR_MAX_FIELD_LENGTH),
+      .slice(0, POLLUX_TURN_DIGEST_MAX_CHARS),
   };
 }
 
@@ -775,18 +753,6 @@ export class GeminiClient {
     );
   }
 
-  private isPolluxRuntimeSurfaceSupported(
-    runtimeSurface: PolluxRuntimeSurface,
-  ): boolean {
-    return (
-      runtimeSurface === PolluxRuntimeSurface.LEGACY_INTERACTIVE ||
-      runtimeSurface === PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE ||
-      runtimeSurface === PolluxRuntimeSurface.AGENT_SESSION_INTERACTIVE ||
-      runtimeSurface === PolluxRuntimeSurface.AGENT_SESSION_NON_INTERACTIVE ||
-      runtimeSurface === PolluxRuntimeSurface.ACP
-    );
-  }
-
   private buildPolluxTurnContext(
     request: PartListUnion,
     prompt_id: string,
@@ -942,28 +908,19 @@ export class GeminiClient {
     prompt_id: string,
     runtimeSurface: PolluxRuntimeSurface,
   ): Promise<void> {
-    if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
-      return;
-    }
-
     const experimental = this.config.getPolluxExperimentalConfig();
-    if (!experimental.enabled) {
-      return;
-    }
-
-    // Cheap budget pre-check: avoids building turn context and constructing a
-    // detector when the session-level cap is already exhausted. The detector
-    // re-evaluates the same gate so callers can rely on a single source of
-    // truth for budget decisions (POLLUX_SPEC §5.1, §6).
-    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+    const eligibility = checkPolluxEligibility({
+      runtimeSurface,
+      experimental,
       callsCompletedThisTurn: this.polluxAdvisorCallsThisTurn,
       callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
     });
-    if (!budgetCheck.allowed) {
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
-        );
+    if (!eligibility.eligible) {
+      if (
+        experimental.emitAdvisorDebug &&
+        eligibility.blockReason === 'budget'
+      ) {
+        debugLogger.log('Pollux advisor skipped (budget).');
       }
       return;
     }
@@ -989,34 +946,6 @@ export class GeminiClient {
       }
       return;
     }
-
-    const turnContext = this.buildPolluxTurnContext(
-      request,
-      prompt_id,
-      runtimeSurface,
-      experimental,
-    );
-
-    // POLLUX_SPEC §5.1 step 2: gate the advisor invocation on the configured
-    // detector strategy. The detector itself enforces surface, config, budget,
-    // and strategy mismatches, so a non-escalating result here is the unified
-    // "skip advisor" decision.
-    const detector = buildPolluxDetector(experimental.strategy);
-    const escalation = await detector.shouldEscalate(turnContext);
-    if (!escalation.escalate) {
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor skipped (detector): reason=${escalation.reasonCode} strategy=${escalation.strategy}`,
-        );
-      }
-      return;
-    }
-
-    await this.executePolluxAdvisorConsultation(
-      turnContext,
-      partListUnionToString(request),
-      signal,
-    );
   }
 
   private async maybeRunPolluxAdvisorConsultationForIntent(
@@ -1027,26 +956,17 @@ export class GeminiClient {
     intent: SameTurnIntent | NextTurnIntent,
     options: { sameTurnDowngraded?: boolean } = {},
   ): Promise<PolluxIntentConsultationOutcome> {
-    if (!this.isPolluxRuntimeSurfaceSupported(runtimeSurface)) {
-      return 'skipped';
-    }
-
     const experimental = this.config.getPolluxExperimentalConfig();
-    if (!experimental.enabled) {
-      return 'skipped';
-    }
-
-    const budgetCheck = checkAdvisorInvocationBudget(experimental, {
+    const eligibility = checkPolluxEligibility({
+      runtimeSurface,
+      experimental,
       callsCompletedThisTurn: this.polluxAdvisorCallsThisTurn,
       callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
     });
-    if (!budgetCheck.allowed) {
-      if (experimental.emitAdvisorDebug) {
-        debugLogger.log(
-          `Pollux advisor skipped (budget): ${budgetCheck.blockReason}`,
-        );
-      }
-      return 'budget_exhausted';
+    if (!eligibility.eligible) {
+      return eligibility.blockReason === 'budget'
+        ? 'budget_exhausted'
+        : 'skipped';
     }
 
     let pendingToolContextOverride: string | undefined;

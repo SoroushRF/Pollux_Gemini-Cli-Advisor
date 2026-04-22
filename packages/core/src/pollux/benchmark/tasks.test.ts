@@ -9,15 +9,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BENCHMARK_CORPUS, type BenchmarkTask } from './tasks.js';
-import { createHybridDetector } from '../detector.js';
-import {
-  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
-  PolluxDetectorStrategy,
-  PolluxRuntimeSurface,
-  type PolluxDetector,
-  type PolluxExperimentalConfig,
-  type PolluxTurnContext,
-} from '../types.js';
 
 /**
  * P4-01 oracle reliability checks.
@@ -235,62 +226,6 @@ describe('Pollux benchmark corpus oracle reliability', () => {
         'utf8',
       );
       await expect(evalOracle(target())).resolves.toBe(false);
-    });
-  });
-
-  describe('escalation cue inventory (P4-01 + P4-02 contract)', () => {
-    const experimental: PolluxExperimentalConfig = {
-      ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
-      enabled: true,
-      strategy: PolluxDetectorStrategy.HYBRID,
-    };
-    const detector: PolluxDetector = createHybridDetector();
-
-    function turnContextFor(task: BenchmarkTask): PolluxTurnContext {
-      return {
-        surface: PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
-        sessionId: `oracle-test-${task.id}`,
-        turnId: `${task.id}:0`,
-        experimental,
-        advisorCallsThisTurn: 0,
-        advisorCallsThisSession: 0,
-        userContentDigest: task.prompt,
-      };
-    }
-
-    it('contains exactly one escalating task in the corpus', () => {
-      const escalating = BENCHMARK_CORPUS.filter((t) => t.escalates === true);
-      expect(escalating).toHaveLength(1);
-      expect(escalating[0].id).toBe('CAL-BM-04-ESCALATING');
-    });
-
-    it('the escalating task actually trips the hybrid detector', async () => {
-      const escalating = BENCHMARK_CORPUS.find((t) => t.escalates === true)!;
-      const result = await detector.shouldEscalate(turnContextFor(escalating));
-      expect(result.escalate).toBe(true);
-    });
-
-    it('every escalating task also escalates with detector resume prompt', async () => {
-      const escalating = BENCHMARK_CORPUS.find((t) => t.escalates === true)!;
-      const baseCtx = turnContextFor(escalating);
-      const resumeCtx: PolluxTurnContext = {
-        ...baseCtx,
-        userContentDigest: escalating.resumePrompt!,
-      };
-      const result = await detector.shouldEscalate(resumeCtx);
-      expect(result.escalate).toBe(true);
-    });
-
-    it('non-escalating tasks do NOT trip the hybrid detector', async () => {
-      // Locks in the assumption used by the P4-05 escalation confusion
-      // matrix: SIMPLE / MODERATE / COMPLEX prompts must not escalate under
-      // any strategy. If a future prompt edit pushes one over the heuristic
-      // threshold or adds a confidence tag, the matrix collapses again.
-      for (const t of BENCHMARK_CORPUS) {
-        if (t.escalates === true) continue;
-        const result = await detector.shouldEscalate(turnContextFor(t));
-        expect(result.escalate, `${t.id} unexpectedly escalates`).toBe(false);
-      }
     });
   });
 });

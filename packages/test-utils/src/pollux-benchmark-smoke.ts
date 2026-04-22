@@ -55,11 +55,9 @@ export interface PolluxSmokeBenchmarkReport {
   advisorPipelineExercised: boolean;
 }
 
-// Smoke matrix is intentionally minimal but MUST exercise both the
-// Pollux-off baseline (A) and at least one Pollux-on hybrid path (D) so the
-// advisor pipeline is actually verified by the smoke gate. Including the
-// ESCALATING task ensures the D cell observes a non-zero
-// `utility_advisor` telemetry count (P4-03 senior review fix).
+// Smoke matrix is intentionally minimal but MUST exercise both the Pollux-off
+// baseline (A) and at least one Pollux-on observer-backed path (F) so the
+// advisor pipeline is actually verified by the smoke gate.
 const SMOKE_TASK_IDS = [
   'CAL-BM-01-SIMPLE',
   'CAL-BM-02-MODERATE',
@@ -72,10 +70,22 @@ const SMOKE_CONDITIONS: BenchmarkCondition[] = [
     executorModel: 'gemini-2.5-flash',
   },
   {
-    id: 'D',
+    id: 'F',
     executorModel: 'gemini-2.5-flash',
     advisorModel: 'gemini-3-pro-preview',
-    strategy: 'hybrid',
+    detector: {
+      riskGate: { enabled: true },
+      observer: { enabled: true },
+      selfReport: { enabled: true },
+      fusion: {
+        requireComposite: true,
+        targetEscalationRate: 0.05,
+        lowPrecisionFloor: 0.5,
+        sameTurnThresholdMultiplier: 1.5,
+        sameTurnAbsoluteFloor: 3.5,
+      },
+      timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+    },
   },
   {
     id: 'E',
@@ -234,7 +244,7 @@ export function renderPolluxSmokeBenchmarkReport(
   lines.push('## 1) Scope');
   lines.push('');
   lines.push(
-    'This artifact records the P4-03 smoke benchmark over a small A / D / E matrix using deterministic fake responses. The matrix MUST include at least one Pollux-enabled condition (D, hybrid strategy) and at least one task whose prompt deliberately trips the detector (`CAL-BM-04-ESCALATING`) so the smoke gate actually exercises the advisor pipeline (TG-3) and not just the executor path.',
+    'This artifact records the P4-03 smoke benchmark over a small A / F / E matrix using deterministic fake responses. The matrix MUST include at least one Pollux-enabled condition (F, redesigned observer+fusion) and at least one task whose prompt deliberately trips the detector (`CAL-BM-04-ESCALATING`) so the smoke gate actually exercises the advisor pipeline (TG-3) and not just the executor path.',
   );
   lines.push('');
   lines.push('## 2) Smoke matrix');

@@ -40,7 +40,6 @@ export interface BenchmarkCondition {
   id: string; // e.g. 'A', 'B', 'C', 'D', 'E'
   executorModel: string;
   advisorModel?: string; // Not present in baseline conditions
-  strategy?: 'heuristic' | 'structured' | 'hybrid';
   /**
    * Optional observer-detector overrides for condition F (redesigned detector).
    * Typed locally to avoid importing deep core config surfaces into test-utils.
@@ -389,7 +388,6 @@ export class BenchmarkHarness {
           enabled: condition.advisorModel !== undefined,
           executorModel: condition.executorModel,
           advisorModel: condition.advisorModel,
-          strategy: condition.strategy,
           detector: condition.detector,
         },
       },

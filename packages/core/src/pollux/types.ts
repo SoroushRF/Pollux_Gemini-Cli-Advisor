@@ -30,16 +30,6 @@ export const PolluxRuntimeSurface = {
 export type PolluxRuntimeSurface =
   (typeof PolluxRuntimeSurface)[keyof typeof PolluxRuntimeSurface];
 
-/** Escalation detector strategies (POLLUX_SPEC §7.1). */
-export const PolluxDetectorStrategy = {
-  HEURISTIC: 'heuristic',
-  STRUCTURED: 'structured',
-  HYBRID: 'hybrid',
-} as const;
-
-export type PolluxDetectorStrategy =
-  (typeof PolluxDetectorStrategy)[keyof typeof PolluxDetectorStrategy];
-
 /**
  * Live observer + fusion configuration (`experimental.pollux.detector`).
  * @see docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md §4
@@ -106,9 +96,6 @@ export const PolluxEscalationReasonCode = {
   NONE: 'pollux.escalation.none',
   CONFIG_DISABLED: 'pollux.escalation.config_disabled',
   BUDGET_EXHAUSTED: 'pollux.escalation.budget_exhausted',
-  HEURISTIC_MATCH: 'pollux.escalation.heuristic_match',
-  STRUCTURED_TAG: 'pollux.escalation.structured_tag',
-  HYBRID_RESOLUTION: 'pollux.escalation.hybrid_resolution',
   DEFERRED_SURFACE: 'pollux.escalation.deferred_surface',
   FAIL_OPEN: 'pollux.escalation.fail_open',
   /**
@@ -135,10 +122,7 @@ export type PolluxEscalationTiming = 'same_turn' | 'next_turn';
  * Canonical timing for every {@link PolluxEscalationReasonCode}.
  *
  * Invariant I10: every enum value has a key here; exhaustiveness is asserted
- * by a snapshot test in `types.test.ts`. Legacy reason codes
- * (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) are mapped to
- * `next_turn` during the rollout window and removed in Phase I alongside
- * their enum entries.
+ * by a snapshot test in `types.test.ts`.
  */
 export const POLLUX_ESCALATION_TIMING: Readonly<
   Record<PolluxEscalationReasonCode, PolluxEscalationTiming>
@@ -146,9 +130,6 @@ export const POLLUX_ESCALATION_TIMING: Readonly<
   [PolluxEscalationReasonCode.NONE]: 'next_turn',
   [PolluxEscalationReasonCode.CONFIG_DISABLED]: 'next_turn',
   [PolluxEscalationReasonCode.BUDGET_EXHAUSTED]: 'next_turn',
-  [PolluxEscalationReasonCode.HEURISTIC_MATCH]: 'next_turn',
-  [PolluxEscalationReasonCode.STRUCTURED_TAG]: 'next_turn',
-  [PolluxEscalationReasonCode.HYBRID_RESOLUTION]: 'next_turn',
   [PolluxEscalationReasonCode.DEFERRED_SURFACE]: 'next_turn',
   [PolluxEscalationReasonCode.FAIL_OPEN]: 'next_turn',
   [PolluxEscalationReasonCode.LIVE_OBSERVER_MATCH]: 'next_turn',
@@ -166,10 +147,6 @@ export const POLLUX_MIN_ADVISOR_TIMEOUT_MS = 1000;
 /** Lower bound for per-turn/session advisor call budgets. */
 export const POLLUX_MIN_ADVISOR_CALLS = 1;
 
-/** Lower and upper bounds for structured confidence threshold (1-10). */
-export const POLLUX_MIN_CONFIDENCE_THRESHOLD = 1;
-export const POLLUX_MAX_CONFIDENCE_THRESHOLD = 10;
-
 /**
  * experimental.pollux.* shape (POLLUX_SPEC §8.2).
  * Wired through CLI schema / ConfigParameters in later tasks (P1-03, P1-04).
@@ -178,14 +155,8 @@ export interface PolluxExperimentalConfig {
   readonly enabled: boolean;
   readonly executorModel: string;
   readonly advisorModel: string;
-  readonly strategy: PolluxDetectorStrategy;
   readonly maxAdvisorCallsPerTurn: number;
   readonly maxAdvisorCallsPerSession: number;
-  /**
-   * Minimum structured confidence (1–10) required before escalation on the
-   * structured/hybrid paths (POLLUX_SPEC §7.3, example threshold 6 in §8.2).
-   */
-  readonly confidenceThreshold: number;
   readonly emitAdvisorDebug: boolean;
   /**
    * Max time to wait for an advisor model response before fail-open (ms).
@@ -220,10 +191,8 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   enabled: false,
   executorModel: 'gemini-2.5-flash',
   advisorModel: 'gemini-3.1-pro-preview',
-  strategy: PolluxDetectorStrategy.HYBRID,
   maxAdvisorCallsPerTurn: 2,
   maxAdvisorCallsPerSession: 20,
-  confidenceThreshold: 6,
   emitAdvisorDebug: false,
   advisorRequestTimeoutMs: 120_000,
   detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
@@ -354,19 +323,11 @@ export function mergePolluxExperimentalConfig(
   partial?: PolluxExperimentalConfigMergeInput | undefined,
 ): PolluxExperimentalConfig {
   const d = DEFAULT_POLLUX_EXPERIMENTAL_CONFIG;
-  const s = partial?.strategy;
-  const strategy: PolluxDetectorStrategy =
-    s === PolluxDetectorStrategy.HEURISTIC ||
-    s === PolluxDetectorStrategy.STRUCTURED ||
-    s === PolluxDetectorStrategy.HYBRID
-      ? s
-      : d.strategy;
 
   return {
     enabled: partial?.enabled ?? d.enabled,
     executorModel: partial?.executorModel ?? d.executorModel,
     advisorModel: partial?.advisorModel ?? d.advisorModel,
-    strategy,
     maxAdvisorCallsPerTurn: polluxFiniteNumberInRange(
       partial?.maxAdvisorCallsPerTurn,
       d.maxAdvisorCallsPerTurn,
@@ -376,14 +337,6 @@ export function mergePolluxExperimentalConfig(
       partial?.maxAdvisorCallsPerSession,
       d.maxAdvisorCallsPerSession,
       { min: POLLUX_MIN_ADVISOR_CALLS },
-    ),
-    confidenceThreshold: polluxFiniteNumberInRange(
-      partial?.confidenceThreshold,
-      d.confidenceThreshold,
-      {
-        min: POLLUX_MIN_CONFIDENCE_THRESHOLD,
-        max: POLLUX_MAX_CONFIDENCE_THRESHOLD,
-      },
     ),
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
     advisorRequestTimeoutMs: Math.max(
@@ -398,9 +351,14 @@ export function mergePolluxExperimentalConfig(
 }
 
 /**
- * Bounded context passed to shouldEscalate and advisor consultation
- * (POLLUX_SPEC §5.1–5.2 interceptor flow).
+ * Maximum characters included in `PolluxTurnContext.userContentDigest` and
+ * `PolluxTurnContext.pendingToolContext`.
+ *
+ * The redesigned detector is observer-backed, but advisor prompts still benefit
+ * from a bounded, stable digest of the user's request and pending tool context.
  */
+export const POLLUX_TURN_DIGEST_MAX_CHARS = 4096;
+
 export interface PolluxTurnContext {
   readonly surface: PolluxRuntimeSurface;
   readonly sessionId: string;
@@ -413,20 +371,6 @@ export interface PolluxTurnContext {
    */
   readonly userContentDigest?: string;
   readonly pendingToolContext?: string;
-}
-
-/** Outcome of shouldEscalate (detector contract). */
-export interface ShouldEscalateResult {
-  readonly escalate: boolean;
-  readonly reasonCode: PolluxEscalationReasonCode;
-  readonly strategy: PolluxDetectorStrategy;
-  /** 1–10 when the structured or hybrid path evaluated a confidence tag. */
-  readonly structuredConfidence?: number;
-}
-
-/** Detector contract (POLLUX_SPEC §7). */
-export interface PolluxDetector {
-  shouldEscalate(context: PolluxTurnContext): Promise<ShouldEscalateResult>;
 }
 
 /**

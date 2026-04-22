@@ -15,7 +15,6 @@ import {
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   mergePolluxExperimentalConfig,
-  PolluxDetectorStrategy,
   type PolluxExperimentalConfig,
   type PolluxExperimentalConfigMergeInput,
 } from './types.js';
@@ -27,10 +26,8 @@ function makeExperimental(
     enabled: true,
     executorModel: 'gemini-2.5-flash',
     advisorModel: 'gemini-3.1-pro-preview',
-    strategy: PolluxDetectorStrategy.HYBRID,
     maxAdvisorCallsPerTurn: 2,
     maxAdvisorCallsPerSession: 20,
-    confidenceThreshold: 6,
     emitAdvisorDebug: false,
     advisorRequestTimeoutMs:
       DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorRequestTimeoutMs,

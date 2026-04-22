@@ -932,10 +932,8 @@ describe('loadCliConfig', () => {
           enabled: true,
           executorModel: 'gemini-2.5-pro',
           advisorModel: 'gemini-3.1-pro',
-          strategy: 'heuristic',
           maxAdvisorCallsPerTurn: -9,
           maxAdvisorCallsPerSession: 0,
-          confidenceThreshold: 42,
           emitAdvisorDebug: true,
           advisorRequestTimeoutMs: 100,
         },
@@ -946,10 +944,8 @@ describe('loadCliConfig', () => {
     expect(p.enabled).toBe(true);
     expect(p.executorModel).toBe('gemini-2.5-pro');
     expect(p.advisorModel).toBe('gemini-3.1-pro');
-    expect(p.strategy).toBe('heuristic');
     expect(p.maxAdvisorCallsPerTurn).toBe(1);
     expect(p.maxAdvisorCallsPerSession).toBe(1);
-    expect(p.confidenceThreshold).toBe(10);
     expect(p.emitAdvisorDebug).toBe(true);
     expect(p.advisorRequestTimeoutMs).toBe(1000);
   });

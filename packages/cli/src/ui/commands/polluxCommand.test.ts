@@ -91,8 +91,7 @@ describe('polluxCommand', () => {
         'Executor model (configured): gemini-2.5-flash',
       );
       expect(result.content).toContain('Advisor model: gemini-3.1-pro-preview');
-      expect(result.content).toContain('Detector strategy: hybrid');
-      expect(result.content).toContain('Confidence threshold: 6');
+      expect(result.content).toContain('Detector flags:');
       expect(result.content).toContain(
         'Advisor call budget: 2/turn, 20/session',
       );
@@ -150,12 +149,11 @@ describe('polluxCommand', () => {
         enabled: true,
         executorModel: 'gemini-2.5-flash',
         advisorModel: 'gemini-3.1-pro-preview',
-        strategy: 'hybrid',
         maxAdvisorCallsPerTurn: 2,
         maxAdvisorCallsPerSession: 20,
-        confidenceThreshold: 6,
         emitAdvisorDebug: false,
         advisorRequestTimeoutMs: 120000,
+        detector: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
       } as Parameters<typeof formatPolluxStatus>[0],
       'gemini-2.5-flash',
     );

@@ -12,6 +12,4 @@ export * from './observer/index.js';
 export * from './models.js';
 export * from './prompts.js';
 export * from './safeguards.js';
-export * from './detector.js';
-export * from './calibration.js';
 export * from './benchmark/tasks.js';

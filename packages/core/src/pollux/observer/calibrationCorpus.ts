@@ -5,13 +5,13 @@
  */
 
 import type { GenerateContentResponseUsageMetadata } from '@google/genai';
-import { GeminiEventType } from '../../core/turn.js';
 import type {
   ToolCallRequestInfo,
   ToolCallResponseInfo,
 } from '../../scheduler/types.js';
 import type { ToolErrorType } from '../../tools/tool-error.js';
 import type { CalibrationTraceEntry, ScriptedEvent } from './calibration.js';
+import type { LoopType } from '../../telemetry/types.js';
 import { LOOP_HARD_CONFIRMED_SIGNAL_ID } from './sensors/loopBridge.js';
 import { RISK_PRE_TOOL_HIGH_SIGNAL_ID } from './sensors/riskGate.js';
 import {
@@ -39,7 +39,6 @@ import {
   NEG_EXIT_ZERO_SIGNAL_ID,
   NEG_RECENT_ADVISOR_SUCCESS_SIGNAL_ID,
 } from './sensors/negatives.js';
-import { LoopType } from '../../telemetry/types.js';
 
 function toolRequest(
   callId: string,
@@ -82,7 +81,10 @@ function thought(
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.Thought, value: { subject, description } },
+    event: {
+      type: 'thought',
+      value: { subject, description },
+    },
   };
 }
 
@@ -90,7 +92,7 @@ function content(atMs: number, value: string): ScriptedEvent {
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.Content, value },
+    event: { type: 'content', value },
   };
 }
 
@@ -101,7 +103,10 @@ function toolCallRequest(
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.ToolCallRequest, value: request },
+    event: {
+      type: 'tool_call_request',
+      value: request,
+    },
   };
 }
 
@@ -112,7 +117,10 @@ function toolCallResponse(
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.ToolCallResponse, value: response },
+    event: {
+      type: 'tool_call_response',
+      value: response,
+    },
   };
 }
 
@@ -127,7 +135,7 @@ function finished(
     atMs,
     kind: 'stream',
     event: {
-      type: GeminiEventType.Finished,
+      type: 'finished',
       value: { reason: undefined, usageMetadata },
     },
   };
@@ -141,7 +149,8 @@ function setLoopDetected(atMs: number, detected: boolean): ScriptedEvent {
     state: {
       loopDetected: detected,
       lastLoopType: detected
-        ? LoopType.CONSECUTIVE_IDENTICAL_TOOL_CALLS
+        ? // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+          ('consecutive_identical_tool_calls' as unknown as LoopType)
         : undefined,
       detail: detected ? 'scripted loop state' : undefined,
       confirmedByModel: detected ? 'gemini-2.5-pro' : undefined,

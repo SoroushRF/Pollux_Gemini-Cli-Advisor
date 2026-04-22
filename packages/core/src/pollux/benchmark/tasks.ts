@@ -135,10 +135,10 @@ export const BENCHMARK_CORPUS: BenchmarkTask[] = [
     // The structured detector matches the inline confidence tag at value 9,
     // which clears the default threshold of 6. Both fire under hybrid; either
     // alone fires under heuristic / structured. The confidence value MUST
-    // remain >= the default `confidenceThreshold` (6) so condition C
-    // (structured strategy) actually escalates and exercises the advisor
-    // pipeline; otherwise the structured cell collapses to the executor
-    // path and the A-E benchmark loses its only structured-positive cell.
+    // remain >= the legacy structured-threshold default so the historical
+    // structured-strategy benchmark cell would escalate and exercise the
+    // advisor pipeline. The legacy strategy surface has since been deleted
+    // (Phase I); this note is retained for historical context only.
     prompt:
       'I am stuck and need help with this refactor strategy. <!-- pollux:confidence:9 --> Please write a file named escalation-marker.txt containing the single word `advised` and nothing else.',
     escalates: true,

@@ -41,9 +41,9 @@ Related documents:
    and outcome capture for closed-loop calibration.
 5. A scripted-trace calibration harness and corpus that replaces the legacy
    string-corpus in `packages/core/src/pollux/calibration.ts`.
-6. **Deletion** of the legacy `detector.ts`, its `heuristic`/`structured`/
-   `hybrid` strategies, and related config fields (`strategy`,
-   `confidenceThreshold`) once the new detector is wired up (§14).
+6. **Deletion** of the legacy `detector.ts`, its legacy strategy modes, and the
+   related legacy strategy/threshold settings once the new detector is wired up
+   (§14).
 
 ### 1.2 Out of scope
 
@@ -84,7 +84,6 @@ invariant has an explicit test.
 | I6  | **Budget caps unchanged** — `checkAdvisorInvocationBudget` is the single source of truth.                                                                                                                               | `packages/core/src/pollux/safeguards.ts:40–71`               | Existing budget tests extended to cover same-turn path                                                                                                                                                    |
 | I7  | **Cross-surface parity** — legacy, agent-session, ACP behave identically. A2A deferred remains a no-op.                                                                                                                 | `docs/core/pollux/P2-07_CROSS_SURFACE_INTEGRATION_MATRIX.md` | Cross-surface matrix updated in that same doc                                                                                                                                                             |
 | I8  | **Token accounting** — all advisor model calls continue to tag `LlmRole.UTILITY_ADVISOR`.                                                                                                                               | `packages/core/src/telemetry/llmRole.ts:20`                  | `uiTelemetry.test.ts` aggregate test                                                                                                                                                                      |
-| I9  | **Legacy detector stays callable during rollout**: phases A–H ship incrementally; until Phase I deletes `detector.ts`, the existing `shouldEscalate` surface remains green in CI so each phase is safely revertable.    | N/A                                                          | `detector.test.ts` keeps running unmodified in CI until Phase I                                                                                                                                           |
 | I10 | **Timing policy is explicit**: every escalation reason code is annotated `same_turn` or `next_turn` per §2a; the observer NEVER queues a high-confidence signal for next-turn when the confidence gate (§2a.2) is met.  | `DETECTOR_IMPLEMENTATION_PLAN.md §2a`                        | `types.test.ts` — snapshot asserts a `timing` entry exists for every `PolluxEscalationReasonCode` value; `observer.test.ts` — high-confidence signal produces a `SameTurnIntent`, not a `NextTurnIntent`. |
 | I11 | **Same-turn budget guardrail**: at most one same-turn escalation per executor turn; additional high-confidence signals during the same turn are either suppressed or merged into the next-turn queue, never re-entered. | §2a.4 (guardrails)                                           | `observer.test.ts` — two same-turn triggers in one turn produce exactly one advisor invocation.                                                                                                           |
 
@@ -335,8 +334,8 @@ unchanged). Per-component `enabled` flags inside the subtree let phases land
 incrementally without running the full pipeline before it is safe to do so.
 
 There is **no version flag**. The redesign replaces the legacy detector in
-place; the legacy `strategy` / `confidenceThreshold` fields stay for the rollout
-window (I9) and are **deleted** in Phase I alongside `detector.ts`.
+place; legacy strategy/threshold fields are **deleted** in Phase I alongside
+`detector.ts`.
 
 ### 4.1 `PolluxExperimentalConfig` additions
 
@@ -379,8 +378,8 @@ export interface PolluxDetectorConfig {
 }
 
 export interface PolluxExperimentalConfig {
-  // ...existing fields — `strategy` and `confidenceThreshold` are legacy
-  // fields retained under I9 until Phase I deletes them...
+  // ...existing fields — legacy strategy/threshold fields retained only until
+  // Phase I deletes them...
   readonly detector: PolluxDetectorConfig;
 }
 ```
@@ -443,17 +442,17 @@ rules are updated in §6.A.1.
 
 ## 5) Phase roadmap
 
-| Phase | Focus                                                                                                                                                                 | PR size | Gate                                                                                                          |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------- |
-| A     | Foundation: `detector` config subtree, module scaffolding, reason codes, telemetry hooks — all no-ops behind per-subsystem `enabled`                                  | S       | All existing tests green; invariant I1 test added                                                             |
-| B     | Risk gate (Tier 5) — high-precision pre-action escalation                                                                                                             | M       | Unit tests + integration test covering `rm -rf` / `git push` paths                                            |
-| C     | LoopDetectionService bridge — reroute existing high-precision signal                                                                                                  | S       | Integration test: loop-triggered turn produces a same-turn escalation instead of being silently halted        |
-| D     | Live executor observer core + fusion layer (Tier 1 + Tier 2 + Tier 6.fusion)                                                                                          | L       | Full observer test suite; precision/recall unit tests on the new corpus                                       |
-| E     | Self-report channel — structured `<pollux:status>` tag and asymmetric confidence                                                                                      | M       | Prompt priming test; parser test; sensor integration test                                                     |
-| F     | Full detector composition — wire `maybeRunPolluxAdvisorConsultation` to the observer; split intent queue; guardrail chain                                             | M       | End-to-end test: detector runs through `maybeRunPolluxAdvisorConsultation` and fails-open on sensor exception |
-| G     | Outcome telemetry (collect only, no behavior change)                                                                                                                  | M       | New telemetry event shape added to `P3-06_TELEMETRY_RECONCILIATION_REPORT.md`                                 |
-| H     | Scripted-trace calibration corpus + benchmark condition                                                                                                               | M       | Benchmark run produces precision/recall metrics; F1 ≥ legacy F1 on shared task set                            |
-| I     | **Delete legacy detector** — remove `detector.ts`, `detector.test.ts`, `calibration.ts`, `PolluxDetectorStrategy`, `strategy` and `confidenceThreshold` config fields | S       | Full CI green with no references to the deleted surface; TG-1..10 green on the redesigned detector            |
+| Phase | Focus                                                                                                                                | PR size | Gate                                                                                                          |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------- |
+| A     | Foundation: `detector` config subtree, module scaffolding, reason codes, telemetry hooks — all no-ops behind per-subsystem `enabled` | S       | All existing tests green; invariant I1 test added                                                             |
+| B     | Risk gate (Tier 5) — high-precision pre-action escalation                                                                            | M       | Unit tests + integration test covering `rm -rf` / `git push` paths                                            |
+| C     | LoopDetectionService bridge — reroute existing high-precision signal                                                                 | S       | Integration test: loop-triggered turn produces a same-turn escalation instead of being silently halted        |
+| D     | Live executor observer core + fusion layer (Tier 1 + Tier 2 + Tier 6.fusion)                                                         | L       | Full observer test suite; precision/recall unit tests on the new corpus                                       |
+| E     | Self-report channel — structured `<pollux:status>` tag and asymmetric confidence                                                     | M       | Prompt priming test; parser test; sensor integration test                                                     |
+| F     | Full detector composition — wire `maybeRunPolluxAdvisorConsultation` to the observer; split intent queue; guardrail chain            | M       | End-to-end test: detector runs through `maybeRunPolluxAdvisorConsultation` and fails-open on sensor exception |
+| G     | Outcome telemetry (collect only, no behavior change)                                                                                 | M       | New telemetry event shape added to `P3-06_TELEMETRY_RECONCILIATION_REPORT.md`                                 |
+| H     | Scripted-trace calibration corpus + benchmark condition                                                                              | M       | Benchmark run produces precision/recall metrics; F1 ≥ legacy F1 on shared task set                            |
+| I     | **Delete legacy detector** — remove `detector.ts`, `detector.test.ts`, `calibration.ts`, plus all legacy strategy/threshold surfaces | S       | Full CI green with no references to the deleted surface; TG-1..10 green on the redesigned detector            |
 
 Phases A-C are parallelizable in principle but should ship in order so each PR
 is reviewable against a settled baseline. Phase D depends on A. Phase F depends
@@ -489,10 +488,9 @@ on D + E. Phase I depends on F (minimum) and preferably H.
    Export a const map
    `POLLUX_ESCALATION_TIMING: Readonly<Record<PolluxEscalationReasonCode, 'same_turn' | 'next_turn'>>`
    adjacent to the enum. Every reason code present in the enum MUST have a key
-   in this map — enforced by a snapshot test. Legacy reason codes
-   (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) are mapped to
-   `next_turn` during the rollout window and deleted in Phase I alongside their
-   enum entries.
+   in this map — enforced by a snapshot test. Legacy detector reason codes are
+   mapped to `next_turn` during the rollout window and deleted in Phase I
+   alongside their enum entries.
 
 6. Define the two intent shapes in `packages/core/src/pollux/observer/types.ts`
    (new file; co-located with the observer module):
@@ -900,7 +898,7 @@ Observer tests:
 - All sensor tests pass.
 - Observer runs without measurable perf regression on a 50-event turn (< 5 ms
   added latency in CI benchmark).
-- Invariants I1–I9 verified.
+- Invariants I1–I8, I10, I11 verified.
 
 ### D.11 Rollback
 
@@ -1135,7 +1133,7 @@ Flip `detector.selfReport.enabled = false` (disables sensor and prompt priming).
 ### F.4 Acceptance criteria
 
 - All TG-1..10 tests pass under the redesigned detector.
-- Invariants I1–I9 verified.
+- Invariants I1–I8, I10, I11 verified.
 
 ### F.5 Rollback
 
@@ -1272,8 +1270,7 @@ still experimental and has no external contract to honor.
 Every single one must hold:
 
 - Phases A–F merged. Phases G–H merged or landing in the same PR window.
-- Invariants I1–I8, I10, I11 verified in CI on every PR. I9 (legacy detector
-  callable) is about to be retired — this phase is what retires it.
+- Invariants I1–I8, I10, I11 verified in CI on every PR.
 - Redesigned F1 ≥ legacy F1 AND precision ≥ 0.90 on the true-negative corpus
   (Phase H evidence).
 - TG-1..10 green on the redesigned detector.
@@ -1283,20 +1280,13 @@ Every single one must hold:
 ### I.2 Tasks
 
 1. **Delete code**:
-   - `packages/core/src/pollux/detector.ts`
-   - `packages/core/src/pollux/detector.test.ts`
-   - `packages/core/src/pollux/calibration.ts` (legacy string corpus)
-   - `packages/core/src/pollux/calibration.test.ts`
-   - `PolluxDetectorStrategy` enum and all its values (`HEURISTIC`,
-     `STRUCTURED`, `HYBRID`) from `pollux/types.ts`.
-   - `strategy` and `confidenceThreshold` fields from
-     `PolluxExperimentalConfig`, `DEFAULT_POLLUX_EXPERIMENTAL_CONFIG`, and
-     `mergePolluxExperimentalConfig`.
-   - `PolluxEscalationReasonCode` entries that only the legacy detector emitted
-     (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) and their
-     `POLLUX_ESCALATION_TIMING` entries.
-   - `strategy` / `confidenceThreshold` entries from the CLI schema
-     (`packages/cli/src/config/settingsSchema.ts`).
+   - `detector.ts`
+   - `detector.test.ts`
+   - `calibration.ts` (legacy string corpus)
+   - `calibration.test.ts`
+   - Legacy detector strategy enum and any strategy/threshold settings fields.
+   - Legacy-only escalation reason codes and their timing-map entries.
+   - Legacy strategy/threshold entries from the CLI settings schema.
    - Any `buildPolluxDetector` / `createHeuristicDetector` /
      `createStructuredDetector` / `createHybridDetector` entry points in
      `client.ts` and their call sites.
@@ -1304,29 +1294,24 @@ Every single one must hold:
    siblings) from `detector.ts` into `observer/eligibility.ts` — they still gate
    the observer path.
 3. **Update docs**:
-   - `POLLUX_SPEC.md` §7 — remove references to `strategy`, the three legacy
-     strategy names, and `confidenceThreshold`. §7.5 becomes the canonical
-     detector contract.
+   - `POLLUX_SPEC.md` §7 — remove references to legacy strategy/threshold fields
+     and legacy strategy names. §7.5 becomes the canonical detector contract.
    - `docs/core/pollux/DETECTOR_REDESIGN_BRAINSTORM.md` — mark as historical
      background; point to this plan (post-rename) as the live contract.
    - `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md` — archive
      with a "superseded by P4-07" header.
    - `docs/reference/configuration.md` — drop legacy field references.
-4. **Update tests**: rewrite any `detector.test.ts`-adjacent tests that still
-   reference the deleted surface (there shouldn't be any if I9 was honored;
-   `grep -r` to confirm).
-5. **Settings migration**: settings files in the wild that still carry
-   `experimental.pollux.strategy` / `confidenceThreshold` should be silently
-   ignored by `mergePolluxExperimentalConfig` (no schema complaint, no debug
-   log) — fields simply stop existing. This is acceptable because the whole
-   feature is experimental; there are no users to migrate.
+4. **Update tests**: rewrite any tests that still reference the deleted legacy
+   surface (simple string-scan guard in CI confirms).
+5. **Settings migration**: settings files in the wild that still carry removed
+   legacy keys should be silently ignored by `mergePolluxExperimentalConfig` (no
+   schema complaint, no debug log) — fields simply stop existing.
 
 ### I.3 Tests
 
 - Full CI green with **zero** references to the deleted symbols. A dedicated
-  `grep` guard in CI (simple script in `scripts/`) asserts no file under
-  `packages/` or `docs/` contains `PolluxDetectorStrategy`, `HEURISTIC_MATCH`,
-  `STRUCTURED_TAG`, `HYBRID_RESOLUTION`, `detector.ts` imports, etc.
+  guard in CI (simple script in `scripts/`) asserts no file under `packages/` or
+  `docs/` contains legacy detector symbol strings or imports.
 - All TG-1..10 rows still pass on the redesigned detector.
 - Invariant I9 row is removed from §2.
 
@@ -1405,8 +1390,8 @@ Added in `PolluxEscalationReasonCode` (Phase A). Timing column is canonical per
 | `HARD_LOOP`                 | **same_turn** | LoopDetectionService bridge fired; post-event pause                               |
 | `SELF_REPORT_STUCK`         | **same_turn** | Non-trivial `<pollux:status stuck_on>`; post-event pause                          |
 
-Legacy codes (`HEURISTIC_MATCH`, `STRUCTURED_TAG`, `HYBRID_RESOLUTION`) remain
-in the enum during the rollout window (I9) and are deleted in Phase I.
+Legacy detector codes remain in the enum during the rollout window and are
+deleted in Phase I.
 
 ### 16.2 Event payload additions
 
@@ -1482,7 +1467,7 @@ deletion revert (the legacy detector's git history is preserved).
 
 ## 19) References
 
-- `packages/core/src/pollux/detector.ts` — legacy detector (deleted in Phase I)
+- `detector.ts` — legacy detector (deleted in Phase I)
 - `packages/core/src/pollux/types.ts` — existing reason codes and config shape
   (the `detector` subtree is added in Phase A; legacy fields deleted in Phase I)
 - `packages/core/src/pollux/safeguards.ts:40–71` — budget check

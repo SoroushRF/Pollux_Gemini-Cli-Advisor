@@ -13,7 +13,6 @@ import {
 import {
   DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
   mergePolluxExperimentalConfig,
-  PolluxDetectorStrategy,
   PolluxEscalationReasonCode,
 } from './types.js';
 
@@ -105,7 +104,6 @@ describe('pollux/safeguards', () => {
     it('clamps merged config to minimum', () => {
       const low = mergePolluxExperimentalConfig({
         enabled: true,
-        strategy: PolluxDetectorStrategy.HYBRID,
         advisorRequestTimeoutMs: 100,
       });
       expect(getAdvisorRequestTimeoutMs(low)).toBe(1000);

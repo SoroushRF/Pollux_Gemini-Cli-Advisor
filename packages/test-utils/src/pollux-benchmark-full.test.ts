@@ -45,14 +45,13 @@ describe('Pollux full benchmark session-resume continuity', () => {
       expect(cell.checkpointResumeConsistent).toBe(true);
     }
 
-    // P4-04 senior review: at least one cell must observe a
-    // `utility_advisor` telemetry event, otherwise the entire benchmark
-    // collapsed to the executor path. Specifically the ESCALATING task
-    // under conditions B/C/D/F (Pollux on, prompt trips detector) must
-    // produce non-zero advisor calls; the same task under A/E (Pollux
-    // off) must produce zero.
+    // At least one cell must observe a `utility_advisor` telemetry event,
+    // otherwise the entire benchmark collapsed to the executor path.
+    //
+    // After Phase I (legacy detector deletion), the only Pollux-on benchmark
+    // condition is F (redesigned observer+fusion).
     const escalatingPolluxOnCells = report.cells.filter(
-      (c) => c.taskEscalates && ['B', 'C', 'D', 'F'].includes(c.conditionId),
+      (c) => c.taskEscalates && ['F'].includes(c.conditionId),
     );
     expect(escalatingPolluxOnCells.length).toBeGreaterThan(0);
     for (const cell of escalatingPolluxOnCells) {
@@ -79,12 +78,8 @@ describe('Pollux full benchmark session-resume continuity', () => {
     }
 
     // ---------------------------------------------------------------------
-    // Phase H acceptance gate: redesigned detector (F) must match or exceed
-    // legacy hybrid (D) on F1 for advisor-call detection on the shared task set.
-    //
-    // Definitions:
-    // - expected positive: task.escalates === true (benchmark corpus contract)
-    // - predicted positive: observedAdvisorCalls > 0 (runtime telemetry)
+    // Phase H gate retained post-Phase-I: true-negative precision must remain
+    // ≥ 0.90 so non-escalating tasks never spuriously consult the advisor.
     // ---------------------------------------------------------------------
     const byCondition = (id: string) =>
       report.cells.filter((c) => c.conditionId === id);
@@ -107,10 +102,7 @@ describe('Pollux full benchmark session-resume continuity', () => {
       return { tp, fp, fn, tn, precision, recall, f1: f1(precision, recall) };
     };
 
-    const legacyD = computeConfusion(byCondition('D'));
     const redesignedF = computeConfusion(byCondition('F'));
-
-    expect(redesignedF.f1).toBeGreaterThanOrEqual(legacyD.f1);
 
     const tnPrecisionF =
       redesignedF.tn + redesignedF.fp === 0

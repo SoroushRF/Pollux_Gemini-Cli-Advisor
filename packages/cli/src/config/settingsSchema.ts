@@ -2260,21 +2260,6 @@ const SETTINGS_SCHEMA = {
               'Model alias or id used when Pollux escalates to the advisor.',
             showInDialog: false,
           },
-          strategy: {
-            type: 'enum',
-            label: 'Escalation detector strategy',
-            category: 'Experimental',
-            requiresRestart: true,
-            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.strategy,
-            description:
-              'How to decide whether to escalate a turn to the advisor.',
-            showInDialog: false,
-            options: [
-              { value: 'heuristic', label: 'Heuristic' },
-              { value: 'structured', label: 'Structured' },
-              { value: 'hybrid', label: 'Hybrid' },
-            ],
-          },
           maxAdvisorCallsPerTurn: {
             type: 'number',
             label: 'Max advisor calls per turn',
@@ -2294,16 +2279,6 @@ const SETTINGS_SCHEMA = {
               DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsPerSession,
             description:
               'Upper bound on advisor consultations across the session.',
-            showInDialog: false,
-          },
-          confidenceThreshold: {
-            type: 'number',
-            label: 'Structured confidence threshold',
-            category: 'Experimental',
-            requiresRestart: true,
-            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.confidenceThreshold,
-            description:
-              'Minimum structured confidence (1–10) before escalation on structured/hybrid paths.',
             showInDialog: false,
           },
           emitAdvisorDebug: {

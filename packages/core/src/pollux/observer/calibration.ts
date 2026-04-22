@@ -17,14 +17,17 @@
 
 import { createHash } from 'node:crypto';
 import stableStringify from 'json-stable-stringify';
-import {
-  GeminiEventType,
-  type ServerGeminiStreamEvent,
-} from '../../core/turn.js';
+import { type ServerGeminiStreamEvent } from '../../core/turn.js';
+import type { GenerateContentResponseUsageMetadata } from '@google/genai';
 import type { PolluxExperimentalConfig } from '../types.js';
 import { DEFAULT_POLLUX_EXPERIMENTAL_CONFIG } from '../types.js';
 import type { LoopDetectionPeekState } from '../../services/loopDetectionService.js';
 import type { LoopType } from '../../telemetry/types.js';
+import type { ThoughtSummary } from '../../utils/thoughtUtils.js';
+import type {
+  ToolCallRequestInfo,
+  ToolCallResponseInfo,
+} from '../../scheduler/types.js';
 import { createLiveExecutorObserver } from './observer.js';
 import type { PolluxSensorSignalCategory } from './types.js';
 import type { Sensor, SensorInput, ToolEventRecord } from './sensors/base.js';
@@ -34,6 +37,22 @@ import { LoopBridgeSensor } from './sensors/loopBridge.js';
 import { RiskGateSensor } from './sensors/riskGate.js';
 import { ThoughtSensor } from './sensors/thought.js';
 import { ToolPatternSensor } from './sensors/toolPattern.js';
+
+export type CalibrationStreamEvent =
+  | { readonly type: 'thought'; readonly value: ThoughtSummary }
+  | { readonly type: 'content'; readonly value: string }
+  | { readonly type: 'tool_call_request'; readonly value: ToolCallRequestInfo }
+  | {
+      readonly type: 'tool_call_response';
+      readonly value: ToolCallResponseInfo;
+    }
+  | {
+      readonly type: 'finished';
+      readonly value: {
+        readonly reason?: string;
+        readonly usageMetadata?: GenerateContentResponseUsageMetadata;
+      };
+    };
 
 export interface CalibrationTraceEntry {
   readonly id: string;
@@ -63,7 +82,7 @@ export type ScriptedEvent =
   | {
       readonly atMs: number;
       readonly kind: 'stream';
-      readonly event: ServerGeminiStreamEvent;
+      readonly event: CalibrationStreamEvent;
     }
   | {
       readonly atMs: number;
@@ -109,7 +128,7 @@ export interface CorpusRunResult {
 
 function withFakeNowMs<T>(nowMs: number, fn: () => T): T {
   const original = Date.now;
-   
+
   Date.now = () => nowMs;
   try {
     return fn();
@@ -321,13 +340,19 @@ export function runCalibrationTrace(
           break;
         }
         case 'stream': {
+          // This harness stores stream events as string-literal types to avoid
+          // runtime coupling to enum exports in test mode. We cast exactly once
+          // at the observer boundary.
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+          const runtimeEvent = step.event as unknown as ServerGeminiStreamEvent;
+          const streamEvent = step.event;
           // Update mirrored windows first (so sensors see the same view as the observer).
-          switch (step.event.type) {
-            case GeminiEventType.Thought:
-              thoughtWindow = [...thoughtWindow, step.event.value];
+          switch (streamEvent.type) {
+            case 'thought':
+              thoughtWindow = [...thoughtWindow, streamEvent.value];
               break;
-            case GeminiEventType.ToolCallRequest: {
-              const request = step.event.value;
+            case 'tool_call_request': {
+              const request = streamEvent.value;
               const argsHash = stableArgsHash(request.args);
               const { readOnly, mutation } = classifyToolCallMutability(
                 request.name,
@@ -355,13 +380,15 @@ export function runCalibrationTrace(
               ];
               break;
             }
-            case GeminiEventType.ToolCallResponse: {
-              const response = step.event.value;
+            case 'tool_call_response': {
+              const response = streamEvent.value;
               const previous = pendingToolRequests.get(response.callId);
               const name = previous?.name ?? 'unknown_tool';
               const argsHash = previous?.argsHash ?? stableArgsHash({});
               const responseText = response.responseParts
-                .map((p) => (typeof p.text === 'string' ? p.text : ''))
+                .map((p: { text?: unknown }) =>
+                  typeof p.text === 'string' ? p.text : '',
+                )
                 .join('\n');
               toolEventWindow = [
                 ...toolEventWindow,
@@ -380,12 +407,12 @@ export function runCalibrationTrace(
               ];
               break;
             }
-            case GeminiEventType.Content:
+            case 'content':
               currentTurnModelOutput =
-                `${currentTurnModelOutput}\n${step.event.value}`.trim();
+                `${currentTurnModelOutput}\n${streamEvent.value}`.trim();
               break;
-            case GeminiEventType.Finished: {
-              const usageMetadata = step.event.value.usageMetadata;
+            case 'finished': {
+              const usageMetadata = streamEvent.value.usageMetadata;
               const explicitTotal = usageMetadata?.totalTokenCount;
               const estimatedTotal =
                 (usageMetadata?.promptTokenCount ?? 0) +
@@ -399,7 +426,7 @@ export function runCalibrationTrace(
           }
 
           const sensorInput: SensorInput = {
-            event: step.event,
+            event: runtimeEvent,
             turnElapsedMs: Math.max(0, nowMs - turnStartedAtMs),
             toolEventWindow,
             thoughtWindow,
@@ -419,18 +446,16 @@ export function runCalibrationTrace(
               const signals = sensor.observe(sensorInput);
               for (const s of signals) {
                 seenSignalIds.push(s.id);
-                seenSignalCategories.push(
-                  s.category,
-                );
+                seenSignalCategories.push(s.category);
               }
             } catch {
               // fail-open
             }
           }
 
-          observer.ingest(step.event);
+          observer.ingest(runtimeEvent);
           // Mirror client integration: loop sensor runs after the loop check.
-          observer.ingestAfterLoopCheck(step.event);
+          observer.ingestAfterLoopCheck(runtimeEvent);
 
           const sameTurn = observer.peekSameTurnIntent();
           if (sameTurn) {
@@ -575,7 +600,10 @@ export function makeScriptedThought(
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.Thought, value: { subject, description } },
+    event: {
+      type: 'thought',
+      value: { subject, description },
+    },
   };
 }
 
@@ -583,7 +611,10 @@ export function makeScriptedContent(atMs: number, text: string): ScriptedEvent {
   return {
     atMs,
     kind: 'stream',
-    event: { type: GeminiEventType.Content, value: text },
+    event: {
+      type: 'content',
+      value: text,
+    },
   };
 }
 

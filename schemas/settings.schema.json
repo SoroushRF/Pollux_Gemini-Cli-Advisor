@@ -2988,14 +2988,6 @@
               "default": "gemini-3.1-pro-preview",
               "type": "string"
             },
-            "strategy": {
-              "title": "Escalation detector strategy",
-              "description": "How to decide whether to escalate a turn to the advisor.",
-              "markdownDescription": "How to decide whether to escalate a turn to the advisor.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `hybrid`",
-              "default": "hybrid",
-              "type": "string",
-              "enum": ["heuristic", "structured", "hybrid"]
-            },
             "maxAdvisorCallsPerTurn": {
               "title": "Max advisor calls per turn",
               "description": "Upper bound on advisor consultations for a single turn.",
@@ -3008,13 +3000,6 @@
               "description": "Upper bound on advisor consultations across the session.",
               "markdownDescription": "Upper bound on advisor consultations across the session.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `20`",
               "default": 20,
-              "type": "number"
-            },
-            "confidenceThreshold": {
-              "title": "Structured confidence threshold",
-              "description": "Minimum structured confidence (1–10) before escalation on structured/hybrid paths.",
-              "markdownDescription": "Minimum structured confidence (1–10) before escalation on structured/hybrid paths.\n\n- Category: `Experimental`\n- Requires restart: `yes`\n- Default: `6`",
-              "default": 6,
               "type": "number"
             },
             "emitAdvisorDebug": {

@@ -1,5 +1,9 @@
 # P3-05: Escalation Calibration Report and Threshold Tuning Guide
 
+> **Superseded:** This legacy, string-corpus calibration guide is superseded by
+> `docs/core/pollux/P4-07_DETECTOR_CALIBRATION_REPORT.md` (scripted-trace corpus
+> for the redesigned observer-backed detector). Kept for historical context.
+
 Version: 1.0 Date: 2026-04-18 Status: Initial calibration baseline TG mapping:
 TG-6 (Pollux-specific integration tests exist and are green)
 
@@ -43,7 +47,7 @@ The calibration set consists of 21 labeled turn context inputs in
 
 Each entry includes expected ground-truth outcomes for all three strategies
 (heuristic, structured, hybrid) at default thresholds (`minScore=2`,
-`confidenceThreshold=6`).
+`structured_threshold=6`).
 
 ### 2.2 Evaluation methodology
 
@@ -90,10 +94,10 @@ The one true-positive that does NOT escalate on heuristic is **CAL-TP-05**
 (structured confidence only, no heuristic keywords) — this is by design, as that
 entry tests structured-path-only behavior.
 
-### 3.2 Structured strategy (`confidenceThreshold=6`)
+### 3.2 Structured strategy (`structured_threshold=6`)
 
-At the default `confidenceThreshold=6`, the structured detector escalates **4 of
-21** entries (19.0% escalation rate).
+At the default `structured_threshold=6`, the structured detector escalates **4
+of 21** entries (19.0% escalation rate).
 
 Only entries with valid `<!-- pollux:confidence:N -->` tags where N ≥ 6 trigger
 escalation:
@@ -108,7 +112,7 @@ escalation:
 | CAL-BD-04 | 5          | ❌ No (one below boundary) |
 | CAL-CS-04 | 4          | ❌ No (below threshold)    |
 
-### 3.3 Hybrid strategy (`minScore=2`, `confidenceThreshold=6`)
+### 3.3 Hybrid strategy (`minScore=2`, `structured_threshold=6`)
 
 The hybrid detector at defaults escalates **13 of 21** entries (61.9% escalation
 rate).
@@ -156,7 +160,7 @@ Key observations:
 - At `minScore≥7`, no entries in the calibration set escalate (maximum observed
   heuristic score is 6 from CS-03 and CS-04).
 
-### 4.2 Structured `confidenceThreshold` sweep
+### 4.2 Structured threshold sweep
 
 | Threshold | Escalate | Rate  | Delta |
 | --------- | -------- | ----- | ----- |
@@ -213,7 +217,7 @@ Analysis:
   "experimental": {
     "pollux": {
       "strategy": "hybrid",
-      "confidenceThreshold": 8
+      "structuredThreshold": 8
     }
   }
 }
@@ -233,7 +237,7 @@ weak keywords like "help" alone do not trigger escalation).
   "experimental": {
     "pollux": {
       "strategy": "hybrid",
-      "confidenceThreshold": 6
+      "structuredThreshold": 6
     }
   }
 }
@@ -252,7 +256,7 @@ turns.
   "experimental": {
     "pollux": {
       "strategy": "hybrid",
-      "confidenceThreshold": 3
+      "structuredThreshold": 3
     }
   }
 }
@@ -286,7 +290,7 @@ when the executor model does not emit confidence tags.
   "experimental": {
     "pollux": {
       "strategy": "structured",
-      "confidenceThreshold": 6
+      "structuredThreshold": 6
     }
   }
 }
@@ -316,8 +320,8 @@ a single occurrence provides enough evidence for escalation. Low-weight rules
 
 ### Tuning rule weights
 
-Rule weights are defined in `DEFAULT_HEURISTIC_RULES` in
-`packages/core/src/pollux/detector.ts`. To customize:
+Rule weights are defined in `DEFAULT_HEURISTIC_RULES` in `detector.ts`. To
+customize:
 
 1. Override the `rules` option in `createHeuristicDetector({ rules: [...] })`.
 2. Verify against the calibration set by running
@@ -335,7 +339,7 @@ user-language signals (heuristic) and model-reported uncertainty (structured).
 
 ### Step 2: Set the confidence threshold
 
-Start with the default `confidenceThreshold=6`. If the advisor is being
+Start with the default `structured_threshold=6`. If the advisor is being
 consulted too frequently, increase to 7 or 8. If it's not catching enough
 difficult turns, decrease to 4 or 5.
 
@@ -359,9 +363,9 @@ For each advisor consultation:
 
 Based on monitoring data:
 
-- **High false-positive rate**: increase `confidenceThreshold` and/or `minScore`
+- **High false-positive rate**: increase structured threshold and/or `minScore`
   (via custom heuristic options).
-- **High false-negative rate**: decrease `confidenceThreshold` or switch to
+- **High false-negative rate**: decrease structured threshold or switch to
   `hybrid` strategy if using single-strategy mode.
 - **Budget exhaustion**: increase `maxAdvisorCallsPerSession` or tighten
   thresholds to reduce call frequency.
@@ -383,7 +387,7 @@ npm run test --workspace @google/gemini-cli-core -- src/pollux/calibration.test.
 | ---------------------------------------------- | --------------------------------------------------------- |
 | `packages/core/src/pollux/calibration.ts`      | Calibration set data, evaluation helpers, sweep utilities |
 | `packages/core/src/pollux/calibration.test.ts` | TG-6 calibration tests                                    |
-| `packages/core/src/pollux/detector.ts`         | Detector implementations (P3-01/02/03)                    |
+| `detector.ts`                                  | Detector implementations (P3-01/02/03)                    |
 | `packages/core/src/pollux/types.ts`            | Config types and defaults                                 |
 
 ---

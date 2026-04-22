@@ -184,8 +184,8 @@ Eligibility gates (surface, config, budget) remain unchanged from §§3–6.
 Historical note: an earlier draft of §7 enumerated three monolithic detector
 "strategies" (heuristic / structured / hybrid). These have been replaced by
 sensor-based composition per `docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md`.
-Legacy strategy enum values stay in the type surface during the phased rollout
-(I9) and are deleted in Phase I alongside `detector.ts`.
+Legacy strategy enum values and the legacy `detector.ts` surface have been
+deleted (Phase I).
 
 ### 7.2 Required detector properties
 
@@ -279,10 +279,8 @@ rule.
       "enabled": true,
       "executorModel": "gemini-2.5-flash",
       "advisorModel": "gemini-3.1-pro-preview",
-      "strategy": "hybrid",
       "maxAdvisorCallsPerTurn": 2,
       "maxAdvisorCallsPerSession": 20,
-      "confidenceThreshold": 6,
       "emitAdvisorDebug": false,
       "advisorRequestTimeoutMs": 120000,
       "detector": {
@@ -385,9 +383,6 @@ integration tests.
 | ID  | Executor | Advisor | Strategy                                |
 | --- | -------- | ------- | --------------------------------------- |
 | A   | Flash    | None    | None                                    |
-| B   | Flash    | Pro     | Heuristic                               |
-| C   | Flash    | Pro     | Structured                              |
-| D   | Flash    | Pro     | Hybrid                                  |
 | E   | Pro      | None    | None                                    |
 | F   | Flash    | Pro     | Redesigned detector — observer + fusion |
 
@@ -395,7 +390,7 @@ integration tests.
 
 All benchmark runs used for A-E comparison must enforce:
 
-1. Router pinned to explicit override strategy for target model.
+1. Router pinned to explicit model override for the condition.
 2. Loop detector LLM checks disabled for baseline fairness mode.
 3. Availability state reset between runs.
 4. Dynamic model configuration features fixed and deterministic.
@@ -457,7 +452,7 @@ Default status output includes minimal UX indicators:
 1. Pollux state indicator: `[ENABLED]` or `[DISABLED]`.
 2. Executor alignment indicator: `[MATCH]` or `[DRIFT]` (resolved vs configured
    executor model).
-3. Existing config snapshot lines (executor/advisor/strategy/threshold/budget/
+3. Existing config snapshot lines (executor/advisor/detector-flags/budget/
    timeout/debug flag/settings path).
 
 When `--debug` is present, the output appends an optional debug-details block

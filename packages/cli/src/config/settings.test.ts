@@ -2818,10 +2818,9 @@ describe('Settings Loading and Merging', () => {
           experimental: {
             pollux: {
               enabled: true,
-              strategy: 'hybrid',
               maxAdvisorCallsPerTurn: 2,
               maxAdvisorCallsPerSession: 20,
-              confidenceThreshold: 6,
+              emitAdvisorDebug: false,
             },
           },
         } as unknown as Settings,
@@ -2829,16 +2828,15 @@ describe('Settings Loading and Merging', () => {
           experimental: {
             pollux: {
               enabled: true,
-              strategy: 'heuristic',
-              confidenceThreshold: 4,
+              emitAdvisorDebug: true,
             },
           },
         } as unknown as Settings,
         {
           experimental: {
             pollux: {
-              strategy: 'structured',
               maxAdvisorCallsPerSession: 11,
+              advisorRequestTimeoutMs: 110000,
             },
           },
         } as unknown as Settings,
@@ -2846,10 +2844,10 @@ describe('Settings Loading and Merging', () => {
       );
 
       expect(merged.experimental.pollux.enabled).toBe(false);
-      expect(merged.experimental.pollux.strategy).toBe('structured');
       expect(merged.experimental.pollux.maxAdvisorCallsPerTurn).toBe(9);
       expect(merged.experimental.pollux.maxAdvisorCallsPerSession).toBe(11);
-      expect(merged.experimental.pollux.confidenceThreshold).toBe(4);
+      expect(merged.experimental.pollux.emitAdvisorDebug).toBe(true);
+      expect(merged.experimental.pollux.advisorRequestTimeoutMs).toBe(110000);
     });
 
     it('should ignore workspace Pollux overrides when workspace is untrusted', () => {
@@ -2859,7 +2857,6 @@ describe('Settings Loading and Merging', () => {
           experimental: {
             pollux: {
               enabled: false,
-              strategy: 'hybrid',
               maxAdvisorCallsPerTurn: 2,
             },
           },
@@ -2868,7 +2865,6 @@ describe('Settings Loading and Merging', () => {
           experimental: {
             pollux: {
               enabled: true,
-              strategy: 'heuristic',
               maxAdvisorCallsPerTurn: 6,
             },
           },
@@ -2876,7 +2872,6 @@ describe('Settings Loading and Merging', () => {
         {
           experimental: {
             pollux: {
-              strategy: 'structured',
               maxAdvisorCallsPerTurn: 99,
             },
           },
@@ -2885,7 +2880,6 @@ describe('Settings Loading and Merging', () => {
       );
 
       expect(merged.experimental.pollux.enabled).toBe(true);
-      expect(merged.experimental.pollux.strategy).toBe('heuristic');
       expect(merged.experimental.pollux.maxAdvisorCallsPerTurn).toBe(6);
     });
   });
