@@ -88,21 +88,47 @@ cross-surface coverage.
 
 ## 4) Pollux component model
 
-All Pollux modules live under packages/core/src/pollux/.
+All Pollux modules live under `packages/core/src/pollux/`. The canonical layout
+for the redesigned detector is documented in
+`docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md` **§3.2 Module layout** (keep
+that section in sync when adding files).
 
-Required modules:
+**Current layout (post Phase I — legacy `detector.ts` / root `calibration.ts`
+removed):**
 
-1. types.ts
-2. models.ts
-3. prompts.ts
-4. advisor.ts
-5. detector.ts
-6. interceptor.ts
-7. benchmark/runner.ts
-8. benchmark/tasks.ts
-9. benchmark/report.ts
+```
+packages/core/src/pollux/
+├── types.ts                 — reason codes, detector config subtree, timing map (I10)
+├── models.ts                — advisor vs executor model selection
+├── prompts.ts               — `<pollux:status>` parse/strip helpers
+├── safeguards.ts            — advisory safety invariants
+├── index.ts                 — package re-exports
+├── benchmark/
+│   └── tasks.ts             — benchmark task definitions (e.g. CAL-BM-*)
+└── observer/                — live-executor observer + fusion + sensors
+    ├── index.ts
+    ├── observer.ts          — LiveExecutorObserver orchestrator
+    ├── fusion.ts            — FusionLayer (scoring, decay, composite gates)
+    ├── types.ts             — SameTurnIntent / NextTurnIntent + sensor types
+    ├── eligibility.ts       — surface + budget + feature-flag eligibility
+    ├── calibration.ts       — scripted-trace calibration harness
+    ├── calibrationCorpus.ts — trace corpus definitions
+    └── sensors/
+        ├── base.ts
+        ├── thought.ts
+        ├── toolPattern.ts
+        ├── selfReport.ts
+        ├── loopBridge.ts
+        ├── riskGate.ts
+        └── negatives.ts
+```
 
-No dedicated pollux/logger.ts token sink is defined in this spec.
+Advisor **consultation** (policy gate, `generateContent` with
+`LlmRole.UTILITY_ADVISOR`, telemetry phases, fail-open) is orchestrated from
+`packages/core/src/core/client.ts` — there is no standalone `advisor.ts` under
+`pollux/`.
+
+No dedicated `pollux/logger.ts` token sink is defined in this spec.
 
 ---
 

@@ -24,7 +24,7 @@ describe('Pollux smoke benchmark reproducibility', () => {
     );
 
     expect(report.reproducible).toBe(true);
-    // 3 tasks (SIMPLE, MODERATE, ESCALATING) x 3 conditions (A, D, E) = 9 cells.
+    // 3 tasks × 3 conditions (A baseline, F observer+advisor, E executor-only).
     expect(report.cells).toHaveLength(3 * POLLUX_SMOKE_CONDITIONS.length);
     expect(report.cells.every((cell) => cell.reproducible)).toBe(true);
 
@@ -48,12 +48,12 @@ describe('Pollux smoke benchmark reproducibility', () => {
     // executor reproducibility check and provides no Pollux coverage.
     expect(report.advisorPipelineExercised).toBe(true);
 
-    // Specifically: ESCALATING under D (hybrid) must observe at least one
-    // advisor call; ESCALATING under A and E (Pollux off) must observe
-    // none. This pins the matrix-relevant property in addition to the
+    // Specifically: ESCALATING under F (observer + advisor) must observe at
+    // least one advisor call; ESCALATING under A and E (Pollux off) must
+    // observe none. This pins the matrix-relevant property in addition to the
     // aggregate flag.
-    const escDCell = report.cells.find(
-      (c) => c.taskId === 'CAL-BM-04-ESCALATING' && c.conditionId === 'D',
+    const escFCell = report.cells.find(
+      (c) => c.taskId === 'CAL-BM-04-ESCALATING' && c.conditionId === 'F',
     );
     const escACell = report.cells.find(
       (c) => c.taskId === 'CAL-BM-04-ESCALATING' && c.conditionId === 'A',
@@ -61,7 +61,7 @@ describe('Pollux smoke benchmark reproducibility', () => {
     const escECell = report.cells.find(
       (c) => c.taskId === 'CAL-BM-04-ESCALATING' && c.conditionId === 'E',
     );
-    expect(escDCell?.maxObservedAdvisorCalls).toBeGreaterThan(0);
+    expect(escFCell?.maxObservedAdvisorCalls).toBeGreaterThan(0);
     expect(escACell?.maxObservedAdvisorCalls).toBe(0);
     expect(escECell?.maxObservedAdvisorCalls).toBe(0);
 

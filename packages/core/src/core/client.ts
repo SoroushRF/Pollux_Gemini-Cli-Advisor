@@ -219,6 +219,12 @@ export class GeminiClient {
   private readonly polluxModelRegistry = new PolluxModelRegistry([]);
   private polluxAdvisorCallsThisTurn = 0;
   private polluxAdvisorCallsThisSession = 0;
+  /**
+   * Loop-detector–only next-turn slot (Phase C bridge). `maybeRunPolluxAdvisorConsultation`
+   * prefers the unified `polluxPendingNextTurnIntent` when both are set, but keeps
+   * this slot so a hard-loop downgrade observed late in a turn is not dropped if
+   * the unified slot is empty — a narrow safety net for loop recovery.
+   */
   private polluxPendingLoopNextTurnIntent: NextTurnIntent | undefined;
   /**
    * Phase F §F.1.2: generic next-turn intent slot populated by the live
@@ -1426,8 +1432,10 @@ export class GeminiClient {
       const harvested = polluxObserver.consumePendingNextTurnIntent();
       if (harvested) {
         // Explicit downgrades staged by `runPolluxSameTurnConsult` already
-        // set the slot; only overwrite when empty OR the harvested intent
-        // has a strictly higher netScore (keeps the strongest signal).
+        // set the slot. Harvest overwrites only when empty OR when the
+        // harvested observer intent has netScore ≥ existing (stronger or equal
+        // fusion wins; a downgrade already in the slot is not blindly replaced
+        // by a weaker harvest).
         const existing = this.polluxPendingNextTurnIntent;
         if (!existing || harvested.netScore >= existing.netScore) {
           this.polluxPendingNextTurnIntent = harvested;

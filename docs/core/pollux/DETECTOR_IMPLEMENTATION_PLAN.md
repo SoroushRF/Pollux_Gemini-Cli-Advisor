@@ -1315,6 +1315,13 @@ Every single one must hold:
 - All TG-1..10 rows still pass on the redesigned detector.
 - Invariant I9 row is removed from §2.
 
+**Phase I completion (2026-04):** `scripts/pollux-legacy-guard.js` enforces
+symbol deletion; `packages/core/src/core/client.test.ts` seeds
+`polluxPendingNextTurnIntent` where tests must exercise the advisor seam without
+reintroducing legacy prompt heuristics; `P4-07_DETECTOR_CALIBRATION_REPORT.md`
+is published from `observer/calibration.report.test.ts` (see Phase H). Benchmark
+F1 parity vs the deleted legacy detector is recorded as **n/a** in P4-07.
+
 ### I.4 Acceptance criteria
 
 - `git diff --stat` shows net deletion in `packages/core/src/pollux/` (several

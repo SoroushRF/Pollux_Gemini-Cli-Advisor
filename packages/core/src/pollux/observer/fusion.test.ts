@@ -303,6 +303,105 @@ describe('pollux/observer/fusion', () => {
     );
   });
 
+  it('emphatic composite consumes budget-target latch so follow-up is not mis-tagged', () => {
+    const fusion = new FusionLayer();
+    for (const score of [10, 10, 10, 10, 10, 10]) {
+      fusion.recordCompletedTurn(score);
+    }
+    fusion.evaluate({
+      signals: [
+        signal({
+          id: 'tool.a',
+          category: 'tool',
+          weight: 1,
+          precisionPrior: 1,
+        }),
+        signal({
+          id: 'thought.a',
+          category: 'thought',
+          weight: 1,
+          precisionPrior: 1,
+        }),
+      ],
+      config: { ...BASE_CONFIG, targetEscalationRate: 0.5 },
+      nowMs: Date.now(),
+    });
+
+    for (const score of [0, 0, 0, 0, 0, 0, 0, 0]) {
+      fusion.recordCompletedTurn(score);
+    }
+
+    // Threshold drops vs previous evaluate, but requireComposite blocks escalation
+    // — composite path never runs, so the budget-target latch stays armed.
+    fusion.evaluate({
+      signals: [
+        signal({
+          id: 'tool.only',
+          category: 'tool',
+          weight: 5,
+          precisionPrior: 1,
+        }),
+      ],
+      config: {
+        ...BASE_CONFIG,
+        targetEscalationRate: 0.5,
+        requireComposite: true,
+      },
+      nowMs: Date.now(),
+    });
+
+    const emphatic = fusion.evaluate({
+      signals: [
+        signal({
+          id: 'tool.b',
+          category: 'tool',
+          weight: 4,
+          precisionPrior: 1,
+        }),
+        signal({
+          id: 'thought.b',
+          category: 'thought',
+          weight: 4,
+          precisionPrior: 1,
+        }),
+      ],
+      config: { ...BASE_CONFIG, targetEscalationRate: 0.5 },
+      nowMs: Date.now(),
+    });
+    expect(emphatic.escalate).toBe(true);
+    expect(emphatic.reasonCode).toBe(
+      PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC,
+    );
+
+    const followUp = fusion.evaluate({
+      signals: [
+        signal({
+          id: 'tool.c',
+          category: 'tool',
+          weight: 1.5,
+          precisionPrior: 0.8,
+        }),
+        signal({
+          id: 'thought.c',
+          category: 'thought',
+          weight: 1.2,
+          precisionPrior: 0.8,
+        }),
+      ],
+      config: {
+        ...BASE_CONFIG,
+        targetEscalationRate: 0.5,
+        sameTurnAbsoluteFloor: 10,
+        sameTurnThresholdMultiplier: 10,
+      },
+      nowMs: Date.now(),
+    });
+    expect(followUp.escalate).toBe(true);
+    expect(followUp.reasonCode).toBe(
+      PolluxEscalationReasonCode.FUSION_COMPOSITE,
+    );
+  });
+
   it('uses rolling quantile threshold from completed turns and clamps bounds', () => {
     const fusion = new FusionLayer();
     for (const score of [0.5, 1.5, 2, 3, 4, 8]) {

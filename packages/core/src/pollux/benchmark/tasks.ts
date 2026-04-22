@@ -127,23 +127,17 @@ export const BENCHMARK_CORPUS: BenchmarkTask[] = [
     id: 'CAL-BM-04-ESCALATING',
     difficulty: 'complex',
     description:
-      'Escalation-shaped prompt designed to trip every detector strategy (heuristic + structured), so condition B/C/D actually invoke the advisor and produce a non-degenerate escalation confusion matrix in P4-05. Without a task like this, the entire A-E benchmark collapses to a single condition replayed five times.',
+      'Escalation-shaped task for benchmark matrices: the executor fixture emits a `<pollux:status stuck_on="…"/>` line so the live observer SelfReportSensor trips hard-precision `self.structured_status_stuck` under condition **F** (observer + fusion). That invokes the advisor path (TG-3) instead of collapsing the matrix to executor-only replays.',
     files: {},
-    // The heuristic detector matches `EXPLICIT_BLOCKED` ("stuck", weight 2),
-    // `HELP_REQUEST` ("need help", weight 1), and `COMPLEXITY` ("refactor"
-    // / "strategy", weight 1) for a total score of >=4 (default min is 2).
-    // The structured detector matches the inline confidence tag at value 9,
-    // which clears the default threshold of 6. Both fire under hybrid; either
-    // alone fires under heuristic / structured. The confidence value MUST
-    // remain >= the legacy structured-threshold default so the historical
-    // structured-strategy benchmark cell would escalate and exercise the
-    // advisor pipeline. The legacy strategy surface has since been deleted
-    // (Phase I); this note is retained for historical context only.
+    // Phase I removed the legacy heuristic / structured keyword + confidence
+    // comment detector. Escalation for this task is driven by model-visible
+    // status tags replayed from `CAL-BM-04-ESCALATING*.responses` fixtures
+    // (see first `generateContentStream` chunk text parts).
     prompt:
-      'I am stuck and need help with this refactor strategy. <!-- pollux:confidence:9 --> Please write a file named escalation-marker.txt containing the single word `advised` and nothing else.',
+      'Please write a file named escalation-marker.txt containing the single word `advised` and nothing else. Include this status line verbatim in your first reply: <pollux:status stuck_on="refactor strategy" next="write marker"/>.',
     escalates: true,
     resumePrompt:
-      'I am still stuck and need help confirming the refactor strategy. <!-- pollux:confidence:9 --> Please rewrite escalation-marker.txt with the single word `advised` and nothing else.',
+      'Please rewrite escalation-marker.txt with the single word `advised` and nothing else. Include this status line verbatim in your first reply: <pollux:status stuck_on="refactor strategy" next="rewrite marker"/>.',
     oracle: (stdout, workspaceDir) => {
       const markerPath = path.join(workspaceDir, 'escalation-marker.txt');
       if (!fs.existsSync(markerPath)) return false;

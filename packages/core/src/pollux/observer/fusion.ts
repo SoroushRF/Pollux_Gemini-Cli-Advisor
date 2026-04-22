@@ -198,10 +198,14 @@ export class FusionLayer {
       )
       .map((entry) => entry.signal.id);
 
+    // Always consume the budget-target latch on composite escalation so a
+    // prior emphatic composite cannot leave `thresholdLoweredSinceLastEscalation`
+    // set and mis-attribute the next composite as FUSION_BUDGET_TARGET.
+    const budgetTargetAttribution = this.consumeBudgetTargetFlag();
     const compositeReason =
       netScore >= sameTurnThreshold
         ? PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC
-        : this.consumeBudgetTargetFlag()
+        : budgetTargetAttribution
           ? PolluxEscalationReasonCode.FUSION_BUDGET_TARGET
           : PolluxEscalationReasonCode.FUSION_COMPOSITE;
     return {

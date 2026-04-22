@@ -61,21 +61,38 @@ import {
   PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
 } from '../pollux/types.js';
-import { buildPolluxHardLoopNextTurnIntent } from '../pollux/observer/index.js';
+import {
+  buildPolluxHardLoopNextTurnIntent,
+  type NextTurnIntent,
+} from '../pollux/observer/index.js';
 import type { PolluxAdvisorPhasePayload } from '../utils/events.js';
+import { partToString } from '../utils/partUtils.js';
 
 /**
- * Input that reliably trips the default heuristic detector (P3-01) so the
- * advisor seam exercises the full `shouldEscalate` → policy → advisor path.
- *
- * `stuck` matches `EXPLICIT_BLOCKED` (weight 2) and `need help` matches
- * `HELP_REQUEST` (weight 1) for a total score of 3 ≥ the default min-score of
- * 2. The hybrid (default) detector escalates on heuristic-only matches when
- * no structured confidence tag is present, so the same string covers all
- * default-strategy assertions in this suite.
+ * Sample user phrasing reused across Pollux seam tests for baseline parity.
+ * Escalation is no longer inferred from plain-text prompts; tests that need a
+ * detector-shaped path seed `polluxPendingNextTurnIntent` via
+ * `seedPolluxCompositeIntent`.
  */
 const POLLUX_ESCALATION_INPUT = 'I am stuck and need help with this.';
-import { partToString } from '../utils/partUtils.js';
+
+function seedPolluxCompositeIntent(
+  target: GeminiClient,
+  overrides: Partial<NextTurnIntent> = {},
+): void {
+  (
+    target as unknown as {
+      polluxPendingNextTurnIntent: NextTurnIntent | undefined;
+    }
+  ).polluxPendingNextTurnIntent = {
+    timing: 'next_turn',
+    reasonCode: PolluxEscalationReasonCode.FUSION_COMPOSITE,
+    netScore: 4.2,
+    contributingSignalIds: ['thought.subject_loop', 'tool.failure_cascade'],
+    queuedAtMs: Date.now() - 10,
+    ...overrides,
+  };
+}
 import { coreEvents, CoreEvent } from '../utils/events.js';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
 
@@ -974,6 +991,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -1073,6 +1091,7 @@ describe('Gemini Client (client.ts)', () => {
         .spyOn(client, 'generateContent')
         .mockRejectedValue(timeoutError);
 
+      seedPolluxCompositeIntent(client);
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -2690,6 +2709,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -2789,6 +2809,7 @@ describe('Gemini Client (client.ts)', () => {
         .spyOn(client, 'generateContent')
         .mockRejectedValue(timeoutError);
 
+      seedPolluxCompositeIntent(client);
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -2882,6 +2903,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -2981,6 +3003,7 @@ describe('Gemini Client (client.ts)', () => {
         .spyOn(client, 'generateContent')
         .mockRejectedValue(timeoutError);
 
+      seedPolluxCompositeIntent(client);
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3074,6 +3097,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3173,6 +3197,7 @@ describe('Gemini Client (client.ts)', () => {
         .spyOn(client, 'generateContent')
         .mockRejectedValue(timeoutError);
 
+      seedPolluxCompositeIntent(client);
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3266,6 +3291,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3365,6 +3391,7 @@ describe('Gemini Client (client.ts)', () => {
         .spyOn(client, 'generateContent')
         .mockRejectedValue(timeoutError);
 
+      seedPolluxCompositeIntent(client);
       const polluxOnTimeout = await fromAsync(
         client.sendMessageStream(
           [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3451,6 +3478,7 @@ describe('Gemini Client (client.ts)', () => {
             ],
           } as GenerateContentResponse);
 
+        seedPolluxCompositeIntent(client);
         const polluxOnMalformed = await fromAsync(
           client.sendMessageStream(
             [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3532,6 +3560,7 @@ describe('Gemini Client (client.ts)', () => {
             candidates: [],
           } as unknown as GenerateContentResponse);
 
+        seedPolluxCompositeIntent(client);
         const polluxOnEmpty = await fromAsync(
           client.sendMessageStream(
             [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3602,7 +3631,7 @@ describe('Gemini Client (client.ts)', () => {
           ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
           enabled: true,
         });
-        // Detector escalates (POLLUX_ESCALATION_INPUT trips the heuristic),
+        // Seeded next-turn intent stands in for observer fusion escalation;
         // policy then denies the advisor_consultation tool — the executor
         // path must continue unchanged with no UserCancelled event surfaced.
         mockPolicyCheck.mockResolvedValue({
@@ -3611,6 +3640,7 @@ describe('Gemini Client (client.ts)', () => {
         });
         const advisorSpy = vi.spyOn(client, 'generateContent');
 
+        seedPolluxCompositeIntent(client);
         const polluxOnDenied = await fromAsync(
           client.sendMessageStream(
             [{ text: POLLUX_ESCALATION_INPUT }],
@@ -3683,9 +3713,8 @@ describe('Gemini Client (client.ts)', () => {
         });
         const advisorSpy = vi.spyOn(client, 'generateContent');
 
-        // Innocuous input does not match any default heuristic rule and
-        // carries no structured confidence tag, so the (default-hybrid)
-        // detector returns escalate=false and the advisor must not run.
+        // Innocuous input does not produce a pending escalation intent from
+        // the live observer on this path, so the advisor must not run.
         await fromAsync(
           client.sendMessageStream(
             [{ text: 'Hi' }],
@@ -3742,6 +3771,7 @@ describe('Gemini Client (client.ts)', () => {
         ],
       } as GenerateContentResponse);
 
+      seedPolluxCompositeIntent(client);
       await client.runPolluxAdvisorConsultation(
         [{ text: POLLUX_ESCALATION_INPUT }],
         new AbortController().signal,
