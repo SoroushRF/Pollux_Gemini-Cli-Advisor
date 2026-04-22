@@ -1,8 +1,13 @@
 # P3-05: Escalation Calibration Report and Threshold Tuning Guide
 
-> **Superseded:** This legacy, string-corpus calibration guide is superseded by
-> `docs/core/pollux/P4-07_DETECTOR_CALIBRATION_REPORT.md` (scripted-trace corpus
-> for the redesigned observer-backed detector). Kept for historical context.
+> **Superseded - historical context only (not current runtime contract).**
+> Canonical replacement docs:
+>
+> - `docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md`
+> - `docs/core/pollux/P4-07_DETECTOR_CALIBRATION_REPORT.md`
+>
+> This file documents pre-Phase-I legacy strategy calibration
+> (`heuristic/structured/hybrid`) and is retained only for history.
 
 Version: 1.0 Date: 2026-04-18 Status: Initial calibration baseline TG mapping:
 TG-6 (Pollux-specific integration tests exist and are green)

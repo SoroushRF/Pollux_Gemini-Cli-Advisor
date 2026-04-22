@@ -1,7 +1,7 @@
 # Pollux Detector — Implementation Plan
 
-Version: 0.2 (Unified) Date: 2026-04-20 Status: Proposed — not started Owner:
-Pollux working group
+Version: 0.3 (Unified) Date: 2026-04-22 Status: Implemented (Phase I complete)
+Owner: Pollux working group
 
 This document is the **execution contract** for rebuilding the Pollux escalation
 detector around live executor observation. The conceptual case is made in
@@ -9,10 +9,12 @@ detector around live executor observation. The conceptual case is made in
 when, in what order, guarded by which flags, with which tests**.
 
 There is no "v1" vs "v2" split in this plan. Pollux is still experimental with
-no external users locked in — we replace the legacy heuristic/structured/hybrid
-detector in-place. The legacy `detector.ts` stays callable during the phased
-rollout so each phase can land independently, and is **deleted** in the final
-phase (§14) once the redesign is wired up end-to-end.
+no external users locked in, so the observer/fusion detector replaced the legacy
+heuristic/structured/hybrid detector in-place. Legacy `detector.ts` has already
+been deleted (Phase I complete; see Section 14 completion notes).
+
+Any legacy-detector references in this document are rollout history only and not
+the active runtime contract.
 
 Related documents:
 
@@ -1246,10 +1248,8 @@ no long-term value.
 
 ### H.4 Acceptance criteria
 
-- Redesigned detector F1 ≥ legacy detector F1 on a shared task set (chosen from
-  the existing benchmark corpus, `packages/core/src/pollux/benchmark/tasks.ts`).
-  This is the functionality-parity metric.
-- Precision on the true-negative corpus ≥ 0.90. (This is the bill-saving
+- Legacy parity gate is **not applicable** after Phase I detector deletion.
+- Precision on the true-negative corpus >= 0.90. (This is the bill-saving
   metric.)
 
 ### H.5 Rollback
@@ -1271,8 +1271,8 @@ Every single one must hold:
 
 - Phases A–F merged. Phases G–H merged or landing in the same PR window.
 - Invariants I1–I8, I10, I11 verified in CI on every PR.
-- Redesigned F1 ≥ legacy F1 AND precision ≥ 0.90 on the true-negative corpus
-  (Phase H evidence).
+- Precision >= 0.90 on the true-negative corpus (Phase H evidence).
+- Legacy parity check is n/a after Phase I detector deletion (record in P4-07).
 - TG-1..10 green on the redesigned detector.
 - At least 1 week of `emitAdvisorDebug=true` runs by the working group with no
   fail-open storms.

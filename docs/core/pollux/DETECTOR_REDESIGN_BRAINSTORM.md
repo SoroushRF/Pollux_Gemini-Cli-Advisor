@@ -13,14 +13,20 @@ instead of prospective user-input classification. Nothing here is committed.
 > has been deleted (Phase I). Treat this document as background only; the
 > implementation contract is the plan and `POLLUX_SPEC.md` §7.5.
 
+> **Superseded execution contract note (historical context only).** Canonical
+> current behavior docs:
+>
+> - `docs/core/pollux/DETECTOR_IMPLEMENTATION_PLAN.md`
+> - `docs/core/pollux/P4-07_DETECTOR_CALIBRATION_REPORT.md`
+
 ---
 
 ## 0) The reframe (the thesis)
 
-The current detector (`detector.ts`) is **prospective**: it inspects
-`userContentDigest` and `pendingToolContext` (the user's wording plus the prior
-tool result) and tries to predict whether the upcoming turn will need help.
-That's the wrong window.
+At the time of this brainstorm, the detector (`detector.ts`) was
+**prospective**: it inspected `userContentDigest` and `pendingToolContext` (the
+user's wording plus the prior tool result) and tries to predict whether the
+upcoming turn will need help. That's the wrong window.
 
 The whole point of Pollux is to **measure** when the executor is failing and
 escalate at that moment. The primary signal should be the executor's own
@@ -354,8 +360,9 @@ the dashboard the project is judged by.
 
 ## 8) References
 
-- Current detector: `detector.ts`
-- Current heuristic rules: `DEFAULT_HEURISTIC_RULES` in same file
+- Historical detector at brainstorm time: `detector.ts`
+- Historical heuristic rules at brainstorm time: `DEFAULT_HEURISTIC_RULES` in
+  same file
 - Current calibration tuning guide:
   `docs/core/pollux/P3-05_ESCALATION_CALIBRATION_TUNING_GUIDE.md`
 - Spec contract for detector: `POLLUX_SPEC.md` §7
