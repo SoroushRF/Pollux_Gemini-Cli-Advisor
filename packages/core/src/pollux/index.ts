@@ -13,3 +13,5 @@ export * from './models.js';
 export * from './prompts.js';
 export * from './safeguards.js';
 export * from './benchmark/tasks.js';
+export * from './benchmark/realTypes.js';
+export * from './benchmark/realTasks.js';

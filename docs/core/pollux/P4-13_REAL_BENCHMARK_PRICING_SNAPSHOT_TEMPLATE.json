@@ -1,0 +1,18 @@
+{
+  "id": "pricing-template-2026-04-22",
+  "capturedAt": "2026-04-22T00:00:00.000Z",
+  "sourceUrl": "https://example.com/replace-with-official-pricing-source",
+  "notes": "Replace this template with a frozen pricing snapshot before relying on USD estimates.",
+  "models": {
+    "gemini-2.5-flash": {
+      "inputUsdPerMillion": 0,
+      "outputUsdPerMillion": 0,
+      "cachedInputUsdPerMillion": 0
+    },
+    "gemini-3-pro-preview": {
+      "inputUsdPerMillion": 0,
+      "outputUsdPerMillion": 0,
+      "cachedInputUsdPerMillion": 0
+    }
+  }
+}
