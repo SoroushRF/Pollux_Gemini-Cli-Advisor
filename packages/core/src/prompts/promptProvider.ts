@@ -261,9 +261,14 @@ export class PromptProvider {
     let sanitizedPrompt = finalPrompt.replace(/\n{3,}/g, '\n\n');
 
     // Pollux status channel prompt priming (DETECTOR_IMPLEMENTATION_PLAN Phase E).
+    // Requires BOTH `selfReport.enabled` and `selfReport.promptPrimingEnabled`.
+    // Without `selfReport.enabled` the SelfReportSensor is off, so emitting a
+    // priming block would ask the executor to produce a `<pollux:status>` tag
+    // that the observer would never consume — purely wasted tokens.
     const polluxExperimental = context.config.getPolluxExperimentalConfig?.();
     if (
       polluxExperimental?.enabled &&
+      polluxExperimental.detector.selfReport.enabled &&
       polluxExperimental.detector.selfReport.promptPrimingEnabled
     ) {
       sanitizedPrompt += `\n\n${POLLUX_STATUS_PROMPT_BLOCK}`;

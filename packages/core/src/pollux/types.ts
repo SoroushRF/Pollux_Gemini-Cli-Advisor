@@ -316,8 +316,10 @@ function polluxFiniteNumberInRange(
 
 /**
  * Merge CLI/settings partial values with Pollux defaults (P1-04, P0-03).
- * Invalid `strategy` or non-finite numbers fall back to defaults. Numeric
- * fields with policy-safety ranges are clamped to safe bounds.
+ * Unknown / non-finite numeric fields fall back to defaults. Numeric fields
+ * with policy-safety ranges are clamped to safe bounds. Legacy detector
+ * surface keys removed in Phase I are silently ignored — they are not part
+ * of `PolluxExperimentalConfigMergeInput` and never reach this merger.
  */
 export function mergePolluxExperimentalConfig(
   partial?: PolluxExperimentalConfigMergeInput | undefined,

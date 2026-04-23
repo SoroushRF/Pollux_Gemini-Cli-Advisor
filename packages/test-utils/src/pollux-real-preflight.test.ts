@@ -20,16 +20,16 @@ describe('buildRealBenchmarkCorpusStats', () => {
   it('captures the seed-corpus methodology gaps honestly', () => {
     const stats = buildRealBenchmarkCorpusStats(REAL_BENCHMARK_SEED_CORPUS);
 
-    expect(stats.totalTasks).toBe(6);
+    expect(stats.totalTasks).toBe(24);
     expect(stats.difficultyCounts).toEqual({
-      simple: 2,
-      moderate: 2,
-      complex: 2,
+      simple: 8,
+      moderate: 8,
+      complex: 8,
     });
-    expect(stats.escalatingCount).toBe(2);
-    expect(stats.nonEscalatingCount).toBe(4);
-    expect(stats.tasksMissingPositiveFixtures.length).toBeGreaterThan(0);
-    expect(stats.tasksMissingNegativeFixtures.length).toBeGreaterThan(0);
+    expect(stats.escalatingCount).toBe(8);
+    expect(stats.nonEscalatingCount).toBe(16);
+    expect(stats.tasksMissingPositiveFixtures).toEqual([]);
+    expect(stats.tasksMissingNegativeFixtures).toEqual([]);
   });
 });
 
@@ -48,8 +48,23 @@ describe('buildRealBenchmarkPreflightReport', () => {
 
     expect(report.runBlockers).toHaveLength(0);
     expect(report.publishabilityBlockers.length).toBeGreaterThan(0);
-    expect(report.publishabilityBlockers.join('\n')).toContain(
+    expect(report.publishabilityBlockers.join('\n')).not.toContain(
       'Corpus currently has 6 tasks',
+    );
+    expect(report.publishabilityBlockers.join('\n')).not.toContain(
+      'Corpus is missing required domains',
+    );
+    expect(report.publishabilityBlockers.join('\n')).not.toContain(
+      'Tasks missing positive fixtures',
+    );
+    expect(report.publishabilityBlockers.join('\n')).not.toContain(
+      'Tasks missing the required three negative fixtures',
+    );
+    expect(report.publishabilityBlockers.join('\n')).toContain(
+      'A frozen pricing snapshot is required before reporting real-model USD costs.',
+    );
+    expect(report.publishabilityBlockers.join('\n')).not.toContain(
+      'reason-code and timing breakdowns',
     );
   });
 });
@@ -95,6 +110,18 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           'gen_ai.response.id': 'response-1',
         },
       },
+      {
+        attributes: {
+          'event.name': 'gemini_cli.pollux_escalation',
+          turn_id: 'prompt-1:1',
+          reason_code: 'pollux.escalation.self_report_stuck',
+          escalation_timing: 'same_turn',
+          outcome: 'consulted',
+          same_turn_downgraded: false,
+          pause_boundary: 'post_event',
+          contributing_signal_ids: '["self.structured_status_stuck"]',
+        },
+      },
     ]);
 
     expect(summary.promptIds).toEqual(['prompt-1']);
@@ -104,6 +131,15 @@ describe('summarizeRealBenchmarkTelemetry', () => {
       total: 380,
       advisor: 80,
       executor: 300,
+    });
+    expect(summary.escalationEvents).toHaveLength(1);
+    expect(summary.escalationEvents[0]).toMatchObject({
+      turnId: 'prompt-1:1',
+      reasonCode: 'pollux.escalation.self_report_stuck',
+      escalationTiming: 'same_turn',
+      outcome: 'consulted',
+      pauseBoundary: 'post_event',
+      contributingSignalIds: ['self.structured_status_stuck'],
     });
   });
 });

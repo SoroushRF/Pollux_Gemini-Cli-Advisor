@@ -49,6 +49,7 @@ import { ideContextStore } from '../ide/ideContext.js';
 import {
   logContentRetryFailure,
   logNextSpeakerCheck,
+  logPolluxEscalation,
 } from '../telemetry/loggers.js';
 import type {
   DefaultHookOutput,
@@ -58,6 +59,7 @@ import {
   ContentRetryFailureEvent,
   NextSpeakerCheckEvent,
   LlmRole,
+  PolluxEscalationTelemetryEvent,
 } from '../telemetry/types.js';
 import { uiTelemetryService } from '../telemetry/uiTelemetry.js';
 import type { IdeContext, File } from '../ide/types.js';
@@ -173,6 +175,14 @@ type PolluxIntentConsultationOutcome =
   | 'budget_exhausted'
   | 'policy_denied'
   | 'fail_open'
+  | 'skipped';
+
+type PolluxEscalationOutcome =
+  | 'consulted'
+  | 'fail_open'
+  | 'budget_exhausted'
+  | 'policy_denied'
+  | 'deferred_next_turn'
   | 'skipped';
 
 /**
@@ -780,11 +790,37 @@ export class GeminiClient {
     };
   }
 
+  private recordPolluxEscalationTelemetry(params: {
+    turnId: string;
+    reasonCode: string;
+    escalationTiming: 'same_turn' | 'next_turn';
+    outcome: PolluxEscalationOutcome;
+    sameTurnDowngraded?: boolean;
+    pauseBoundary?: 'pre_tool' | 'post_event';
+    contributingSignalIds?: readonly string[];
+    failureKind?: string;
+  }): void {
+    logPolluxEscalation(
+      this.config,
+      new PolluxEscalationTelemetryEvent({
+        turnId: params.turnId,
+        reasonCode: params.reasonCode,
+        escalationTiming: params.escalationTiming,
+        outcome: params.outcome,
+        sameTurnDowngraded: params.sameTurnDowngraded,
+        pauseBoundary: params.pauseBoundary,
+        contributingSignalIds: params.contributingSignalIds,
+        failureKind: params.failureKind,
+      }),
+    );
+  }
+
   private async executePolluxAdvisorConsultation(
     turnContext: PolluxTurnContext,
     requestBody: string,
     signal: AbortSignal,
     escalationMeta?: {
+      reasonCode?: string;
       escalationTiming?: 'same_turn' | 'next_turn';
       pauseBoundary?: 'pre_tool' | 'post_event';
       contributingSignalIds?: readonly string[];
@@ -806,6 +842,17 @@ export class GeminiClient {
         debugLogger.log(
           `Pollux advisor skipped (policy): ${policyResult.decision}`,
         );
+      }
+      if (escalationMeta?.reasonCode && escalationMeta.escalationTiming) {
+        this.recordPolluxEscalationTelemetry({
+          turnId: turnContext.turnId,
+          reasonCode: escalationMeta.reasonCode,
+          escalationTiming: escalationMeta.escalationTiming,
+          outcome: 'policy_denied',
+          sameTurnDowngraded: escalationMeta.sameTurnDowngraded,
+          pauseBoundary: escalationMeta.pauseBoundary,
+          contributingSignalIds: escalationMeta.contributingSignalIds,
+        });
       }
       return 'policy_denied';
     }
@@ -905,7 +952,22 @@ export class GeminiClient {
       });
     }
 
-    return consultationSucceeded ? 'consulted' : 'fail_open';
+    const outcome: 'consulted' | 'fail_open' = consultationSucceeded
+      ? 'consulted'
+      : 'fail_open';
+    if (escalationMeta?.reasonCode && escalationMeta.escalationTiming) {
+      this.recordPolluxEscalationTelemetry({
+        turnId: turnContext.turnId,
+        reasonCode: escalationMeta.reasonCode,
+        escalationTiming: escalationMeta.escalationTiming,
+        outcome,
+        sameTurnDowngraded: escalationMeta.sameTurnDowngraded,
+        pauseBoundary: escalationMeta.pauseBoundary,
+        contributingSignalIds: escalationMeta.contributingSignalIds,
+        failureKind: outcome === 'fail_open' ? failOpenKind : undefined,
+      });
+    }
+    return outcome;
   }
 
   private async maybeRunPolluxAdvisorConsultation(
@@ -915,6 +977,8 @@ export class GeminiClient {
     runtimeSurface: PolluxRuntimeSurface,
   ): Promise<void> {
     const experimental = this.config.getPolluxExperimentalConfig();
+    const pendingNextTurnIntent =
+      this.polluxPendingNextTurnIntent ?? this.polluxPendingLoopNextTurnIntent;
     const eligibility = checkPolluxEligibility({
       runtimeSurface,
       experimental,
@@ -928,14 +992,27 @@ export class GeminiClient {
       ) {
         debugLogger.log('Pollux advisor skipped (budget).');
       }
+      if (pendingNextTurnIntent && eligibility.blockReason === 'budget') {
+        const sameTurnDowngraded =
+          pendingNextTurnIntent.timing === 'next_turn' &&
+          POLLUX_ESCALATION_TIMING[pendingNextTurnIntent.reasonCode] ===
+            'same_turn';
+        this.recordPolluxEscalationTelemetry({
+          turnId: `${prompt_id}:${this.sessionTurnCount}`,
+          reasonCode: pendingNextTurnIntent.reasonCode,
+          escalationTiming: pendingNextTurnIntent.timing,
+          outcome: 'budget_exhausted',
+          sameTurnDowngraded,
+          pauseBoundary: undefined,
+          contributingSignalIds: pendingNextTurnIntent.contributingSignalIds,
+        });
+      }
       return;
     }
 
     // F.1.1: prefer the unified next-turn intent slot introduced in Phase F.
     // It supersedes the Phase C loop-only slot when both are set (the loop
     // slot is kept for backward compatibility and tested migration paths).
-    const pendingNextTurnIntent =
-      this.polluxPendingNextTurnIntent ?? this.polluxPendingLoopNextTurnIntent;
     if (pendingNextTurnIntent) {
       const outcome = await this.maybeRunPolluxAdvisorConsultationForIntent(
         request,
@@ -963,6 +1040,14 @@ export class GeminiClient {
     options: { sameTurnDowngraded?: boolean } = {},
   ): Promise<PolluxIntentConsultationOutcome> {
     const experimental = this.config.getPolluxExperimentalConfig();
+    const inferredDowngrade =
+      intent.timing === 'next_turn' &&
+      POLLUX_ESCALATION_TIMING[intent.reasonCode] === 'same_turn';
+    const sameTurnDowngraded =
+      options.sameTurnDowngraded === true || inferredDowngrade
+        ? true
+        : undefined;
+
     const eligibility = checkPolluxEligibility({
       runtimeSurface,
       experimental,
@@ -970,9 +1055,19 @@ export class GeminiClient {
       callsCompletedThisSession: this.polluxAdvisorCallsThisSession,
     });
     if (!eligibility.eligible) {
-      return eligibility.blockReason === 'budget'
-        ? 'budget_exhausted'
-        : 'skipped';
+      const outcome =
+        eligibility.blockReason === 'budget' ? 'budget_exhausted' : 'skipped';
+      this.recordPolluxEscalationTelemetry({
+        turnId: `${prompt_id}:${this.sessionTurnCount}`,
+        reasonCode: intent.reasonCode,
+        escalationTiming: intent.timing,
+        outcome,
+        sameTurnDowngraded,
+        pauseBoundary:
+          intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
+        contributingSignalIds: intent.contributingSignalIds,
+      });
+      return outcome;
     }
 
     let pendingToolContextOverride: string | undefined;
@@ -999,19 +1094,12 @@ export class GeminiClient {
     // explicitly flags it (single-shot / kill switch / budget) OR the intent
     // carries a canonically same-turn reason code but is being run next-turn
     // (I11 inference so legacy paths still surface downgrades in telemetry).
-    const inferredDowngrade =
-      intent.timing === 'next_turn' &&
-      POLLUX_ESCALATION_TIMING[intent.reasonCode] === 'same_turn';
-    const sameTurnDowngraded =
-      options.sameTurnDowngraded === true || inferredDowngrade
-        ? true
-        : undefined;
-
     const outcome = await this.executePolluxAdvisorConsultation(
       turnContext,
       partListUnionToString(request),
       signal,
       {
+        reasonCode: intent.reasonCode,
         escalationTiming: intent.timing,
         pauseBoundary:
           intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
@@ -1072,8 +1160,13 @@ export class GeminiClient {
 
     if (downgradeRequired) {
       const downgraded = buildPolluxDowngradedNextTurnIntent(intent);
-      // Preserve any prior pending next-turn intent only if it is strictly
-      // higher priority (hard-precision > composite). Otherwise, latest wins.
+      // Explicit same-turn downgrades unconditionally own the next-turn slot;
+      // the stronger-intent merge happens at observer harvest (see
+      // consumePendingNextTurnIntent and the `netScore >= existing.netScore`
+      // guard in the harvest block below), which is the only place
+      // arbitration against observer-originated intents lives. An explicit
+      // guardrail downgrade beats any in-flight observer-composite that the
+      // harvest would otherwise pick up next.
       this.polluxPendingNextTurnIntent = downgraded;
       if (experimental.emitAdvisorDebug) {
         const reason = singleShotBlocked
@@ -1085,7 +1178,16 @@ export class GeminiClient {
           `Pollux same-turn downgrade (${reason}) reason=${intent.reasonCode}`,
         );
       }
-      return 'skipped';
+      this.recordPolluxEscalationTelemetry({
+        turnId: `${prompt_id}:${this.sessionTurnCount}`,
+        reasonCode: intent.reasonCode,
+        escalationTiming: 'next_turn',
+        outcome: budgetBlocked ? 'budget_exhausted' : 'deferred_next_turn',
+        sameTurnDowngraded: true,
+        pauseBoundary: intent.pauseBoundary,
+        contributingSignalIds: intent.contributingSignalIds,
+      });
+      return budgetBlocked ? 'budget_exhausted' : 'skipped';
     }
 
     // F.1.2 introspection: mirror the in-flight same-turn intent on the
@@ -1106,9 +1208,15 @@ export class GeminiClient {
       } else if (outcome === 'budget_exhausted') {
         // Budget went from allowed at pre-check to exhausted during execution
         // (race with parallel surface). Treat as a downgrade so the attempt
-        // still lands in the next-turn queue with telemetry.
+        // still lands in the next-turn queue with telemetry. Also flip the
+        // single-shot flag — the advisor slot for this turn is effectively
+        // consumed, and any subsequent same-turn trigger in the same turn
+        // would be budget-blocked anyway; setting the flag keeps I11
+        // book-keeping consistent with the `consulted` and `skipped`
+        // branches.
         const downgraded = buildPolluxDowngradedNextTurnIntent(intent);
         this.polluxPendingNextTurnIntent = downgraded;
+        this.polluxSameTurnFiredThisTurn = true;
       } else {
         // policy_denied | fail_open | skipped -- the single-shot guardrail
         // still consumes the slot to prevent rapid retries within a turn,
@@ -1127,6 +1235,15 @@ export class GeminiClient {
           `Pollux same-turn consult failed open (reason=${inFlight ?? intent.reasonCode}).`,
         );
       }
+      this.recordPolluxEscalationTelemetry({
+        turnId: `${prompt_id}:${this.sessionTurnCount}`,
+        reasonCode: intent.reasonCode,
+        escalationTiming: intent.timing,
+        outcome: 'fail_open',
+        sameTurnDowngraded: false,
+        pauseBoundary: intent.pauseBoundary,
+        contributingSignalIds: intent.contributingSignalIds,
+      });
       // Fail-open: the executor proceeds even when the consult throws.
       return 'fail_open';
     } finally {
@@ -1401,15 +1518,35 @@ export class GeminiClient {
         loopRecoverResult = loopResult;
         break;
       }
+      // Phase E leakage prevention: strip `<pollux:status>` tags before the
+      // event is yielded downstream. The observer/SelfReportSensor has
+      // already seen the raw event by this point (ingestPolluxObserverFailOpen
+      // runs at the top of the loop), so stripping here only affects what
+      // the UI / agent-session / ACP surfaces render — never what the
+      // detector matches on. Thought events are also inspectable by the
+      // sensor via `extractInspectableText`, so we strip from their subject
+      // and description to prevent tag leakage on surfaces that render
+      // raw thought streams.
       if (
-        event.type === GeminiEventType.Content &&
         polluxExperimental.enabled &&
         polluxExperimental.detector.selfReport.enabled
       ) {
-        yield {
-          ...event,
-          value: stripPolluxStatusTags(event.value),
-        };
+        if (event.type === GeminiEventType.Content) {
+          yield {
+            ...event,
+            value: stripPolluxStatusTags(event.value),
+          };
+        } else if (event.type === GeminiEventType.Thought) {
+          yield {
+            ...event,
+            value: {
+              subject: stripPolluxStatusTags(event.value.subject),
+              description: stripPolluxStatusTags(event.value.description),
+            },
+          };
+        } else {
+          yield event;
+        }
       } else {
         yield event;
       }
@@ -1437,6 +1574,19 @@ export class GeminiClient {
         // fusion wins; a downgrade already in the slot is not blindly replaced
         // by a weaker harvest).
         const existing = this.polluxPendingNextTurnIntent;
+        const isSameTurnCanonicalDowngrade =
+          harvested.timing === 'next_turn' &&
+          POLLUX_ESCALATION_TIMING[harvested.reasonCode] === 'same_turn';
+        if (!existing && isSameTurnCanonicalDowngrade) {
+          this.recordPolluxEscalationTelemetry({
+            turnId: `${prompt_id}:${this.sessionTurnCount}`,
+            reasonCode: harvested.reasonCode,
+            escalationTiming: harvested.timing,
+            outcome: 'deferred_next_turn',
+            sameTurnDowngraded: true,
+            contributingSignalIds: harvested.contributingSignalIds,
+          });
+        }
         if (!existing || harvested.netScore >= existing.netScore) {
           this.polluxPendingNextTurnIntent = harvested;
         }

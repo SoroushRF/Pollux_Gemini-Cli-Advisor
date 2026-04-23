@@ -79,7 +79,7 @@ export async function runPolluxRealPilot() {
 
   const preflight = buildRealBenchmarkPreflightReport(
     manifest,
-    selectedTasks,
+    REAL_BENCHMARK_SEED_CORPUS,
     pricingSnapshot,
     binaryPath,
   );

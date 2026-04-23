@@ -1,6 +1,6 @@
 # P4-10 Real Benchmark Measurement Spec
 
-Version: 1.0 Date: 2026-04-22 Status: Foundation spec for live runner and
+Version: 1.1 Date: 2026-04-23 Status: Foundation spec for live runner and
 artifact schema
 
 ---
@@ -92,12 +92,19 @@ The foundation runner records:
 6. estimated USD cost when a pricing snapshot is provided
 7. fairness pin state
 8. invalidation reason when present
+9. captured Pollux escalation event records (`gemini_cli.pollux_escalation`)
+10. derived run-level `reasonCodes` and `escalationTiming` sets for backward
+    compatibility
+11. derived run-level confusion exclusion marker for `fail_open` and
+    `budget_exhausted`
 
 Publishable campaigns additionally require:
 
 1. reason-code breakdown
 2. timing breakdown (`same_turn` / `next_turn`)
-3. methodology-level statistics from `P4-05_REAL_BENCHMARK_METHODOLOGY.md`
+3. explicit exclusion-bucket disclosure for `fail_open` and `budget_exhausted`
+   in confusion reporting
+4. methodology-level statistics from `P4-05_REAL_BENCHMARK_METHODOLOGY.md`
 
 ---
 
@@ -150,6 +157,17 @@ Each raw sample must include:
 12. fairness pins
 13. oracle result
 14. invalidation state
+15. escalation event list with outcome / reason / timing metadata
+16. derived confusion exclusion marker (if any)
+
+Summary artifacts must include:
+
+1. confusion matrix counts over included runs only
+2. exclusion counts for `fail_open` and `budget_exhausted`
+3. timing-stratified precision/recall
+4. reason-code distribution counts
+5. evidence-driven publishability blockers when escalation instrumentation is
+   missing or malformed
 
 ---
 

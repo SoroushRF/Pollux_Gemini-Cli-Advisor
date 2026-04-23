@@ -119,7 +119,7 @@ export function buildRealBenchmarkSettings(
     },
     security: {
       auth: {
-        selectedType: 'login-with-google',
+        selectedType: 'oauth-personal',
       },
       folderTrust: {
         enabled: false,

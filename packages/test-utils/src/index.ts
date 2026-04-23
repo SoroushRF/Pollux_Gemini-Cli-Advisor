@@ -8,6 +8,7 @@ export * from './file-system-test-helpers.js';
 export * from './fixtures/agents.js';
 export * from './memory-baselines.js';
 export * from './memory-test-harness.js';
+export * from './benchmark-fairness-pins.js';
 export * from './benchmark-harness.js';
 export * from './perf-test-harness.js';
 export * from './mock-utils.js';

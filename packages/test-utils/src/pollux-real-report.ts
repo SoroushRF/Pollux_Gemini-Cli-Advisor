@@ -11,6 +11,8 @@ import type {
   RealBenchmarkCampaignSummary,
   RealBenchmarkConditionId,
   RealBenchmarkConditionSummary,
+  RealBenchmarkEscalationTiming,
+  RealBenchmarkEscalationTimingSummary,
   RealBenchmarkRunRecord,
 } from './pollux-real-types.js';
 
@@ -27,6 +29,18 @@ function sumNullable(values: Array<number | null>): number | null {
     return null;
   }
   return present.reduce((sum, value) => sum + value, 0);
+}
+
+function divideOrNull(numerator: number, denominator: number): number | null {
+  return denominator > 0 ? numerator / denominator : null;
+}
+
+function getEscalationEvents(run: RealBenchmarkRunRecord) {
+  return run.escalationEvents ?? [];
+}
+
+function getExcludedFromConfusion(run: RealBenchmarkRunRecord) {
+  return run.excludedFromConfusion ?? null;
 }
 
 function buildConditionSummary(
@@ -61,18 +75,191 @@ function buildConditionSummary(
   };
 }
 
+function buildConfusionCounts(params: {
+  runs: RealBenchmarkRunRecord[];
+  polluxEnabledByCondition: Readonly<Record<RealBenchmarkConditionId, boolean>>;
+}) {
+  let predictedPositive = 0;
+  let expectedPositive = 0;
+  let truePositive = 0;
+  let falsePositive = 0;
+  let falseNegative = 0;
+  let trueNegative = 0;
+
+  for (const run of params.runs) {
+    const predicted = run.observedAdvisorCalls > 0;
+    const expected =
+      run.taskEscalates && params.polluxEnabledByCondition[run.conditionId];
+
+    if (predicted) {
+      predictedPositive += 1;
+    }
+    if (expected) {
+      expectedPositive += 1;
+    }
+
+    if (predicted && expected) {
+      truePositive += 1;
+    } else if (predicted && !expected) {
+      falsePositive += 1;
+    } else if (!predicted && expected) {
+      falseNegative += 1;
+    } else {
+      trueNegative += 1;
+    }
+  }
+
+  return {
+    predictedPositive,
+    expectedPositive,
+    truePositive,
+    falsePositive,
+    falseNegative,
+    trueNegative,
+    precision: divideOrNull(truePositive, predictedPositive),
+    recall: divideOrNull(truePositive, expectedPositive),
+  };
+}
+
+function getPrimaryTiming(
+  run: RealBenchmarkRunRecord,
+): RealBenchmarkEscalationTiming | null {
+  const consultRelated = new Set([
+    'consulted',
+    'fail_open',
+    'budget_exhausted',
+    'policy_denied',
+    'deferred_next_turn',
+  ]);
+  const primary = getEscalationEvents(run).find(
+    (event) =>
+      event.outcome !== null &&
+      consultRelated.has(event.outcome) &&
+      event.escalationTiming !== null,
+  );
+  return primary?.escalationTiming ?? null;
+}
+
+function buildTimingBreakdown(params: {
+  runs: RealBenchmarkRunRecord[];
+  polluxEnabledByCondition: Readonly<Record<RealBenchmarkConditionId, boolean>>;
+}): RealBenchmarkEscalationTimingSummary[] {
+  const timingValues: RealBenchmarkEscalationTiming[] = [
+    'same_turn',
+    'next_turn',
+  ];
+  const breakdown: RealBenchmarkEscalationTimingSummary[] = [];
+
+  for (const timing of timingValues) {
+    const timingRuns = params.runs.filter(
+      (run) => getPrimaryTiming(run) === timing,
+    );
+    const confusion = buildConfusionCounts({
+      runs: timingRuns,
+      polluxEnabledByCondition: params.polluxEnabledByCondition,
+    });
+    breakdown.push({
+      timing,
+      includedSampleCount: timingRuns.length,
+      predictedPositive: confusion.predictedPositive,
+      expectedPositive: confusion.expectedPositive,
+      truePositive: confusion.truePositive,
+      falsePositive: confusion.falsePositive,
+      falseNegative: confusion.falseNegative,
+      trueNegative: confusion.trueNegative,
+      precision: confusion.precision,
+      recall: confusion.recall,
+    });
+  }
+
+  return breakdown;
+}
+
+function buildReasonCodeCounts(
+  runs: RealBenchmarkRunRecord[],
+): Record<string, number> {
+  const counts = new Map<string, number>();
+  for (const run of runs) {
+    for (const event of getEscalationEvents(run)) {
+      if (!event.reasonCode) {
+        continue;
+      }
+      counts.set(event.reasonCode, (counts.get(event.reasonCode) ?? 0) + 1);
+    }
+  }
+  return Object.fromEntries(
+    [...counts.entries()].sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
+
+function buildEscalationEvidenceBlockers(
+  runs: RealBenchmarkRunRecord[],
+): string[] {
+  const validRuns = runs.filter((run) => !run.invalidated);
+  const blockers: string[] = [];
+
+  const hasAdvisorWithoutEscalationEvidence = validRuns.some(
+    (run) =>
+      run.observedAdvisorCalls > 0 && getEscalationEvents(run).length === 0,
+  );
+  if (hasAdvisorWithoutEscalationEvidence) {
+    blockers.push(
+      'Advisor calls were observed in valid samples, but no pollux escalation telemetry events were captured for at least one such sample.',
+    );
+  }
+
+  const consultRelated = new Set([
+    'consulted',
+    'fail_open',
+    'budget_exhausted',
+    'policy_denied',
+    'deferred_next_turn',
+  ]);
+  const hasMissingReasonOrTiming = validRuns.some((run) =>
+    getEscalationEvents(run).some(
+      (event) =>
+        event.outcome !== null &&
+        consultRelated.has(event.outcome) &&
+        (event.reasonCode === null || event.escalationTiming === null),
+    ),
+  );
+  if (hasMissingReasonOrTiming) {
+    blockers.push(
+      'Escalation telemetry is present, but at least one consult-related escalation event is missing reason_code or escalation_timing.',
+    );
+  }
+
+  return blockers;
+}
+
 export function buildRealBenchmarkCampaignSummary(
   manifest: RealBenchmarkCampaignManifest,
   corpusSha: string,
   runs: RealBenchmarkRunRecord[],
   publishabilityBlockers: string[],
 ): RealBenchmarkCampaignSummary {
+  const validRuns = runs.filter((run) => !run.invalidated);
+  const includedRuns = validRuns.filter(
+    (run) => getExcludedFromConfusion(run) === null,
+  );
+  const polluxEnabledByCondition = Object.fromEntries(
+    manifest.conditions.map((condition) => [
+      condition.id,
+      condition.polluxEnabled,
+    ]),
+  ) as Readonly<Record<RealBenchmarkConditionId, boolean>>;
+  const confusion = buildConfusionCounts({
+    runs: includedRuns,
+    polluxEnabledByCondition,
+  });
+  const evidenceBlockers = buildEscalationEvidenceBlockers(runs);
+
   return {
     generatedAt: new Date().toISOString(),
     manifest,
     corpusSha,
     sampleCount: runs.length,
-    validSampleCount: runs.filter((run) => !run.invalidated).length,
+    validSampleCount: validRuns.length,
     invalidSampleCount: runs.filter((run) => run.invalidated).length,
     conditionSummaries: manifest.conditions.map((condition) =>
       buildConditionSummary(
@@ -80,7 +267,33 @@ export function buildRealBenchmarkCampaignSummary(
         runs.filter((run) => run.conditionId === condition.id),
       ),
     ),
-    publishabilityBlockers,
+    escalation: {
+      includedSampleCount: includedRuns.length,
+      predictedPositive: confusion.predictedPositive,
+      expectedPositive: confusion.expectedPositive,
+      truePositive: confusion.truePositive,
+      falsePositive: confusion.falsePositive,
+      falseNegative: confusion.falseNegative,
+      trueNegative: confusion.trueNegative,
+      precision: confusion.precision,
+      recall: confusion.recall,
+      exclusionCounts: {
+        budgetExhausted: validRuns.filter(
+          (run) => getExcludedFromConfusion(run) === 'budget_exhausted',
+        ).length,
+        failOpen: validRuns.filter(
+          (run) => getExcludedFromConfusion(run) === 'fail_open',
+        ).length,
+      },
+    },
+    escalationTiming: buildTimingBreakdown({
+      runs: includedRuns,
+      polluxEnabledByCondition,
+    }),
+    reasonCodeCounts: buildReasonCodeCounts(validRuns),
+    publishabilityBlockers: [
+      ...new Set([...publishabilityBlockers, ...evidenceBlockers]),
+    ],
   };
 }
 
@@ -90,6 +303,13 @@ function formatNumber(value: number): string {
 
 function formatNullableCurrency(value: number | null): string {
   return value === null ? 'n/a' : `$${value.toFixed(4)}`;
+}
+
+function formatRate(value: number | null): string {
+  if (value === null) {
+    return 'n/a';
+  }
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 export function renderRealBenchmarkCampaignReport(
@@ -131,7 +351,45 @@ export function renderRealBenchmarkCampaignReport(
     );
   }
   lines.push('');
-  lines.push('## 3) Publishability verdict');
+  lines.push('## 3) Escalation confusion matrix');
+  lines.push('');
+  lines.push(
+    `- Included samples: ${summary.escalation.includedSampleCount} (excluded fail_open=${summary.escalation.exclusionCounts.failOpen}, budget_exhausted=${summary.escalation.exclusionCounts.budgetExhausted})`,
+  );
+  lines.push(
+    `- Confusion counts: TP=${summary.escalation.truePositive}, FP=${summary.escalation.falsePositive}, FN=${summary.escalation.falseNegative}, TN=${summary.escalation.trueNegative}`,
+  );
+  lines.push(
+    `- Precision: ${formatRate(summary.escalation.precision)} (${summary.escalation.truePositive}/${summary.escalation.predictedPositive})`,
+  );
+  lines.push(
+    `- Recall: ${formatRate(summary.escalation.recall)} (${summary.escalation.truePositive}/${summary.escalation.expectedPositive})`,
+  );
+  lines.push('');
+  lines.push('## 4) Escalation timing split');
+  lines.push('');
+  lines.push('| Timing | Included | TP | FP | FN | TN | Precision | Recall |');
+  lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const timing of summary.escalationTiming) {
+    lines.push(
+      `| ${timing.timing} | ${timing.includedSampleCount} | ${timing.truePositive} | ${timing.falsePositive} | ${timing.falseNegative} | ${timing.trueNegative} | ${formatRate(timing.precision)} | ${formatRate(timing.recall)} |`,
+    );
+  }
+  lines.push('');
+  lines.push('## 5) Reason-code distribution');
+  lines.push('');
+  const reasonEntries = Object.entries(summary.reasonCodeCounts);
+  if (reasonEntries.length === 0) {
+    lines.push('- No reason-code telemetry events were captured.');
+  } else {
+    lines.push('| Reason code | Count |');
+    lines.push('| --- | ---: |');
+    for (const [reasonCode, count] of reasonEntries) {
+      lines.push(`| ${reasonCode} | ${count} |`);
+    }
+  }
+  lines.push('');
+  lines.push('## 6) Publishability verdict');
   lines.push('');
   if (summary.publishabilityBlockers.length === 0) {
     lines.push(

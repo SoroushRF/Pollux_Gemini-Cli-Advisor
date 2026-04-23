@@ -234,10 +234,6 @@ export function buildRealBenchmarkPreflightReport(
     );
   }
 
-  publishabilityBlockers.push(
-    'Observed Pollux reason-code and timing breakdowns are not yet captured in the live artifact bundle; additive telemetry/reporting work is still required before publication.',
-  );
-
   if (manifest.mode === 'pilot') {
     warnings.push(
       'Pilot mode is intentionally non-publishable even when runs are valid. Use it to harden the pipeline, tasks, and cost expectations.',
@@ -386,7 +382,7 @@ async function main() {
   );
   const report = buildRealBenchmarkPreflightReport(
     manifest,
-    selectedTasks,
+    REAL_BENCHMARK_SEED_CORPUS,
     pricingSnapshot,
     parseArg('--binary-path'),
   );

@@ -7,7 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "node ../../scripts/build_package.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:ci": "vitest run --reporter=dot --exclude src/pollux-benchmark-full.test.ts",
+    "test:benchmark-full": "vitest run src/pollux-benchmark-full.test.ts --reporter=dot"
   },
   "dependencies": {
     "@google/gemini-cli-core": "file:../core",

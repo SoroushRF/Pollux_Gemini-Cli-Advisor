@@ -1133,6 +1133,74 @@ export class PolluxOutcomeTelemetryEvent implements BaseTelemetryEvent {
   }
 }
 
+export const EVENT_POLLUX_ESCALATION = 'gemini_cli.pollux_escalation';
+export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
+  'event.name': 'pollux_escalation';
+  'event.timestamp': string;
+  turn_id: string;
+  reason_code: string;
+  escalation_timing: 'same_turn' | 'next_turn';
+  outcome:
+    | 'consulted'
+    | 'fail_open'
+    | 'budget_exhausted'
+    | 'policy_denied'
+    | 'deferred_next_turn'
+    | 'skipped';
+  same_turn_downgraded: boolean;
+  pause_boundary?: 'pre_tool' | 'post_event';
+  contributing_signal_ids: readonly string[];
+  failure_kind?: string;
+
+  constructor(params: {
+    turnId: string;
+    reasonCode: string;
+    escalationTiming: 'same_turn' | 'next_turn';
+    outcome:
+      | 'consulted'
+      | 'fail_open'
+      | 'budget_exhausted'
+      | 'policy_denied'
+      | 'deferred_next_turn'
+      | 'skipped';
+    sameTurnDowngraded?: boolean;
+    pauseBoundary?: 'pre_tool' | 'post_event';
+    contributingSignalIds?: readonly string[];
+    failureKind?: string;
+  }) {
+    this['event.name'] = 'pollux_escalation';
+    this['event.timestamp'] = new Date().toISOString();
+    this.turn_id = params.turnId;
+    this.reason_code = params.reasonCode;
+    this.escalation_timing = params.escalationTiming;
+    this.outcome = params.outcome;
+    this.same_turn_downgraded = params.sameTurnDowngraded === true;
+    this.pause_boundary = params.pauseBoundary;
+    this.contributing_signal_ids = params.contributingSignalIds ?? [];
+    this.failure_kind = params.failureKind;
+  }
+
+  toOpenTelemetryAttributes(config: Config): LogAttributes {
+    return {
+      ...getCommonAttributes(config),
+      'event.name': EVENT_POLLUX_ESCALATION,
+      'event.timestamp': this['event.timestamp'],
+      turn_id: this.turn_id,
+      reason_code: this.reason_code,
+      escalation_timing: this.escalation_timing,
+      outcome: this.outcome,
+      same_turn_downgraded: this.same_turn_downgraded,
+      pause_boundary: this.pause_boundary,
+      contributing_signal_ids: JSON.stringify(this.contributing_signal_ids),
+      failure_kind: this.failure_kind,
+    };
+  }
+
+  toLogBody(): string {
+    return `Pollux escalation recorded (turn=${this.turn_id}, reason=${this.reason_code}, outcome=${this.outcome}).`;
+  }
+}
+
 export const EVENT_CHAT_COMPRESSION = 'gemini_cli.chat_compression';
 export interface ChatCompressionEvent extends BaseTelemetryEvent {
   'event.name': 'chat_compression';
@@ -1912,7 +1980,8 @@ export type TelemetryEvent =
   | EditStrategyEvent
   | PlanExecutionEvent
   | RewindEvent
-  | EditCorrectionEvent;
+  | EditCorrectionEvent
+  | PolluxEscalationTelemetryEvent;
 
 export const EVENT_EXTENSION_DISABLE = 'gemini_cli.extension_disable';
 export class ExtensionDisableEvent implements BaseTelemetryEvent {

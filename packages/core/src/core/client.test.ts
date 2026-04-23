@@ -95,6 +95,7 @@ function seedPolluxCompositeIntent(
 }
 import { coreEvents, CoreEvent } from '../utils/events.js';
 import type { MessageBus } from '../confirmation-bus/message-bus.js';
+import * as telemetryLoggers from '../telemetry/loggers.js';
 
 // Mock fs module to prevent actual file system operations during tests
 const mockFileSystem = new Map<string, string>();
@@ -182,6 +183,7 @@ vi.mock('../telemetry/uiTelemetry.js', () => ({
   uiTelemetryService: {
     setLastPromptTokenCount: vi.fn(),
     getLastPromptTokenCount: vi.fn(),
+    addEvent: vi.fn(),
   },
 }));
 vi.mock('../hooks/hookSystem.js');
@@ -2121,6 +2123,9 @@ describe('Gemini Client (client.ts)', () => {
           { content: { parts: [{ text: '{"guidance":"next-turn"}' }] } },
         ],
       } as GenerateContentResponse);
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
 
       const telemetry = capturePolluxAdvisorPhaseEvents();
 
@@ -2145,6 +2150,14 @@ describe('Gemini Client (client.ts)', () => {
         'thought.repetition',
         'tool.redundant_noop',
       ]);
+      expect(escalationSpy).toHaveBeenCalled();
+      const consulted = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find((event) => event.outcome === 'consulted');
+      expect(consulted?.reason_code).toBe(
+        PolluxEscalationReasonCode.FUSION_COMPOSITE,
+      );
+      expect(consulted?.escalation_timing).toBe('next_turn');
       // The slot is consumed exactly once and cleared.
       expect(client['polluxPendingNextTurnIntent']).toBeUndefined();
     });
@@ -2192,6 +2205,9 @@ describe('Gemini Client (client.ts)', () => {
           { content: { parts: [{ text: '{"guidance":"try rebase"}' }] } },
         ],
       } as GenerateContentResponse);
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
 
       const telemetry = capturePolluxAdvisorPhaseEvents();
 
@@ -2216,6 +2232,14 @@ describe('Gemini Client (client.ts)', () => {
       expect(pending?.contributingSignalIds).toContain(
         'self.structured_status_stuck',
       );
+      const consulted = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find(
+          (event) =>
+            event.outcome === 'consulted' &&
+            event.reason_code === PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+        );
+      expect(consulted?.escalation_timing).toBe('same_turn');
     });
 
     it('Phase F §11.F.3 7.6: single-shot guardrail — two same-turn-eligible risk triggers collapse to one consult; second downgrades to next-turn', async () => {
@@ -2420,6 +2444,9 @@ describe('Gemini Client (client.ts)', () => {
         rule: undefined,
       });
       const advisorSpy = vi.spyOn(client, 'generateContent');
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
 
       await fromAsync(
         client.sendMessageStream(
@@ -2442,6 +2469,12 @@ describe('Gemini Client (client.ts)', () => {
       const queued = client['polluxPendingNextTurnIntent'];
       expect(queued).toBeDefined();
       expect(queued?.reasonCode).toBe(
+        PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+      );
+      const budget = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find((event) => event.outcome === 'budget_exhausted');
+      expect(budget?.reason_code).toBe(
         PolluxEscalationReasonCode.RISK_GATE_BLOCK,
       );
     });
@@ -2486,6 +2519,9 @@ describe('Gemini Client (client.ts)', () => {
         rule: undefined,
       });
       const advisorSpy = vi.spyOn(client, 'generateContent');
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
 
       await fromAsync(
         client.sendMessageStream(
@@ -2510,6 +2546,13 @@ describe('Gemini Client (client.ts)', () => {
       expect(queued?.reasonCode).toBe(
         PolluxEscalationReasonCode.RISK_GATE_BLOCK,
       );
+      const deferred = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find((event) => event.outcome === 'deferred_next_turn');
+      expect(deferred?.reason_code).toBe(
+        PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+      );
+      expect(deferred?.same_turn_downgraded).toBe(true);
     });
 
     it('Phase F §11.F.3 telemetry attribution: next-turn consult of a same-turn-canonical intent emits sameTurnDowngraded=true', async () => {

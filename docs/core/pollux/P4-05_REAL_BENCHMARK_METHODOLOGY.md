@@ -26,22 +26,16 @@ executor-vs-advisor performance claims.
 
 Current synthetic corpus is small (`CAL-BM-01..04`). A real-model run requires:
 
-- Difficulty stratification: at least 8 tasks each for `simple`, `moderate`,
-  `complex` (>= 24 base tasks).
+- Difficulty stratification: ✅ **Met** (8 simple, 8 moderate, 8 complex in
+  `realTasks.ts`).
 - Escalation stratification aligned to observer-era behavior:
-  - At least 8 `escalates: true` tasks that trigger current observer/fusion
-    signals (for example self-report status tags, hard loop, risk-gate, or
-    composite fusion evidence under Condition F).
-  - At least 8 `escalates: false` tasks confirmed to remain below current
-    observer thresholds with no same-turn hard-precision trigger.
-  - Sets must be disjoint.
-- Oracle determinism: every task must include at least one positive fixture and
-  > = 3 negative fixtures validated by
-  > `packages/core/src/pollux/benchmark/tasks.test.ts`.
-- Domain coverage: file authoring, multi-file refactor, JSON/YAML transform,
-  shell-tool chain, read-then-write, and code search/summarize.
-- Provenance: each task must cite an upstream source (ticket, issue, write-up,
-  or benchmark adapter).
+  - ✅ **Met** (8 `escalates: true` tasks).
+  - ✅ **Met** (16 `escalates: false` tasks).
+  - Sets are disjoint.
+- Oracle determinism: **Open** (Tasks exist, but `positiveFixturePaths` and
+  `negativeFixturePaths` are still mostly empty/placeholders).
+- Domain coverage: ✅ **Met** (all 6 required domains covered).
+- Provenance: ✅ **Met** (each task in `realTasks.ts` cites a source).
 
 ## 2) Sample size and statistical bar
 

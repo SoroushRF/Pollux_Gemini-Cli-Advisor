@@ -1,10 +1,29 @@
 {
   "experimental": {
-    "extensionReloading": true,
-    "modelSteering": true,
-    "topicUpdateNarration": true
-  },
-  "general": {
-    "devtools": true
+    "pollux": {
+      "enabled": true,
+      "executorModel": "gemini-2.5-flash",
+      "advisorModel": "gemini-3.1-pro-preview",
+      "emitAdvisorDebug": true,
+      "detector": {
+        "riskGate": { "enabled": true },
+        "observer": { "enabled": true },
+        "selfReport": {
+          "enabled": true,
+          "promptPrimingEnabled": true
+        },
+        "fusion": {
+          "requireComposite": true,
+          "targetEscalationRate": 0.05,
+          "lowPrecisionFloor": 0.5,
+          "sameTurnThresholdMultiplier": 1.5,
+          "sameTurnAbsoluteFloor": 3.5
+        },
+        "timing": {
+          "sameTurnEnabled": true,
+          "maxSameTurnEscalationsPerTurn": 1
+        }
+      }
+    }
   }
 }

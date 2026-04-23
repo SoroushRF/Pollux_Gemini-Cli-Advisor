@@ -14,6 +14,14 @@ export type RealBenchmarkCampaignMode =
 export type RealBenchmarkRunVenue = 'local' | 'ci';
 export type RealBenchmarkAuthIsolationMode = 'single_account' | 'isolated_keys';
 export type RealBenchmarkEscalationTiming = 'same_turn' | 'next_turn';
+export type RealBenchmarkEscalationOutcome =
+  | 'consulted'
+  | 'fail_open'
+  | 'budget_exhausted'
+  | 'policy_denied'
+  | 'deferred_next_turn'
+  | 'skipped';
+export type RealBenchmarkConfusionExclusion = 'budget_exhausted' | 'fail_open';
 
 export interface RealBenchmarkConditionProfile {
   id: RealBenchmarkConditionId;
@@ -51,6 +59,7 @@ export interface RealBenchmarkTelemetrySummary {
   responseIds: string[];
   serviceLatencyMs: number[];
   advisorCalls: number;
+  escalationEvents: RealBenchmarkEscalationEvent[];
   tokens: {
     total: number;
     advisor: number;
@@ -58,6 +67,18 @@ export interface RealBenchmarkTelemetrySummary {
   };
   costUsd: RealBenchmarkCostBreakdown;
   utilityRoleCounts: Readonly<Record<string, number>>;
+}
+
+export interface RealBenchmarkEscalationEvent {
+  turnId: string | null;
+  reasonCode: string | null;
+  escalationTiming: RealBenchmarkEscalationTiming | null;
+  outcome: RealBenchmarkEscalationOutcome | null;
+  sameTurnDowngraded: boolean;
+  pauseBoundary: 'pre_tool' | 'post_event' | null;
+  contributingSignalIds: string[];
+  failureKind: string | null;
+  eventIndex: number;
 }
 
 export interface RealBenchmarkRunRecord {
@@ -80,8 +101,10 @@ export interface RealBenchmarkRunRecord {
   };
   costUsd: RealBenchmarkCostBreakdown;
   observedAdvisorCalls: number;
+  escalationEvents: RealBenchmarkEscalationEvent[];
   escalationTiming: RealBenchmarkEscalationTiming[];
   reasonCodes: string[];
+  excludedFromConfusion: RealBenchmarkConfusionExclusion | null;
   fairnessPins: {
     routerPinned: boolean;
     loopDetectionDisabled: boolean;
@@ -167,6 +190,35 @@ export interface RealBenchmarkConditionSummary {
   meanServiceLatencyMs: number;
 }
 
+export interface RealBenchmarkEscalationConfusionSummary {
+  includedSampleCount: number;
+  predictedPositive: number;
+  expectedPositive: number;
+  truePositive: number;
+  falsePositive: number;
+  falseNegative: number;
+  trueNegative: number;
+  precision: number | null;
+  recall: number | null;
+  exclusionCounts: {
+    budgetExhausted: number;
+    failOpen: number;
+  };
+}
+
+export interface RealBenchmarkEscalationTimingSummary {
+  timing: RealBenchmarkEscalationTiming;
+  includedSampleCount: number;
+  predictedPositive: number;
+  expectedPositive: number;
+  truePositive: number;
+  falsePositive: number;
+  falseNegative: number;
+  trueNegative: number;
+  precision: number | null;
+  recall: number | null;
+}
+
 export interface RealBenchmarkCampaignSummary {
   generatedAt: string;
   manifest: RealBenchmarkCampaignManifest;
@@ -175,6 +227,9 @@ export interface RealBenchmarkCampaignSummary {
   validSampleCount: number;
   invalidSampleCount: number;
   conditionSummaries: RealBenchmarkConditionSummary[];
+  escalation: RealBenchmarkEscalationConfusionSummary;
+  escalationTiming: RealBenchmarkEscalationTimingSummary[];
+  reasonCodeCounts: Record<string, number>;
   publishabilityBlockers: string[];
 }
 

@@ -50,6 +50,7 @@ import {
   logHookCall,
   logOnboardingStart,
   logOnboardingSuccess,
+  logPolluxEscalation,
 } from './loggers.js';
 import { ToolCallDecision } from './tool-call-decision.js';
 import {
@@ -76,6 +77,7 @@ import {
   EVENT_NETWORK_RETRY_ATTEMPT,
   EVENT_ONBOARDING_START,
   EVENT_ONBOARDING_SUCCESS,
+  EVENT_POLLUX_ESCALATION,
   ApiErrorEvent,
   ApiRequestEvent,
   ApiResponseEvent,
@@ -104,6 +106,7 @@ import {
   EVENT_HOOK_CALL,
   OnboardingStartEvent,
   OnboardingSuccessEvent,
+  PolluxEscalationTelemetryEvent,
   LlmRole,
 } from './types.js';
 import { HookType } from '../hooks/types.js';
@@ -2596,6 +2599,44 @@ describe('loggers', () => {
         'standard-tier',
         100,
       );
+    });
+  });
+
+  describe('logPolluxEscalation', () => {
+    const mockConfig = makeFakeConfig();
+
+    it('logs pollux escalation event to OTEL with canonical attributes', () => {
+      const event = new PolluxEscalationTelemetryEvent({
+        turnId: 'prompt-1:2',
+        reasonCode: 'pollux.escalation.hard_loop',
+        escalationTiming: 'same_turn',
+        outcome: 'consulted',
+        sameTurnDowngraded: false,
+        pauseBoundary: 'post_event',
+        contributingSignalIds: ['loop.hard_confirmed'],
+      });
+
+      logPolluxEscalation(mockConfig, event);
+
+      expect(mockLogger.emit).toHaveBeenCalledWith({
+        body: 'Pollux escalation recorded (turn=prompt-1:2, reason=pollux.escalation.hard_loop, outcome=consulted).',
+        attributes: {
+          'session.id': 'test-session-id',
+          'user.email': 'test-user@example.com',
+          'installation.id': 'test-installation-id',
+          'event.name': EVENT_POLLUX_ESCALATION,
+          'event.timestamp': '2025-01-01T00:00:00.000Z',
+          interactive: false,
+          turn_id: 'prompt-1:2',
+          reason_code: 'pollux.escalation.hard_loop',
+          escalation_timing: 'same_turn',
+          outcome: 'consulted',
+          same_turn_downgraded: false,
+          pause_boundary: 'post_event',
+          contributing_signal_ids: '["loop.hard_confirmed"]',
+          failure_kind: undefined,
+        },
+      });
     });
   });
 

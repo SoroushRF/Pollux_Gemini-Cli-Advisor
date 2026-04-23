@@ -1,7 +1,7 @@
 # P5-05 Release Readiness Decision Log
 
-Version: 1.0 Generated: 2026-04-18 Status: HOLD (no latest promotion yet) TG
-mapping: TG-7, TG-9, TG-10
+Version: 1.1 Generated: 2026-04-22 Status: HOLD (TG-9 still pending first
+observed green Pollux-touching PR cycle) TG mapping: TG-7, TG-9, TG-10
 
 ---
 
@@ -31,14 +31,18 @@ This is the P5-05 deliverable referenced by IMPLEMENTATION_PLAN.md.
    - packages/cli/src/services/BuiltinCommandLoader.test.ts
    - packages/cli/src/acp/commandHandler.test.ts
    - packages/cli/src/acp/acpClient.test.ts
+5. Local verification rerun on 2026-04-22:
+   - `npm.cmd run test -w @google/gemini-cli-core -- src/pollux src/core/client.test.ts`
+   - `npm.cmd run test -w @google/gemini-cli -- src/ui/commands/polluxCommand.test.ts src/acp/commands/pollux.test.ts src/config/polluxConfigMapping.test.ts`
+   - `npm.cmd run test:benchmark-full -w @google/gemini-cli-test-utils`
 
 ## 3) Gate Status Snapshot
 
-| Gate  | Status | Evidence                                | Notes                                                                                                                                                        |
-| ----- | ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| TG-7  | GREEN  | P5-01/P5-02 tests and parity assertions | /pollux is reachable on required command surfaces with shared parsing/formatting semantics.                                                                  |
-| TG-10 | GREEN  | P5-03 docs sync updates                 | Plan/spec/ledger are synchronized to shipped /pollux behavior and governance state.                                                                          |
-| TG-9  | AMBER  | P5-04 workflow trigger enablement       | Required workflows are now Pollux-scoped on PR/push, but this log does not include a first observed end-to-end green run artifact from a Pollux-touching PR. |
+| Gate  | Status | Evidence                                | Notes                                                                                                                                                              |
+| ----- | ------ | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| TG-7  | GREEN  | P5-01/P5-02 tests and parity assertions | /pollux is reachable on required command surfaces with shared parsing/formatting semantics. Local rerun on 2026-04-22 also passed.                                 |
+| TG-10 | GREEN  | P5-03 docs sync updates                 | Plan/spec/ledger are synchronized to shipped /pollux behavior and governance state. Local rerun on 2026-04-22 confirmed the docs-aligned checks still pass.        |
+| TG-9  | AMBER  | P5-04 workflow trigger enablement       | Required workflows are now Pollux-scoped on PR/push, but this log still does not include a first observed end-to-end green run artifact from a Pollux-touching PR. |
 
 ## 4) Risk Closure Summary
 
@@ -51,6 +55,9 @@ Closed or materially reduced in Phase 5:
 3. Doc/spec/ledger drift risk: reduced by P5-03 synchronization.
 4. Pollux release-safety trigger gap: reduced by P5-04 workflow trigger
    enablement.
+5. Local release-closeout evidence gap: closed for core/CLI/benchmark-full
+   validation by the 2026-04-22 reruns, but not for upstream TG-9 PR-cycle
+   confirmation.
 
 Residual risk:
 
@@ -101,6 +108,8 @@ Rationale:
 2. TG-7 and TG-10 are green from direct evidence.
 3. TG-9 trigger wiring is complete, but this artifact does not yet include a
    first observed green Pollux-touching PR run for binary/perf/memory checks.
+4. Local verification on 2026-04-22 confirmed the Pollux core tests, CLI surface
+   tests, and benchmark-full harness still pass.
 
 Release board action:
 

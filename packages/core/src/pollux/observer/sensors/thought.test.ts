@@ -64,6 +64,25 @@ describe('pollux/observer/sensors/thought', () => {
     );
   });
 
+  it('emits thought.subject_loop when older subject crosses threshold even if latest thought switched topic', () => {
+    // Regression guard for plan §D.3: fire when ANY windowed subject has
+    // >= 3 occurrences, not just the most recent. Previously the sensor
+    // anchored similarity to the final subject, so a 3-hit loop on
+    // "Fix tests" would go undetected if the model's last thought pivoted.
+    const sensor = new ThoughtSensor();
+    const out = sensor.observe(
+      makeInput({
+        thoughtWindow: [
+          { subject: 'Fix tests', description: 'start' },
+          { subject: 'fix test', description: 'retry' },
+          { subject: 'Fix tesst', description: 'still trying' },
+          { subject: 'Switching gears', description: 'new plan' },
+        ],
+      }),
+    );
+    expect(out.some((s) => s.id === THOUGHT_SUBJECT_LOOP_SIGNAL_ID)).toBe(true);
+  });
+
   it('emits thought.hedge_density when hedge ratio is high', () => {
     const sensor = new ThoughtSensor();
     const out = sensor.observe(
@@ -181,7 +200,7 @@ describe('pollux/observer/sensors/thought', () => {
     const out = sensor.observe(
       makeInput({
         thoughtWindow: [{ subject: 'x', description: 'y' }],
-         
+
         event: { type: GeminiEventType.Thought, value: null } as never,
       }),
     );

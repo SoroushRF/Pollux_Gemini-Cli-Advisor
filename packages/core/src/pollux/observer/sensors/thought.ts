@@ -91,20 +91,40 @@ export class ThoughtSensor implements Sensor {
       const latest = window[window.length - 1];
       const latestNormalizedSubject = normalizeSubject(latest.subject);
 
-      if (latestNormalizedSubject.length > 0) {
-        const similarCount = window
-          .map((entry) => normalizeSubject(entry.subject))
-          .filter((subject) =>
-            areSubjectsSimilar(subject, latestNormalizedSubject),
+      const normalizedWindowSubjects = window
+        .map((entry) => normalizeSubject(entry.subject))
+        .filter((subject) => subject.length > 0);
+      if (normalizedWindowSubjects.length > 0) {
+        // Plan §D.3: fire when ANY subject in the window reaches the
+        // threshold, not only the most recent one. This catches cases where
+        // the model oscillates — e.g. 3 hits on subject A and 1 on B, with B
+        // being the latest; anchoring only to the latest would miss the A
+        // loop entirely.
+        let bestLoopSubject: string | undefined;
+        let bestLoopCount = 0;
+        const seen = new Set<string>();
+        for (const candidate of normalizedWindowSubjects) {
+          if (seen.has(candidate)) continue;
+          seen.add(candidate);
+          const count = normalizedWindowSubjects.filter((subject) =>
+            areSubjectsSimilar(subject, candidate),
           ).length;
-        if (similarCount >= SUBJECT_LOOP_MIN_OCCURRENCES) {
+          if (count > bestLoopCount) {
+            bestLoopCount = count;
+            bestLoopSubject = candidate;
+          }
+        }
+        if (
+          bestLoopSubject !== undefined &&
+          bestLoopCount >= SUBJECT_LOOP_MIN_OCCURRENCES
+        ) {
           signals.push({
             id: THOUGHT_SUBJECT_LOOP_SIGNAL_ID,
             weight: 2,
             precisionPrior: 0.75,
             category: 'thought',
             tsMs: nowMs,
-            attribution: `subject "${latestNormalizedSubject}" repeated ${similarCount} times`,
+            attribution: `subject "${bestLoopSubject}" repeated ${bestLoopCount} times`,
           });
         }
       }

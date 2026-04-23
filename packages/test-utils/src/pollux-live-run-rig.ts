@@ -13,8 +13,8 @@ import type { RealBenchmarkTaskSpec } from '../../core/src/pollux/benchmark/real
 import {
   ADVISOR_TELEMETRY_ROLE,
   evaluatePerRunPins,
-  type BenchmarkSettingsOverrides,
-} from './benchmark-harness.js';
+  type FairnessPinSettings,
+} from './benchmark-fairness-pins.js';
 import {
   POLLUX_REAL_AUTH_SEED_FILES,
   buildRealBenchmarkSettings,
@@ -24,6 +24,7 @@ import {
 import type {
   PolluxRealPilotOptions,
   RealBenchmarkConditionProfile,
+  RealBenchmarkEscalationEvent,
   RealBenchmarkPricingSnapshot,
   RealBenchmarkRunRecord,
   RealBenchmarkTelemetrySummary,
@@ -47,6 +48,10 @@ function sanitizeSegment(value: string): string {
 
 function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function writeJson(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
 function removeDirIfExists(dirPath: string): void {
@@ -103,6 +108,104 @@ function getNumberAttribute(
   return 0;
 }
 
+function getBooleanAttribute(
+  attributes: Record<string, unknown> | undefined,
+  key: string,
+): boolean | undefined {
+  const value = attributes?.[key];
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') {
+      return true;
+    }
+    if (value.toLowerCase() === 'false') {
+      return false;
+    }
+  }
+  return undefined;
+}
+
+function parseJsonStringArray(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((entry): entry is string => typeof entry === 'string')
+        .filter((entry) => entry.length > 0);
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function parseEscalationTelemetryEvents(
+  events: ParsedTelemetryLog[],
+): RealBenchmarkEscalationEvent[] {
+  const parsed: RealBenchmarkEscalationEvent[] = [];
+  for (const [eventIndex, event] of events.entries()) {
+    const attributes = event.attributes;
+    const eventName = getStringAttribute(attributes, 'event.name');
+    if (eventName !== 'gemini_cli.pollux_escalation') {
+      continue;
+    }
+
+    const escalationTiming = getStringAttribute(
+      attributes,
+      'escalation_timing',
+    );
+    const outcome = getStringAttribute(attributes, 'outcome');
+    const pauseBoundary = getStringAttribute(attributes, 'pause_boundary');
+
+    parsed.push({
+      turnId: getStringAttribute(attributes, 'turn_id') ?? null,
+      reasonCode: getStringAttribute(attributes, 'reason_code') ?? null,
+      escalationTiming:
+        escalationTiming === 'same_turn' || escalationTiming === 'next_turn'
+          ? escalationTiming
+          : null,
+      outcome:
+        outcome === 'consulted' ||
+        outcome === 'fail_open' ||
+        outcome === 'budget_exhausted' ||
+        outcome === 'policy_denied' ||
+        outcome === 'deferred_next_turn' ||
+        outcome === 'skipped'
+          ? outcome
+          : null,
+      sameTurnDowngraded:
+        getBooleanAttribute(attributes, 'same_turn_downgraded') === true,
+      pauseBoundary:
+        pauseBoundary === 'pre_tool' || pauseBoundary === 'post_event'
+          ? pauseBoundary
+          : null,
+      contributingSignalIds: parseJsonStringArray(
+        getStringAttribute(attributes, 'contributing_signal_ids'),
+      ),
+      failureKind: getStringAttribute(attributes, 'failure_kind') ?? null,
+      eventIndex,
+    });
+  }
+  return parsed;
+}
+
+function deriveConfusionExclusion(
+  escalationEvents: RealBenchmarkEscalationEvent[],
+): RealBenchmarkRunRecord['excludedFromConfusion'] {
+  if (escalationEvents.some((event) => event.outcome === 'fail_open')) {
+    return 'fail_open';
+  }
+  if (escalationEvents.some((event) => event.outcome === 'budget_exhausted')) {
+    return 'budget_exhausted';
+  }
+  return null;
+}
+
 function computeEventCostUsd(
   model: string | undefined,
   attributes: Record<string, unknown> | undefined,
@@ -154,6 +257,8 @@ export function summarizeRealBenchmarkTelemetry(
   let advisorCost = 0;
   let executorCost = 0;
   let hasAnyCost = false;
+
+  const escalationEvents = parseEscalationTelemetryEvents(events);
 
   for (const event of events) {
     const attributes = event.attributes;
@@ -214,6 +319,7 @@ export function summarizeRealBenchmarkTelemetry(
     responseIds: [...responseIds],
     serviceLatencyMs,
     advisorCalls,
+    escalationEvents,
     tokens: {
       total: totalTokens,
       advisor: advisorTokens,
@@ -383,15 +489,12 @@ export class PolluxLiveRunRig {
       this.pricingSnapshot,
     );
     const oraclePass = await task.oracle(result.stdout, workspaceDir);
-    const fairnessPins = evaluatePerRunPins(
-      settings as BenchmarkSettingsOverrides,
-      {
-        sessionId: sampleId,
-        workspaceDir,
-        homeDir,
-        utilityRoleCounts: telemetry.utilityRoleCounts,
-      },
-    );
+    const fairnessPins = evaluatePerRunPins(settings as FairnessPinSettings, {
+      sessionId: sampleId,
+      workspaceDir,
+      homeDir,
+      utilityRoleCounts: telemetry.utilityRoleCounts,
+    });
 
     const invalidationReason = this.computeInvalidationReason(
       result.exitCode,
@@ -419,8 +522,27 @@ export class PolluxLiveRunRig {
       tokens: telemetry.tokens,
       costUsd: telemetry.costUsd,
       observedAdvisorCalls: telemetry.advisorCalls,
-      escalationTiming: [],
-      reasonCodes: [],
+      escalationEvents: telemetry.escalationEvents,
+      escalationTiming: [
+        ...new Set(
+          telemetry.escalationEvents
+            .map((event) => event.escalationTiming)
+            .filter(
+              (timing): timing is 'same_turn' | 'next_turn' =>
+                timing === 'same_turn' || timing === 'next_turn',
+            ),
+        ),
+      ],
+      reasonCodes: [
+        ...new Set(
+          telemetry.escalationEvents
+            .map((event) => event.reasonCode)
+            .filter((reasonCode): reasonCode is string => reasonCode !== null),
+        ),
+      ],
+      excludedFromConfusion: deriveConfusionExclusion(
+        telemetry.escalationEvents,
+      ),
       fairnessPins,
       oraclePass,
       invalidated: invalidationReason !== undefined,

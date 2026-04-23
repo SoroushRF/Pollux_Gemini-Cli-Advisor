@@ -134,7 +134,7 @@ export class FusionLayer {
         reasonCode: reasonForHardPrecisionSignal(strongest.id),
         netScore,
         threshold,
-        contributingSignalIds: [strongest.id],
+        contributingSignalIds: hardPositives.map((entry) => entry.signal.id),
       };
     }
 

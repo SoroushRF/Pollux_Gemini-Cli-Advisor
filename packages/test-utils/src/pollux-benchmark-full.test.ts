@@ -68,9 +68,9 @@ describe('Pollux full benchmark session-resume continuity', () => {
     }
 
     // Non-escalating tasks must NEVER fire the advisor — the prompts are
-    // intentionally crafted to stay below the detector threshold under
-    // any strategy. This guards against accidental false positives if
-    // the detector defaults are ever loosened.
+    // intentionally crafted so no observer sensor (risk, loop, self-report,
+    // thought, tool-pattern) emits a positive signal. This guards against
+    // accidental false positives if the detector defaults are ever loosened.
     const nonEscalating = report.cells.filter((c) => !c.taskEscalates);
     for (const cell of nonEscalating) {
       expect(cell.initialRun.metrics.observedAdvisorCalls).toBe(0);
