@@ -1005,7 +1005,7 @@ export class GeminiChat {
           'UNEXPECTED_TOOL_CALL',
         );
       }
-      if (!responseText) {
+      if (!responseText && finishReason !== FinishReason.STOP) {
         throw new InvalidStreamError(
           'Model stream ended with empty response text.',
           'NO_RESPONSE_TEXT',

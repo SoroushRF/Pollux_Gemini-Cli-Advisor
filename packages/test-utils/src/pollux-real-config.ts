@@ -65,7 +65,7 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   },
   {
     id: 'E',
-    executorModel: 'gemini-3-pro-preview',
+    executorModel: 'gemini-3.1-pro-preview',
     polluxEnabled: false,
     authProfile: 'stronger-executor',
     publishableEligible: true,
@@ -74,7 +74,7 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'F',
     executorModel: 'gemini-2.5-flash',
-    advisorModel: 'gemini-3-pro-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
     polluxEnabled: true,
     authProfile: 'pollux-advisor',
     publishableEligible: true,

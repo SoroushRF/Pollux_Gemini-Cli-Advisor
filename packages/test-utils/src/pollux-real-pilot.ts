@@ -123,12 +123,25 @@ export async function runPolluxRealPilot() {
     repoRoot: POLLUX_REAL_REPO_ROOT,
   });
 
+  console.log(`\n🚀 Starting Benchmark Campaign: ${campaignId}`);
+  console.log(
+    `📋 Total Workload: ${manifest.conditions.length} conditions x ${selectedTasks.length} tasks = ${manifest.conditions.length * selectedTasks.length} samples\n`,
+  );
+
   const runs: RealBenchmarkRunRecord[] = [];
-  for (const condition of manifest.conditions) {
-    for (const task of selectedTasks) {
+  for (const [conditionIndex, condition] of manifest.conditions.entries()) {
+    console.log(
+      `\n🌐 [Condition ${conditionIndex + 1}/${manifest.conditions.length}] ID: ${condition.id} (Executor: ${condition.executorModel}${condition.polluxEnabled ? ` + Advisor: ${condition.advisorModel}` : ''})`,
+    );
+
+    for (const [taskIndex, task] of selectedTasks.entries()) {
       const runRoot = path.join(artifactRoot, 'raw', condition.id, task.id);
       fs.mkdirSync(runRoot, { recursive: true });
+
       for (let sampleIndex = 1; sampleIndex <= repeats; sampleIndex += 1) {
+        console.log(
+          `  🔹 [Task ${taskIndex + 1}/${selectedTasks.length}] Running ${task.id} (Sample ${sampleIndex}/${repeats})...`,
+        );
         const record = await rig.runSample(
           task,
           condition,
@@ -146,6 +159,8 @@ export async function runPolluxRealPilot() {
       }
     }
   }
+
+  console.log(`\n✅ Benchmark execution complete. Generating report...`);
 
   const summary = buildRealBenchmarkCampaignSummary(
     manifest,

@@ -894,6 +894,10 @@ export class GeminiClient {
         ...escalationMeta,
       });
 
+      // eslint-disable-next-line no-console
+      console.log(
+        `[Pollux] 🧠 Consulting advisor (${advisorModel.canonicalModelId})...`,
+      );
       const advisorResponse = await this.generateContent(
         {
           model: advisorModel.canonicalModelId,
@@ -903,6 +907,8 @@ export class GeminiClient {
         advisorSignal,
         LlmRole.UTILITY_ADVISOR,
       );
+      // eslint-disable-next-line no-console
+      console.log(`[Pollux] ✅ Advisor consultation finished.`);
 
       const rawAdvisorResponse = getResponseText(advisorResponse);
       if (!rawAdvisorResponse) {
@@ -1447,6 +1453,10 @@ export class GeminiClient {
         if (preToolIntent?.pauseBoundary === 'pre_tool') {
           const intent = polluxObserver.consumeSameTurnIntent();
           if (intent) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `[Pollux] 🚨 Same-turn escalation triggered: ${intent.reasonCode} (Score: ${intent.netScore})`,
+            );
             await this.runPolluxSameTurnConsult(
               request,
               signal,
@@ -1680,6 +1690,10 @@ export class GeminiClient {
           ),
         );
         if (nextSpeakerCheck?.next_speaker === 'model') {
+          // eslint-disable-next-line no-console
+          console.log(
+            `[Pollux] 🔄 Next-speaker check requested continuation. Bounded turns left: ${boundedTurns - 1}`,
+          );
           const nextRequest = [{ text: 'Please continue.' }];
           turn = yield* this.sendMessageStream(
             nextRequest,
