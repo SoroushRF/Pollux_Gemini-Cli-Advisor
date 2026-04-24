@@ -23,6 +23,7 @@ import {
   resolveCliEntrypoint,
 } from './pollux-real-config.js';
 import type {
+  RealBenchmarkAdvisorAttemptRecord,
   PolluxRealPilotOptions,
   RealBenchmarkAdvisorConsultOutcome,
   RealBenchmarkConditionProfile,
@@ -476,6 +477,69 @@ function parseEscalationTelemetryEvents(
   return parsed;
 }
 
+function parseAdvisorAttemptTelemetryEvents(
+  events: ParsedTelemetryLog[],
+): RealBenchmarkAdvisorAttemptRecord[] {
+  const parsed: RealBenchmarkAdvisorAttemptRecord[] = [];
+  for (const [eventIndex, event] of events.entries()) {
+    const attributes = event.attributes;
+    const eventName = getStringAttribute(attributes, 'event.name');
+    if (eventName !== 'gemini_cli.pollux_advisor_attempt') {
+      continue;
+    }
+
+    const escalationTiming = getStringAttribute(
+      attributes,
+      'escalation_timing',
+    );
+    const attemptKind = getStringAttribute(attributes, 'attempt_kind');
+    const parserOutcome = getStringAttribute(attributes, 'parser_outcome');
+    const outcome = getStringAttribute(attributes, 'outcome');
+
+    parsed.push({
+      turnId: getStringAttribute(attributes, 'turn_id') ?? null,
+      reasonCode: getStringAttribute(attributes, 'reason_code') ?? null,
+      escalationTiming:
+        escalationTiming === 'same_turn' || escalationTiming === 'next_turn'
+          ? escalationTiming
+          : null,
+      attemptIndex: getNumberAttribute(attributes, 'attempt_index'),
+      attemptKind:
+        attemptKind === 'primary' ||
+        attemptKind === 'repair_retry' ||
+        attemptKind === 'fallback'
+          ? attemptKind
+          : 'primary',
+      model: getStringAttribute(attributes, 'model') ?? null,
+      parserOutcome:
+        parserOutcome === 'direct' ||
+        parserOutcome === 'recovered_fence' ||
+        parserOutcome === 'recovered_substring' ||
+        parserOutcome === 'parse_error' ||
+        parserOutcome === 'malformed_json' ||
+        parserOutcome === 'schema' ||
+        parserOutcome === 'empty_response' ||
+        parserOutcome === 'timeout' ||
+        parserOutcome === 'capacity_exhausted' ||
+        parserOutcome === 'quota_exhausted'
+          ? parserOutcome
+          : null,
+      outcome:
+        outcome === 'consulted' ||
+        outcome === 'parse_error' ||
+        outcome === 'empty_response' ||
+        outcome === 'timeout' ||
+        outcome === 'capacity_exhausted' ||
+        outcome === 'quota_exhausted'
+          ? outcome
+          : null,
+      failureKind: getStringAttribute(attributes, 'failure_kind') ?? null,
+      eventIndex,
+    });
+  }
+  return parsed;
+}
+
 function deriveConfusionExclusion(
   escalationEvents: RealBenchmarkEscalationEvent[],
 ): RealBenchmarkRunRecord['excludedFromConfusion'] {
@@ -541,6 +605,7 @@ export function summarizeRealBenchmarkTelemetry(
   let hasAnyCost = false;
 
   const escalationEvents = parseEscalationTelemetryEvents(events);
+  const advisorAttempts = parseAdvisorAttemptTelemetryEvents(events);
   const escalationAttemptCount = countEscalationAttempts(escalationEvents);
 
   for (const event of events) {
@@ -602,6 +667,7 @@ export function summarizeRealBenchmarkTelemetry(
     responseIds: [...responseIds],
     serviceLatencyMs,
     advisorCalls,
+    advisorAttempts,
     escalationAttemptCount,
     escalationEvents,
     tokens: {
@@ -876,7 +942,10 @@ export class PolluxLiveRunRig {
       serviceLatencyMs: telemetry.serviceLatencyMs,
       tokens: telemetry.tokens,
       costUsd: telemetry.costUsd,
-      observedAdvisorCalls: telemetry.advisorCalls,
+      observedAdvisorCalls: Math.max(
+        telemetry.advisorCalls,
+        telemetry.advisorAttempts.length,
+      ),
       observedEscalationAttempts: telemetry.escalationAttemptCount,
       polluxEscalationTelemetryCount: telemetry.escalationEvents.length,
       stdoutStatusTagCount,
@@ -884,6 +953,7 @@ export class PolluxLiveRunRig {
       nearMissStatusTagCount,
       stderrWorkspacePathViolationCount,
       toolErrorCount,
+      advisorAttempts: telemetry.advisorAttempts,
       escalationEvents: telemetry.escalationEvents,
       escalationTiming: [
         ...new Set(

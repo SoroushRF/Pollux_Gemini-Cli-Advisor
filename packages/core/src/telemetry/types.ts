@@ -1201,6 +1201,98 @@ export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
   }
 }
 
+export const EVENT_POLLUX_ADVISOR_ATTEMPT = 'gemini_cli.pollux_advisor_attempt';
+export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
+  'event.name': 'pollux_advisor_attempt';
+  'event.timestamp': string;
+  turn_id: string;
+  reason_code: string;
+  escalation_timing: 'same_turn' | 'next_turn';
+  attempt_index: number;
+  attempt_kind: 'primary' | 'repair_retry' | 'fallback';
+  model: string;
+  parser_outcome:
+    | 'direct'
+    | 'recovered_fence'
+    | 'recovered_substring'
+    | 'parse_error'
+    | 'malformed_json'
+    | 'schema'
+    | 'empty_response'
+    | 'timeout'
+    | 'capacity_exhausted'
+    | 'quota_exhausted';
+  outcome:
+    | 'consulted'
+    | 'parse_error'
+    | 'empty_response'
+    | 'timeout'
+    | 'capacity_exhausted'
+    | 'quota_exhausted';
+  failure_kind?: string;
+
+  constructor(params: {
+    turnId: string;
+    reasonCode: string;
+    escalationTiming: 'same_turn' | 'next_turn';
+    attemptIndex: number;
+    attemptKind: 'primary' | 'repair_retry' | 'fallback';
+    model: string;
+    parserOutcome:
+      | 'direct'
+      | 'recovered_fence'
+      | 'recovered_substring'
+      | 'parse_error'
+      | 'malformed_json'
+      | 'schema'
+      | 'empty_response'
+      | 'timeout'
+      | 'capacity_exhausted'
+      | 'quota_exhausted';
+    outcome:
+      | 'consulted'
+      | 'parse_error'
+      | 'empty_response'
+      | 'timeout'
+      | 'capacity_exhausted'
+      | 'quota_exhausted';
+    failureKind?: string;
+  }) {
+    this['event.name'] = 'pollux_advisor_attempt';
+    this['event.timestamp'] = new Date().toISOString();
+    this.turn_id = params.turnId;
+    this.reason_code = params.reasonCode;
+    this.escalation_timing = params.escalationTiming;
+    this.attempt_index = params.attemptIndex;
+    this.attempt_kind = params.attemptKind;
+    this.model = params.model;
+    this.parser_outcome = params.parserOutcome;
+    this.outcome = params.outcome;
+    this.failure_kind = params.failureKind;
+  }
+
+  toOpenTelemetryAttributes(config: Config): LogAttributes {
+    return {
+      ...getCommonAttributes(config),
+      'event.name': EVENT_POLLUX_ADVISOR_ATTEMPT,
+      'event.timestamp': this['event.timestamp'],
+      turn_id: this.turn_id,
+      reason_code: this.reason_code,
+      escalation_timing: this.escalation_timing,
+      attempt_index: this.attempt_index,
+      attempt_kind: this.attempt_kind,
+      model: this.model,
+      parser_outcome: this.parser_outcome,
+      outcome: this.outcome,
+      failure_kind: this.failure_kind,
+    };
+  }
+
+  toLogBody(): string {
+    return `Pollux advisor attempt recorded (turn=${this.turn_id}, attempt=${this.attempt_index}, kind=${this.attempt_kind}, outcome=${this.outcome}).`;
+  }
+}
+
 export const EVENT_CHAT_COMPRESSION = 'gemini_cli.chat_compression';
 export interface ChatCompressionEvent extends BaseTelemetryEvent {
   'event.name': 'chat_compression';
@@ -1981,7 +2073,8 @@ export type TelemetryEvent =
   | PlanExecutionEvent
   | RewindEvent
   | EditCorrectionEvent
-  | PolluxEscalationTelemetryEvent;
+  | PolluxEscalationTelemetryEvent
+  | PolluxAdvisorAttemptTelemetryEvent;
 
 export const EVENT_EXTENSION_DISABLE = 'gemini_cli.extension_disable';
 export class ExtensionDisableEvent implements BaseTelemetryEvent {

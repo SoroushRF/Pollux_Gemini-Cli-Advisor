@@ -240,26 +240,61 @@ function tryParseEmbeddedJsonObject(raw: string): unknown | undefined {
   return undefined;
 }
 
-function tryParseJsonObject(raw: string): unknown | undefined {
-  const trimmed = raw.trim();
+export type PolluxAdvisorParserSuccessOutcome =
+  | 'direct'
+  | 'recovered_fence'
+  | 'recovered_substring';
+
+export type PolluxAdvisorParserOutcome =
+  | PolluxAdvisorParserSuccessOutcome
+  | 'malformed_json'
+  | 'schema'
+  | 'empty_response';
+
+interface ParsedJsonObjectCandidate {
+  readonly value: unknown;
+  readonly parserOutcome: PolluxAdvisorParserSuccessOutcome;
+}
+
+function tryParseJsonObject(
+  raw: string,
+): ParsedJsonObjectCandidate | undefined {
+  const trimmed = raw.replace(/^\uFEFF/, '').trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
   try {
-    return JSON.parse(trimmed) as unknown;
+    return {
+      value: JSON.parse(trimmed) as unknown,
+      parserOutcome: 'direct',
+    };
   } catch {
     const fence = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(trimmed);
     if (fence?.[1]) {
       try {
-        return JSON.parse(fence[1].trim()) as unknown;
+        return {
+          value: JSON.parse(fence[1].trim()) as unknown,
+          parserOutcome: 'recovered_fence',
+        };
       } catch {
         return undefined;
       }
     }
-    return tryParseEmbeddedJsonObject(trimmed);
+    const embedded = tryParseEmbeddedJsonObject(trimmed);
+    if (embedded !== undefined) {
+      return {
+        value: embedded,
+        parserOutcome: 'recovered_substring',
+      };
+    }
+    return undefined;
   }
 }
 
 export type ParsedAdvisorModelResponse =
   | {
       readonly ok: true;
+      readonly parserOutcome: PolluxAdvisorParserSuccessOutcome;
       /** Guidance safe for the executor path (tags stripped). */
       readonly guidance: string;
       /** From JSON `confidence`, else first valid embedded tag (1–10). */
@@ -267,7 +302,8 @@ export type ParsedAdvisorModelResponse =
     }
   | {
       readonly ok: false;
-      readonly reason: 'malformed_json' | 'schema';
+      readonly reason: 'malformed_json' | 'schema' | 'empty_response';
+      readonly parserOutcome: 'malformed_json' | 'schema' | 'empty_response';
       readonly detail?: string;
     };
 
@@ -279,26 +315,50 @@ export type ParsedAdvisorModelResponse =
 export function parseAdvisorModelResponse(
   raw: string,
 ): ParsedAdvisorModelResponse {
+  if (raw.replace(/^\uFEFF/, '').trim().length === 0) {
+    return {
+      ok: false,
+      reason: 'empty_response',
+      parserOutcome: 'empty_response',
+    };
+  }
   const tagValues = extractPolluxConfidenceTagValues(raw);
   const parsed = tryParseJsonObject(raw);
   if (parsed === undefined) {
-    return { ok: false, reason: 'malformed_json' };
+    return {
+      ok: false,
+      reason: 'malformed_json',
+      parserOutcome: 'malformed_json',
+    };
   }
-  if (!isPlainObject(parsed)) {
-    return { ok: false, reason: 'malformed_json' };
+  if (!isPlainObject(parsed.value)) {
+    return {
+      ok: false,
+      reason: 'malformed_json',
+      parserOutcome: 'malformed_json',
+    };
   }
 
   const schemaError = SchemaValidator.validate(
     POLLUX_ADVISOR_RESPONSE_SCHEMA as unknown,
-    parsed,
+    parsed.value,
   );
   if (schemaError !== null) {
-    return { ok: false, reason: 'schema', detail: schemaError };
+    return {
+      ok: false,
+      reason: 'schema',
+      parserOutcome: 'schema',
+      detail: schemaError,
+    };
   }
 
-  const guidanceRaw = parsed['guidance'];
+  const guidanceRaw = parsed.value['guidance'];
   if (typeof guidanceRaw !== 'string') {
-    return { ok: false, reason: 'malformed_json' };
+    return {
+      ok: false,
+      reason: 'malformed_json',
+      parserOutcome: 'malformed_json',
+    };
   }
 
   const guidance = stripPolluxConfidenceTags(guidanceRaw);
@@ -306,12 +366,13 @@ export function parseAdvisorModelResponse(
     return {
       ok: false,
       reason: 'schema',
+      parserOutcome: 'schema',
       detail: 'guidance empty after stripping tags',
     };
   }
 
   let structuredConfidence: number | undefined;
-  const confRaw = parsed['confidence'];
+  const confRaw = parsed.value['confidence'];
   if (typeof confRaw === 'number') {
     structuredConfidence = clampConfidence(confRaw);
   }
@@ -327,6 +388,7 @@ export function parseAdvisorModelResponse(
 
   return {
     ok: true,
+    parserOutcome: parsed.parserOutcome,
     guidance,
     structuredConfidence,
   };
@@ -351,5 +413,35 @@ export function buildAdvisorConsultationPrompt(
     'Consultation payload:',
     input.body,
   ];
+  return lines.join('\n');
+}
+
+/**
+ * Builds a bounded repair prompt when the prior advisor output was empty or
+ * malformed. The contract remains strict JSON matching the original schema.
+ */
+export function buildAdvisorConsultationRepairPrompt(params: {
+  input: AdvisorConsultationInput;
+  previousResponse: string;
+  previousFailure:
+    | 'malformed_json'
+    | 'schema'
+    | 'empty_response'
+    | 'parse_error';
+}): string {
+  const lines = [
+    buildAdvisorConsultationPrompt(params.input),
+    '',
+    'Your previous response could not be accepted.',
+    `Failure: ${params.previousFailure}`,
+    'Re-emit exactly one valid JSON object that matches the schema above.',
+    'Do not include markdown fences, commentary, or any text before or after the JSON object.',
+  ];
+
+  const previous = params.previousResponse.replace(/^\uFEFF/, '').trim();
+  if (previous.length > 0) {
+    lines.push('', 'Previous response:', previous.slice(0, 4000));
+  }
+
   return lines.join('\n');
 }

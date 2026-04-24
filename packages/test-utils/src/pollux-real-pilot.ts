@@ -55,6 +55,14 @@ function parsePositiveNumberArg(flag: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseBooleanArg(flag: string, fallback: boolean): boolean {
+  const raw = parseArg(flag);
+  if (raw === undefined) {
+    return fallback;
+  }
+  return raw.toLowerCase() !== 'false';
+}
+
 function writeJson(filePath: string, value: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
@@ -72,38 +80,38 @@ function getSelectedTasks(taskIds: string[]) {
   return tasks;
 }
 
-export async function runPolluxRealPilot() {
-  const campaignId =
-    parseArg('--campaign-id') ??
-    `pilot-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  const requestedRepeats = Number(parseArg('--repeats') ?? '3');
-  const repeats =
-    Number.isFinite(requestedRepeats) && requestedRepeats > 0
-      ? Math.floor(requestedRepeats)
-      : 3;
-  const taskIds = parseArg('--task-ids')
-    ?.split(',')
-    .map((value) => value.trim()) ?? [...PILOT_SENTINEL_TASK_IDS];
-  const selectedTasks = getSelectedTasks(taskIds);
-  const pricingSnapshotPath = parseArg('--pricing-snapshot');
-  const pricingSnapshot = loadPricingSnapshotFromPath(pricingSnapshotPath);
-  const binaryPath = parseArg('--binary-path');
-  const entrypointPreference = parseEntrypointPreference(
-    parseArg('--entrypoint'),
+export async function runPolluxRealCampaign(params: {
+  campaignId: string;
+  repeats: number;
+  taskIds: string[];
+  pricingSnapshotPath?: string;
+  binaryPath?: string;
+  entrypointPreference?: 'auto' | 'bundle' | 'dev_script';
+  keepScratchDirectories?: boolean;
+  maxWallClockMs?: number;
+  maxModelResponsesPerSample?: number;
+  artifactRoot?: string;
+  allowOverwrite?: boolean;
+}) {
+  const selectedTasks = getSelectedTasks(params.taskIds);
+  const pricingSnapshot = loadPricingSnapshotFromPath(
+    params.pricingSnapshotPath,
   );
-
-  const manifest = buildDefaultCampaignManifest(campaignId, taskIds);
-  manifest.repeatsPerCell = repeats;
-  if (pricingSnapshotPath) {
-    manifest.pricingSnapshotPath = pricingSnapshotPath;
+  const manifest = buildDefaultCampaignManifest(
+    params.campaignId,
+    params.taskIds,
+  );
+  manifest.repeatsPerCell = params.repeats;
+  if (params.pricingSnapshotPath) {
+    manifest.pricingSnapshotPath = params.pricingSnapshotPath;
   }
 
   const preflight = buildRealBenchmarkPreflightReport(
     manifest,
     REAL_BENCHMARK_SEED_CORPUS,
     pricingSnapshot,
-    binaryPath,
-    entrypointPreference,
+    params.binaryPath,
+    params.entrypointPreference,
   );
   if (preflight.runBlockers.length > 0) {
     throw new Error(
@@ -111,8 +119,19 @@ export async function runPolluxRealPilot() {
     );
   }
 
-  const artifactRoot = path.join(POLLUX_REAL_ARTIFACT_ROOT, campaignId);
+  const artifactRoot =
+    params.artifactRoot ??
+    path.join(POLLUX_REAL_ARTIFACT_ROOT, params.campaignId);
+  if (fs.existsSync(artifactRoot)) {
+    if (!params.allowOverwrite) {
+      throw new Error(
+        `Artifact root already exists: ${artifactRoot}. Pass --allow-overwrite true or choose a new campaign id.`,
+      );
+    }
+    fs.rmSync(artifactRoot, { recursive: true, force: true });
+  }
   fs.mkdirSync(artifactRoot, { recursive: true });
+
   writeJson(path.join(artifactRoot, 'manifest.json'), manifest);
   writeJson(path.join(artifactRoot, 'conditions.json'), manifest.conditions);
   writeJson(path.join(artifactRoot, 'preflight.json'), preflight);
@@ -139,33 +158,36 @@ export async function runPolluxRealPilot() {
     tasks: selectedTasks,
     artifactRoot,
     pricingSnapshot,
-    binaryPath,
-    entrypointPreference,
-    keepScratchDirectories:
-      (parseArg('--keep-scratch-directories') ?? 'true') !== 'false',
-    maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
-    maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
+    binaryPath: params.binaryPath,
+    entrypointPreference: params.entrypointPreference,
+    keepScratchDirectories: params.keepScratchDirectories ?? true,
+    maxWallClockMs: params.maxWallClockMs,
+    maxModelResponsesPerSample: params.maxModelResponsesPerSample,
     repoRoot: POLLUX_REAL_REPO_ROOT,
   });
 
-  console.log(`\n🚀 Starting Benchmark Campaign: ${campaignId}`);
+  console.log(`\nPollux benchmark campaign: ${params.campaignId}`);
   console.log(
-    `📋 Total Workload: ${manifest.conditions.length} conditions x ${selectedTasks.length} tasks = ${manifest.conditions.length * selectedTasks.length} samples\n`,
+    `Workload: ${manifest.conditions.length} conditions x ${selectedTasks.length} tasks = ${manifest.conditions.length * selectedTasks.length} samples\n`,
   );
 
   const runs: RealBenchmarkRunRecord[] = [];
   for (const [conditionIndex, condition] of manifest.conditions.entries()) {
     console.log(
-      `\n🌐 [Condition ${conditionIndex + 1}/${manifest.conditions.length}] ID: ${condition.id} (Executor: ${condition.executorModel}${condition.polluxEnabled ? ` + Advisor: ${condition.advisorModel}` : ''})`,
+      `\n[Condition ${conditionIndex + 1}/${manifest.conditions.length}] ${condition.id} (Executor: ${condition.executorModel}${condition.polluxEnabled ? ` + Advisor: ${condition.advisorModel}` : ''})`,
     );
 
     for (const [taskIndex, task] of selectedTasks.entries()) {
       const runRoot = path.join(artifactRoot, 'raw', condition.id, task.id);
       fs.mkdirSync(runRoot, { recursive: true });
 
-      for (let sampleIndex = 1; sampleIndex <= repeats; sampleIndex += 1) {
+      for (
+        let sampleIndex = 1;
+        sampleIndex <= params.repeats;
+        sampleIndex += 1
+      ) {
         console.log(
-          `  🔹 [Task ${taskIndex + 1}/${selectedTasks.length}] Running ${task.id} (Sample ${sampleIndex}/${repeats})...`,
+          `  [Task ${taskIndex + 1}/${selectedTasks.length}] Running ${task.id} (Sample ${sampleIndex}/${params.repeats})...`,
         );
         const record = await rig.runSample(
           task,
@@ -185,7 +207,7 @@ export async function runPolluxRealPilot() {
     }
   }
 
-  console.log(`\n✅ Benchmark execution complete. Generating report...`);
+  console.log('\nBenchmark execution complete. Generating report...');
 
   const summary = buildRealBenchmarkCampaignSummary(
     manifest,
@@ -198,6 +220,64 @@ export async function runPolluxRealPilot() {
     path.join(artifactRoot, 'report.md'),
     renderRealBenchmarkCampaignReport(summary),
   );
+
+  if (params.repeats > 1) {
+    const repeatsRoot = path.join(artifactRoot, 'repeats');
+    fs.mkdirSync(repeatsRoot, { recursive: true });
+    for (let sampleIndex = 1; sampleIndex <= params.repeats; sampleIndex += 1) {
+      const repeatRuns = runs.filter((run) => run.sampleIndex === sampleIndex);
+      const repeatSummary = buildRealBenchmarkCampaignSummary(
+        manifest,
+        corpusSha,
+        repeatRuns,
+        preflight.publishabilityBlockers,
+        { includeRepeatSummaries: false },
+      );
+      writeJson(
+        path.join(
+          repeatsRoot,
+          `repeat-${String(sampleIndex).padStart(3, '0')}.summary.json`,
+        ),
+        repeatSummary,
+      );
+      fs.writeFileSync(
+        path.join(
+          repeatsRoot,
+          `repeat-${String(sampleIndex).padStart(3, '0')}.report.md`,
+        ),
+        renderRealBenchmarkCampaignReport(repeatSummary),
+      );
+    }
+  }
+
+  return { artifactRoot, summary, preflight, runs, manifest, corpusSha };
+}
+
+export async function runPolluxRealPilot() {
+  const campaignId =
+    parseArg('--campaign-id') ??
+    `pilot-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const requestedRepeats = Number(parseArg('--repeats') ?? '3');
+  const repeats =
+    Number.isFinite(requestedRepeats) && requestedRepeats > 0
+      ? Math.floor(requestedRepeats)
+      : 3;
+  const taskIds = parseArg('--task-ids')
+    ?.split(',')
+    .map((value) => value.trim()) ?? [...PILOT_SENTINEL_TASK_IDS];
+
+  await runPolluxRealCampaign({
+    campaignId,
+    repeats,
+    taskIds,
+    pricingSnapshotPath: parseArg('--pricing-snapshot'),
+    binaryPath: parseArg('--binary-path'),
+    entrypointPreference: parseEntrypointPreference(parseArg('--entrypoint')),
+    keepScratchDirectories: parseBooleanArg('--keep-scratch-directories', true),
+    maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
+    maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
+    allowOverwrite: parseBooleanArg('--allow-overwrite', false),
+  });
 }
 
 const currentFilePath = path.resolve(fileURLToPath(import.meta.url));

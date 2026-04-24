@@ -32,6 +32,28 @@ export type RealBenchmarkAdvisorConsultOutcome =
   | 'fail_open'
   | 'budget_exhausted'
   | 'policy_denied';
+export type RealBenchmarkAdvisorAttemptKind =
+  | 'primary'
+  | 'repair_retry'
+  | 'fallback';
+export type RealBenchmarkAdvisorAttemptOutcome =
+  | 'consulted'
+  | 'parse_error'
+  | 'empty_response'
+  | 'timeout'
+  | 'capacity_exhausted'
+  | 'quota_exhausted';
+export type RealBenchmarkAdvisorParserOutcome =
+  | 'direct'
+  | 'recovered_fence'
+  | 'recovered_substring'
+  | 'parse_error'
+  | 'malformed_json'
+  | 'schema'
+  | 'empty_response'
+  | 'timeout'
+  | 'capacity_exhausted'
+  | 'quota_exhausted';
 export type RealBenchmarkConfusionExclusion = 'budget_exhausted' | 'fail_open';
 export type RealBenchmarkConfusionOutcome =
   | 'true_positive'
@@ -130,6 +152,7 @@ export interface RealBenchmarkTelemetrySummary {
   responseIds: string[];
   serviceLatencyMs: number[];
   advisorCalls: number;
+  advisorAttempts: RealBenchmarkAdvisorAttemptRecord[];
   escalationAttemptCount: number;
   escalationEvents: RealBenchmarkEscalationEvent[];
   tokens: {
@@ -149,6 +172,19 @@ export interface RealBenchmarkEscalationEvent {
   sameTurnDowngraded: boolean;
   pauseBoundary: 'pre_tool' | 'post_event' | null;
   contributingSignalIds: string[];
+  failureKind: string | null;
+  eventIndex: number;
+}
+
+export interface RealBenchmarkAdvisorAttemptRecord {
+  turnId: string | null;
+  reasonCode: string | null;
+  escalationTiming: RealBenchmarkEscalationTiming | null;
+  attemptIndex: number;
+  attemptKind: RealBenchmarkAdvisorAttemptKind;
+  model: string | null;
+  parserOutcome: RealBenchmarkAdvisorParserOutcome | null;
+  outcome: RealBenchmarkAdvisorAttemptOutcome | null;
   failureKind: string | null;
   eventIndex: number;
 }
@@ -181,6 +217,7 @@ export interface RealBenchmarkRunRecord {
   nearMissStatusTagCount: number;
   stderrWorkspacePathViolationCount: number;
   toolErrorCount: number;
+  advisorAttempts: RealBenchmarkAdvisorAttemptRecord[];
   escalationEvents: RealBenchmarkEscalationEvent[];
   escalationTiming: RealBenchmarkEscalationTiming[];
   reasonCodes: string[];
@@ -290,6 +327,20 @@ export interface RealBenchmarkConditionSummary {
   meanServiceLatencyMs: number;
 }
 
+export interface RealBenchmarkRateInterval {
+  n: number;
+  proportion: number | null;
+  lower: number | null;
+  upper: number | null;
+}
+
+export interface RealBenchmarkNumericStats {
+  n: number;
+  mean: number;
+  median: number;
+  stddev: number;
+}
+
 export interface RealBenchmarkEscalationConfusionSummary {
   includedSampleCount: number;
   predictedPositive: number;
@@ -346,6 +397,8 @@ export interface RealBenchmarkCanaryConsultSummary {
   budgetExhausted: number;
   policyDenied: number;
   notAttempted: number;
+  consultSuccessRate: number | null;
+  consultSuccessWilson95: RealBenchmarkRateInterval;
 }
 
 export interface RealBenchmarkStressSummary {
@@ -381,6 +434,59 @@ export interface RealBenchmarkRunDiagnosticSummary {
   nearMissStatusTagCount: number;
 }
 
+export interface RealBenchmarkRepeatSummary {
+  sampleIndex: number;
+  sampleCount: number;
+  validSampleCount: number;
+  invalidSampleCount: number;
+  canaryConsultSummary: RealBenchmarkCanaryConsultSummary;
+  escalation: RealBenchmarkEscalationConfusionSummary;
+  publishabilityBlockers: string[];
+  summaryPath: string;
+  reportPath: string;
+}
+
+export interface RealBenchmarkCellAggregateSummary {
+  cellKey: string;
+  taskId: string;
+  conditionId: RealBenchmarkConditionId;
+  lane: RealBenchmarkLane;
+  repeatCount: number;
+  sampleCount: number;
+  validSampleCount: number;
+  invalidSampleCount: number;
+  desiredOutcomeSatisfiedCount: number;
+  desiredOutcomeSatisfactionRate: number;
+  desiredOutcomeWilson95: RealBenchmarkRateInterval;
+  consultSuccessCount: number;
+  consultSuccessRate: number | null;
+  consultSuccessWilson95: RealBenchmarkRateInterval;
+  failOpenCount: number;
+  parseErrorCount: number;
+  wallClockMs: RealBenchmarkNumericStats;
+  totalTokens: RealBenchmarkNumericStats;
+  advisorTokens: RealBenchmarkNumericStats;
+}
+
+export interface RealBenchmarkCanaryReliabilitySummary {
+  expectedPositiveSampleCount: number;
+  validExpectedPositiveSampleCount: number;
+  consultedCount: number;
+  failOpenCount: number;
+  parseErrorCount: number;
+  falseNegativeCount: number;
+  budgetExhaustedCount: number;
+  consultSuccessRate: number | null;
+  consultSuccessWilson95: RealBenchmarkRateInterval;
+  attemptPathCounts: {
+    primarySuccess: number;
+    repairRetrySuccess: number;
+    fallbackSuccess: number;
+    finalFailOpen: number;
+  };
+  failureKindCounts: Record<string, number>;
+}
+
 export interface RealBenchmarkCampaignSummary {
   generatedAt: string;
   manifest: RealBenchmarkCampaignManifest;
@@ -391,6 +497,9 @@ export interface RealBenchmarkCampaignSummary {
   conditionSummaries: RealBenchmarkConditionSummary[];
   laneConditionSummaries: RealBenchmarkLaneConditionSummary[];
   canaryConsultSummary: RealBenchmarkCanaryConsultSummary;
+  repeatSummaries: RealBenchmarkRepeatSummary[];
+  cellAggregateSummaries: RealBenchmarkCellAggregateSummary[];
+  canaryReliabilitySummary: RealBenchmarkCanaryReliabilitySummary;
   stressSummary: RealBenchmarkStressSummary;
   escalation: RealBenchmarkEscalationConfusionSummary;
   escalationTiming: RealBenchmarkEscalationTimingSummary[];
@@ -398,6 +507,42 @@ export interface RealBenchmarkCampaignSummary {
   runDiagnostics: RealBenchmarkRunDiagnosticSummary[];
   buildFreshness?: RealBenchmarkBuildFreshness;
   publishabilityBlockers: string[];
+}
+
+export interface RealBenchmarkAcceptanceThresholds {
+  campaignCount: number;
+  repeatsPerCampaign: number;
+  expectedPositiveValidSampleCount: number;
+  minConsultSuccessRate: number;
+  minConsultSuccessWilson95LowerBound: number;
+  maxParseErrorCount: number;
+  maxFalseNegativeCount: number;
+  maxBudgetExhaustedCount: number;
+}
+
+export interface RealBenchmarkAcceptanceSummary {
+  generatedAt: string;
+  acceptanceId: string;
+  pilotPair: {
+    executorModel: string;
+    advisorModel: string;
+    advisorFallbackModel: string | null;
+  };
+  thresholds: RealBenchmarkAcceptanceThresholds;
+  campaignCount: number;
+  campaigns: Array<{
+    campaignId: string;
+    sampleCount: number;
+    validSampleCount: number;
+    canaryConsultSummary: RealBenchmarkCanaryConsultSummary;
+    canaryReliabilitySummary: RealBenchmarkCanaryReliabilitySummary;
+    publishabilityBlockers: string[];
+  }>;
+  aggregateCanaryReliability: RealBenchmarkCanaryReliabilitySummary;
+  aggregateCoreDesiredOutcomeFailures: number;
+  aggregateStressSummary: RealBenchmarkStressSummary;
+  pass: boolean;
+  failedThresholds: string[];
 }
 
 export interface PolluxRealPilotOptions {

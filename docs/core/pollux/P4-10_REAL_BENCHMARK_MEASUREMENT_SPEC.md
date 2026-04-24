@@ -1,7 +1,7 @@
 # P4-10 Real Benchmark Measurement Spec
 
-Version: 1.1 Date: 2026-04-23 Status: Foundation spec for live runner and
-artifact schema
+Version: 1.2 Date: 2026-04-24 Status: Milestone 2 spec for pilot reliability,
+repeat-aware artifacts, and acceptance evidence
 
 ---
 
@@ -27,20 +27,21 @@ The live real benchmark keeps the current A/E/F matrix.
 
 1. Pollux disabled
 2. executor-only baseline
-3. `gemini-2.5-flash`
+3. `gemini-3-flash-preview`
 
 ### Condition E
 
 1. Pollux disabled
 2. stronger executor-only baseline
-3. `gemini-3-pro-preview`
+3. `gemini-3.1-pro-preview`
 
 ### Condition F
 
 1. Pollux enabled
-2. executor `gemini-2.5-flash`
-3. advisor `gemini-3-pro-preview`
-4. current observer/fusion detector configuration
+2. executor `gemini-3-flash-preview`
+3. advisor `gemini-3.1-pro-preview`
+4. fallback advisor `gemini-3-flash-preview`
+5. current observer/fusion detector configuration
 
 ---
 
@@ -106,6 +107,10 @@ The foundation runner records:
 15. structured process-error evidence, including exit code hex and matched API
     error reason/status when present
 16. CLI entrypoint kind/path and build freshness metadata
+17. benchmark-visible advisor-attempt telemetry with attempt kind, parser
+    outcome, and final outcome
+18. repeat-aware campaign summaries and per-cell aggregate statistics
+19. Wilson 95% intervals for binary rates in pooled and cell-level reporting
 
 Publishable campaigns additionally require:
 
@@ -114,6 +119,21 @@ Publishable campaigns additionally require:
 3. explicit exclusion-bucket disclosure for `fail_open` and `budget_exhausted`
    in confusion reporting
 4. methodology-level statistics from `P4-05_REAL_BENCHMARK_METHODOLOGY.md`
+
+Milestone 2 acceptance campaigns additionally require:
+
+1. scope is limited to the current pilot pair only
+2. evidence comes from `5` campaigns with `3` repeats each on the sentinel set
+3. exactly `30` valid expected-positive canary samples are present
+4. canary consult success rate is at least `0.90`
+5. Wilson 95% lower bound for canary consult success is at least `0.75`
+6. `parse_error = 0`
+7. `false_negative = 0`
+8. `budget_exhausted = 0`
+9. no core-lane desired-outcome failures occur in the same acceptance batch
+
+Stress-lane instability remains descriptive and does not fail Milestone 2 by
+itself.
 
 ---
 
@@ -156,6 +176,17 @@ artifacts/pollux/real-runs/<campaign-id>/
   raw/<condition>/<task>/run-001.json
   summary.json
   report.md
+  repeats/repeat-001.summary.json
+  repeats/repeat-001.report.md
+```
+
+Acceptance root:
+
+```text
+artifacts/pollux/real-runs/<acceptance-id>/
+  campaigns/<campaign-id>/...
+  aggregate-summary.json
+  aggregate-report.md
 ```
 
 Each raw sample must include:
@@ -183,6 +214,8 @@ Each raw sample must include:
 21. build freshness metadata
 22. structured process-error evidence
 23. status-tag and tool-error diagnostics
+24. advisor-attempt records with `attemptIndex`, `attemptKind`, `model`,
+    `parserOutcome`, `outcome`, and `failureKind`
 
 Summary artifacts must include:
 
@@ -193,6 +226,13 @@ Summary artifacts must include:
 5. evidence-driven publishability blockers when escalation instrumentation is
    missing or malformed
 6. per-sample diagnostics so aggregate rates can be traced back to raw runs
+7. `repeatSummaries` when repeats are present
+8. `cellAggregateSummaries` with `n`, mean, median, stddev, and binary-rate
+   intervals
+9. `canaryReliabilitySummary` with recovery-path counts and failure-kind totals
+
+All pooled rates and means are computed over valid samples only, with valid and
+invalid counts disclosed alongside them.
 
 ---
 

@@ -155,11 +155,34 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           contributing_signal_ids: '["self.structured_status_stuck"]',
         },
       },
+      {
+        attributes: {
+          'event.name': 'gemini_cli.pollux_advisor_attempt',
+          turn_id: 'prompt-1:1',
+          reason_code: 'pollux.escalation.self_report_stuck',
+          escalation_timing: 'same_turn',
+          attempt_index: 1,
+          attempt_kind: 'primary',
+          model: 'gemini-3-pro-preview',
+          parser_outcome: 'direct',
+          outcome: 'consulted',
+        },
+      },
     ]);
 
     expect(summary.promptIds).toEqual(['prompt-1']);
     expect(summary.responseIds).toEqual(['response-1']);
     expect(summary.advisorCalls).toBe(1);
+    expect(summary.advisorAttempts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+        }),
+      ]),
+    );
     expect(summary.tokens).toEqual({
       total: 380,
       advisor: 80,

@@ -116,6 +116,7 @@ function buildRun(
     stderrWorkspacePathViolationCount:
       partial.stderrWorkspacePathViolationCount ?? 0,
     toolErrorCount: partial.toolErrorCount ?? 0,
+    advisorAttempts: partial.advisorAttempts ?? [],
     structuredErrorEvidence: partial.structuredErrorEvidence ?? null,
     timedOut: partial.timedOut ?? false,
     modelResponseCount: partial.modelResponseCount ?? 1,
@@ -424,6 +425,40 @@ describe('buildRealBenchmarkCampaignSummary', () => {
       failOpen: 1,
       consulted: 0,
     });
+    expect(summary.canaryConsultSummary.consultSuccessWilson95).toMatchObject({
+      n: 1,
+      proportion: 0,
+    });
+    expect(summary.repeatSummaries).toEqual([
+      expect.objectContaining({
+        sampleIndex: 1,
+        sampleCount: 3,
+      }),
+    ]);
+    expect(summary.cellAggregateSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          cellKey: 'CAL-BM-03-COMPLEX::A',
+          lane: 'stress',
+        }),
+        expect.objectContaining({
+          cellKey: 'CAL-BM-04-ESCALATING::F',
+          lane: 'canary',
+          parseErrorCount: 0,
+        }),
+      ]),
+    );
+    expect(summary.canaryReliabilitySummary).toMatchObject({
+      expectedPositiveSampleCount: 1,
+      validExpectedPositiveSampleCount: 1,
+      failOpenCount: 1,
+      attemptPathCounts: {
+        primarySuccess: 0,
+        repairRetrySuccess: 0,
+        fallbackSuccess: 0,
+        finalFailOpen: 1,
+      },
+    });
     expect(summary.stressSummary).toMatchObject({
       sampleCount: 1,
       invalidSampleCount: 1,
@@ -472,9 +507,10 @@ describe('renderRealBenchmarkCampaignReport', () => {
     expect(markdown).toContain('## 3) Core lane');
     expect(markdown).toContain('## 4) Stress lane');
     expect(markdown).toContain('## 5) Canary lane');
-    expect(markdown).toContain('## 6) Escalation confusion matrix');
-    expect(markdown).toContain('## 7) Escalation timing split');
-    expect(markdown).toContain('## 8) Per-sample diagnostics');
+    expect(markdown).toContain('## 6) Canary reliability');
+    expect(markdown).toContain('## 9) Escalation confusion matrix');
+    expect(markdown).toContain('## 10) Escalation timing split');
+    expect(markdown).toContain('## 11) Per-sample diagnostics');
     expect(markdown).toContain('Desired outcome');
     expect(markdown).toContain('Consult outcome');
   });

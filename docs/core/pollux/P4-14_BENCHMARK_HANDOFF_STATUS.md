@@ -1,13 +1,12 @@
 # P4-14 Benchmark Handoff Status
 
-Version: 1.1 Date: 2026-04-23 Status: Agent handoff snapshot after
-publishability-stats telemetry/reporting foundation Repo commit:
-`1dfce403bab6d9e353cfbdc3165e0583fd8d439e`
+Version: 1.2 Date: 2026-04-24 Status: Agent handoff snapshot after Milestone 2
+pilot-reliability implementation Repo commit: `e605d02f9`
 
-Update note: the live pilot lane now also records build freshness, per-sample
-expected/predicted escalation labels, confusion outcome, malformed status-tag
-diagnostics, tool-error counts, structured process-error evidence, and
-`missing_event` timing buckets for false negatives.
+Update note: the live pilot lane now also records advisor-attempt telemetry,
+bounded repair/fallback recovery paths, repeat-sliced reports, pooled
+cell-aggregate statistics, canary reliability summaries, and a dedicated
+Milestone 2 acceptance runner.
 
 ---
 
@@ -140,6 +139,7 @@ CLI commands added at repo root:
 
 1. `npm run benchmark:pollux:real:preflight`
 2. `npm run benchmark:pollux:real:pilot`
+3. `npm run benchmark:pollux:real:acceptance`
 
 Important note:
 
@@ -150,7 +150,8 @@ Why:
 1. it currently supports `single_account` pilot mode via auth seeding from
    `~/.gemini`
 2. the task corpus is still far below methodology minimums
-3. publishable telemetry completeness is not done yet
+3. Milestone 2 acceptance is scoped to the current pilot pair rather than a
+   model-independent publishable claim
 
 ### 3.3 Lane C: Publishable real-model lane
 
@@ -180,7 +181,13 @@ The live pilot system works like this:
    harness
 10. run the task oracle
 11. classify invalidations with structured process-error evidence
-12. emit one raw JSON file per sample plus summary/report artifacts
+12. apply bounded advisor recovery: one repair retry for parse/empty responses
+    and one fallback-model retry for timeout/capacity/quota failures
+13. emit one raw JSON file per sample plus pooled summary/report artifacts
+14. when repeats are greater than one, emit one full summary/report pair per
+    repeat index
+15. aggregate canary reliability and cell-level distribution stats across the
+    pooled campaign
 
 Key code paths:
 
@@ -191,6 +198,8 @@ Key code paths:
 4. campaign summary/report aggregation:
    `packages/test-utils/src/pollux-real-report.ts`
 5. pilot campaign executor: `packages/test-utils/src/pollux-real-pilot.ts`
+6. Milestone 2 acceptance aggregation/execution:
+   `packages/test-utils/src/pollux-real-acceptance.ts`
 
 The runner is intentionally CLI-centered and does **not** call detector helpers
 or advisor helpers directly.
@@ -210,20 +219,21 @@ Current live conditions are:
 
 1. Pollux disabled
 2. executor-only baseline
-3. executor model `gemini-2.5-flash`
+3. executor model `gemini-3-flash-preview`
 
 ### E
 
 1. Pollux disabled
 2. stronger executor-only baseline
-3. executor model `gemini-3-pro-preview`
+3. executor model `gemini-3.1-pro-preview`
 
 ### F
 
 1. Pollux enabled
-2. executor model `gemini-2.5-flash`
-3. advisor model `gemini-3-pro-preview`
-4. observer/fusion detector enabled with current repo-era thresholds
+2. executor model `gemini-3-flash-preview`
+3. advisor model `gemini-3.1-pro-preview`
+4. advisor fallback model `gemini-3-flash-preview`
+5. observer/fusion detector enabled with current repo-era thresholds
 
 Definition location:
 
@@ -233,6 +243,10 @@ Important note:
 
 The real benchmark deliberately keeps the current A/E/F matrix only. It does not
 try to revive historical B/C/D condition semantics from the pre-observer era.
+
+Milestone 2 reliability claims are scoped to this pilot pair only. The repo
+should not generalize acceptance results beyond this pair without a fresh
+acceptance contract.
 
 ---
 

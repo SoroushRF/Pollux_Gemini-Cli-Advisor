@@ -53,6 +53,7 @@ import { ideContextStore } from '../ide/ideContext.js';
 import {
   logContentRetryFailure,
   logNextSpeakerCheck,
+  logPolluxAdvisorAttempt,
   logPolluxEscalation,
 } from '../telemetry/loggers.js';
 import type {
@@ -63,6 +64,7 @@ import {
   ContentRetryFailureEvent,
   NextSpeakerCheckEvent,
   LlmRole,
+  PolluxAdvisorAttemptTelemetryEvent,
   PolluxEscalationTelemetryEvent,
 } from '../telemetry/types.js';
 import { uiTelemetryService } from '../telemetry/uiTelemetry.js';
@@ -107,6 +109,7 @@ import {
 } from '../pollux/safeguards.js';
 import {
   buildAdvisorConsultationPrompt,
+  buildAdvisorConsultationRepairPrompt,
   flushPolluxStatusTagStreamCarry,
   parseAdvisorModelResponse,
   stripPolluxStatusTagsFromStreamChunk,
@@ -192,6 +195,43 @@ type PolluxEscalationOutcome =
   | 'policy_denied'
   | 'deferred_next_turn'
   | 'skipped';
+
+type PolluxAdvisorAttemptKind = 'primary' | 'repair_retry' | 'fallback';
+
+type PolluxAdvisorAttemptOutcome =
+  | 'consulted'
+  | 'parse_error'
+  | 'empty_response'
+  | 'timeout'
+  | 'capacity_exhausted'
+  | 'quota_exhausted';
+
+type PolluxAdvisorAttemptParserOutcome =
+  | 'direct'
+  | 'recovered_fence'
+  | 'recovered_substring'
+  | 'parse_error'
+  | 'malformed_json'
+  | 'schema'
+  | 'empty_response'
+  | 'timeout'
+  | 'capacity_exhausted'
+  | 'quota_exhausted';
+
+interface PolluxAdvisorAttemptResult {
+  readonly attemptIndex: number;
+  readonly attemptKind: PolluxAdvisorAttemptKind;
+  readonly model: string;
+  readonly parserOutcome: PolluxAdvisorAttemptParserOutcome;
+  readonly outcome: PolluxAdvisorAttemptOutcome;
+  readonly consultationSucceeded: boolean;
+  readonly failOpenKind?: AdvisorPathFailureKind;
+  readonly rawResponse: string;
+  readonly guidance?: string;
+  readonly structuredConfidence?: number;
+  readonly retryableForRepair: boolean;
+  readonly retryableForFallback: boolean;
+}
 
 /**
  * Phase F §F.1.4: build a `NextTurnIntent` from a same-turn intent that was
@@ -823,6 +863,33 @@ export class GeminiClient {
     );
   }
 
+  private recordPolluxAdvisorAttemptTelemetry(params: {
+    turnId: string;
+    reasonCode: string;
+    escalationTiming: 'same_turn' | 'next_turn';
+    attemptIndex: number;
+    attemptKind: PolluxAdvisorAttemptKind;
+    model: string;
+    parserOutcome: PolluxAdvisorAttemptParserOutcome;
+    outcome: PolluxAdvisorAttemptOutcome;
+    failureKind?: string;
+  }): void {
+    logPolluxAdvisorAttempt(
+      this.config,
+      new PolluxAdvisorAttemptTelemetryEvent({
+        turnId: params.turnId,
+        reasonCode: params.reasonCode,
+        escalationTiming: params.escalationTiming,
+        attemptIndex: params.attemptIndex,
+        attemptKind: params.attemptKind,
+        model: params.model,
+        parserOutcome: params.parserOutcome,
+        outcome: params.outcome,
+        failureKind: params.failureKind,
+      }),
+    );
+  }
+
   private async executePolluxAdvisorConsultation(
     turnContext: PolluxTurnContext,
     requestBody: string,
@@ -865,12 +932,12 @@ export class GeminiClient {
       return 'policy_denied';
     }
 
-    const advisorPrompt = buildAdvisorConsultationPrompt({
+    const advisorInput = {
       context: turnContext,
       toolName: ADVISOR_CONSULTATION_TOOL_NAME,
       body: requestBody,
-    });
-
+    } as const;
+    const advisorPrompt = buildAdvisorConsultationPrompt(advisorInput);
     const timeoutSignal = AbortSignal.timeout(
       getAdvisorRequestTimeoutMs(experimental),
     );
@@ -878,14 +945,20 @@ export class GeminiClient {
     let failOpenKind: AdvisorPathFailureKind | undefined;
     let consultationSucceeded = false;
 
-    // Resolve the advisor model up-front so the UI lifecycle event can include
-    // the canonical model id (used for the dynamic footer + status indicator).
-    // Must happen before the first emit so 'pending' carries the right name.
     const advisorModel = resolvePolluxModel(experimental.advisorModel, {
       registry: this.polluxModelRegistry,
       role: PolluxModelRole.ADVISOR,
       experimental,
     });
+    const fallbackModel =
+      typeof experimental.advisorFallbackModel === 'string' &&
+      experimental.advisorFallbackModel.length > 0
+        ? resolvePolluxModel(experimental.advisorFallbackModel, {
+            registry: this.polluxModelRegistry,
+            role: PolluxModelRole.ADVISOR,
+            experimental,
+          }).canonicalModelId
+        : null;
 
     coreEvents.emitPolluxAdvisorPhase({
       phase: 'pending',
@@ -896,59 +969,65 @@ export class GeminiClient {
 
     try {
       const primaryAttempt =
-        await this.attemptPolluxAdvisorConsultationWithModel(
-          advisorModel.canonicalModelId,
+        await this.attemptPolluxAdvisorConsultationWithModel({
+          turnId: turnContext.turnId,
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          advisorModelId: advisorModel.canonicalModelId,
           advisorPrompt,
           advisorSignal,
-          experimental.executorModel,
+          executorModel: experimental.executorModel,
           escalationMeta,
-        );
+        });
       consultationSucceeded = primaryAttempt.consultationSucceeded;
       failOpenKind = primaryAttempt.failOpenKind;
 
       if (experimental.emitAdvisorDebug) {
         debugLogger.log(
-          `Pollux advisor attempt completed (success=${consultationSucceeded ? 'yes' : 'no'}, retryable=${primaryAttempt.retryableForFallback ? 'yes' : 'no'})`,
+          `Pollux advisor primary attempt completed (success=${consultationSucceeded ? 'yes' : 'no'}, repair=${primaryAttempt.retryableForRepair ? 'yes' : 'no'}, fallback=${primaryAttempt.retryableForFallback ? 'yes' : 'no'})`,
         );
-        /*
-      // eslint-disable-next-line no-console
-      console.log(
-        `[Pollux] 🧠 Consulting advisor (${advisorModel.canonicalModelId})...`,
-      );
-      const advisorResponse = await this.generateContent(
-        {
-          model: advisorModel.canonicalModelId,
-          isChatModel: true,
-        },
-        [createUserContent(advisorPrompt)],
-        advisorSignal,
-        LlmRole.UTILITY_ADVISOR,
-      );
-      // eslint-disable-next-line no-console
-      console.log(`[Pollux] ✅ Advisor consultation finished.`);
-
-      const rawAdvisorResponse = getResponseText(advisorResponse);
-      if (rawAdvisorResponse == null || rawAdvisorResponse === '') {
-        failOpenKind = 'empty_response';
-      } else {
-        const parsedResponse = parseAdvisorModelResponse(
-          rawAdvisorResponse ?? '',
-        );
-        if (!parsedResponse.ok) {
-          failOpenKind = 'parse_error';
-        } else {
-          consultationSucceeded = true;
-          if (experimental.emitAdvisorDebug) {
-            const structuredConfidence = (
-              parsedResponse as { structuredConfidence?: number }
-            ).structuredConfidence;
-            debugLogger.log(
-              `Pollux advisor consulted (confidence=${structuredConfidence ?? 'n/a'})`,
-            );
-          }
-        }
       }
-        */
+
+      if (!consultationSucceeded && primaryAttempt.retryableForRepair) {
+        const repairPrompt = buildAdvisorConsultationRepairPrompt({
+          input: advisorInput,
+          previousResponse: primaryAttempt.rawResponse,
+          previousFailure:
+            primaryAttempt.outcome === 'empty_response'
+              ? 'empty_response'
+              : 'parse_error',
+        });
+        const repairAttempt =
+          await this.attemptPolluxAdvisorConsultationWithModel({
+            turnId: turnContext.turnId,
+            attemptIndex: 2,
+            attemptKind: 'repair_retry',
+            advisorModelId: advisorModel.canonicalModelId,
+            advisorPrompt: repairPrompt,
+            advisorSignal,
+            executorModel: experimental.executorModel,
+            escalationMeta,
+          });
+        consultationSucceeded = repairAttempt.consultationSucceeded;
+        failOpenKind = repairAttempt.failOpenKind;
+      } else if (
+        !consultationSucceeded &&
+        primaryAttempt.retryableForFallback &&
+        fallbackModel !== null
+      ) {
+        const fallbackAttempt =
+          await this.attemptPolluxAdvisorConsultationWithModel({
+            turnId: turnContext.turnId,
+            attemptIndex: 2,
+            attemptKind: 'fallback',
+            advisorModelId: fallbackModel,
+            advisorPrompt,
+            advisorSignal,
+            executorModel: experimental.executorModel,
+            escalationMeta,
+          });
+        consultationSucceeded = fallbackAttempt.consultationSucceeded;
+        failOpenKind = fallbackAttempt.failOpenKind;
       }
     } catch (error) {
       if (signal.aborted) {
@@ -960,9 +1039,6 @@ export class GeminiClient {
           ? 'timeout'
           : this.classifyPolluxAdvisorFailure(error);
     } finally {
-      this.polluxAdvisorCallsThisTurn++;
-      this.polluxAdvisorCallsThisSession++;
-
       if (failOpenKind && experimental.emitAdvisorDebug) {
         const failOpenOutcome = resolveAdvisorPathFailure(failOpenKind);
         debugLogger.warn(
@@ -970,10 +1046,6 @@ export class GeminiClient {
         );
       }
 
-      // Always emit 'done' so the UI can clear the advisor status row and
-      // restore the executor model in the footer, regardless of success,
-      // fail-open, or unexpected throw. Mirrors the safety contract of
-      // POLLUX_SPEC §5.2 (consultation never blocks the executor path).
       coreEvents.emitPolluxAdvisorPhase({
         phase: 'done',
         executorModel: experimental.executorModel,
@@ -999,11 +1071,14 @@ export class GeminiClient {
     return outcome;
   }
 
-  private async attemptPolluxAdvisorConsultationWithModel(
-    advisorModelId: string,
-    advisorPrompt: string,
-    advisorSignal: AbortSignal,
-    executorModel: string,
+  private async attemptPolluxAdvisorConsultationWithModel(params: {
+    turnId: string;
+    attemptIndex: number;
+    attemptKind: PolluxAdvisorAttemptKind;
+    advisorModelId: string;
+    advisorPrompt: string;
+    advisorSignal: AbortSignal;
+    executorModel: string;
     escalationMeta:
       | {
           reasonCode?: string;
@@ -1012,52 +1087,60 @@ export class GeminiClient {
           contributingSignalIds?: readonly string[];
           sameTurnDowngraded?: boolean;
         }
-      | undefined,
-  ): Promise<{
-    consultationSucceeded: boolean;
-    failOpenKind?: AdvisorPathFailureKind;
-    retryableForFallback: boolean;
-  }> {
+      | undefined;
+  }): Promise<PolluxAdvisorAttemptResult> {
     coreEvents.emitPolluxAdvisorPhase({
       phase: 'consulting',
-      advisorModel: advisorModelId,
-      executorModel,
-      ...escalationMeta,
+      advisorModel: params.advisorModelId,
+      executorModel: params.executorModel,
+      ...params.escalationMeta,
     });
 
     // eslint-disable-next-line no-console
-    console.log(`[Pollux] Consulting advisor (${advisorModelId})...`);
+    console.log(`[Pollux] Consulting advisor (${params.advisorModelId})...`);
 
+    let result: PolluxAdvisorAttemptResult | undefined;
     try {
       const advisorResponse = await this.generateContent(
         {
-          model: advisorModelId,
+          model: params.advisorModelId,
           isChatModel: true,
         },
-        [createUserContent(advisorPrompt)],
-        advisorSignal,
+        [createUserContent(params.advisorPrompt)],
+        params.advisorSignal,
         LlmRole.UTILITY_ADVISOR,
         { maxAttemptsOverride: 1 },
       );
       // eslint-disable-next-line no-console
       console.log(`[Pollux] Advisor consultation finished.`);
 
-      const rawAdvisorResponse = getResponseText(advisorResponse);
-      if (!rawAdvisorResponse) {
-        return {
-          consultationSucceeded: false,
-          failOpenKind: 'empty_response',
-          retryableForFallback: false,
-        };
-      }
-
+      const rawAdvisorResponse = getResponseText(advisorResponse) ?? '';
       const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
       if (!parsedResponse.ok) {
-        return {
+        const failOpenKind =
+          parsedResponse.reason === 'empty_response'
+            ? 'empty_response'
+            : 'parse_error';
+        result = {
+          attemptIndex: params.attemptIndex,
+          attemptKind: params.attemptKind,
+          model: params.advisorModelId,
+          parserOutcome: parsedResponse.parserOutcome,
+          outcome:
+            parsedResponse.reason === 'empty_response'
+              ? 'empty_response'
+              : 'parse_error',
           consultationSucceeded: false,
-          failOpenKind: 'parse_error',
+          failOpenKind,
+          rawResponse: rawAdvisorResponse,
+          retryableForRepair:
+            params.attemptKind === 'primary' &&
+            (parsedResponse.reason === 'empty_response' ||
+              parsedResponse.reason === 'malformed_json' ||
+              parsedResponse.reason === 'schema'),
           retryableForFallback: false,
         };
+        return result;
       }
 
       if (this.config.getPolluxExperimentalConfig().emitAdvisorDebug) {
@@ -1066,27 +1149,77 @@ export class GeminiClient {
         );
       }
 
-      return {
+      result = {
+        attemptIndex: params.attemptIndex,
+        attemptKind: params.attemptKind,
+        model: params.advisorModelId,
+        parserOutcome: parsedResponse.parserOutcome,
+        outcome: 'consulted',
         consultationSucceeded: true,
+        rawResponse: rawAdvisorResponse,
+        guidance: parsedResponse.guidance,
+        structuredConfidence: parsedResponse.structuredConfidence,
+        retryableForRepair: false,
         retryableForFallback: false,
       };
+      return result;
     } catch (error) {
-      if (advisorSignal.aborted && isAbortError(error)) {
-        return {
+      if (params.advisorSignal.aborted && isAbortError(error)) {
+        result = {
+          attemptIndex: params.attemptIndex,
+          attemptKind: params.attemptKind,
+          model: params.advisorModelId,
+          parserOutcome: 'timeout',
+          outcome: 'timeout',
           consultationSucceeded: false,
           failOpenKind: 'timeout',
-          retryableForFallback: false,
+          rawResponse: '',
+          retryableForRepair: false,
+          retryableForFallback: params.attemptKind === 'primary',
         };
+        return result;
       }
 
       const failOpenKind = this.classifyPolluxAdvisorFailure(error);
-      return {
+      result = {
+        attemptIndex: params.attemptIndex,
+        attemptKind: params.attemptKind,
+        model: params.advisorModelId,
+        parserOutcome:
+          failOpenKind === 'parse_error' ? 'parse_error' : failOpenKind,
+        outcome: failOpenKind,
         consultationSucceeded: false,
         failOpenKind,
+        rawResponse: '',
+        retryableForRepair: false,
         retryableForFallback:
-          failOpenKind === 'capacity_exhausted' ||
-          failOpenKind === 'quota_exhausted',
+          params.attemptKind === 'primary' &&
+          (failOpenKind === 'timeout' ||
+            failOpenKind === 'capacity_exhausted' ||
+            failOpenKind === 'quota_exhausted'),
       };
+      return result;
+    } finally {
+      this.polluxAdvisorCallsThisTurn++;
+      this.polluxAdvisorCallsThisSession++;
+
+      if (
+        params.escalationMeta?.reasonCode &&
+        params.escalationMeta.escalationTiming &&
+        result
+      ) {
+        this.recordPolluxAdvisorAttemptTelemetry({
+          turnId: params.turnId,
+          reasonCode: params.escalationMeta.reasonCode,
+          escalationTiming: params.escalationMeta.escalationTiming,
+          attemptIndex: result.attemptIndex,
+          attemptKind: result.attemptKind,
+          model: result.model,
+          parserOutcome: result.parserOutcome,
+          outcome: result.outcome,
+          failureKind: result.failOpenKind,
+        });
+      }
     }
   }
 

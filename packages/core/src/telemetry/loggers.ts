@@ -14,6 +14,7 @@ import {
   EVENT_REWIND,
   EVENT_POLLUX_OUTCOME,
   EVENT_POLLUX_ESCALATION,
+  EVENT_POLLUX_ADVISOR_ATTEMPT,
   type ApiErrorEvent,
   type ApiRequestEvent,
   type ApiResponseEvent,
@@ -63,6 +64,7 @@ import {
   type OnboardingSuccessEvent,
   type PolluxOutcomeTelemetryEvent,
   type PolluxEscalationTelemetryEvent,
+  type PolluxAdvisorAttemptTelemetryEvent,
 } from './types.js';
 import {
   recordApiErrorMetrics,
@@ -460,6 +462,28 @@ export function logPolluxEscalation(
     // eslint-disable-next-line @typescript-eslint/no-misused-spread
     ...event,
     'event.name': EVENT_POLLUX_ESCALATION,
+    'event.timestamp': new Date().toISOString(),
+  } as UiEvent;
+  uiTelemetryService.addEvent(uiEvent);
+  bufferTelemetryEvent(() => {
+    const logger = logs.getLogger(SERVICE_NAME);
+    const logRecord: LogRecord = {
+      body: event.toLogBody(),
+      attributes: event.toOpenTelemetryAttributes(config),
+    };
+    logger.emit(logRecord);
+  });
+}
+
+export function logPolluxAdvisorAttempt(
+  config: Config,
+  event: PolluxAdvisorAttemptTelemetryEvent,
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  const uiEvent = {
+    // eslint-disable-next-line @typescript-eslint/no-misused-spread
+    ...event,
+    'event.name': EVENT_POLLUX_ADVISOR_ATTEMPT,
     'event.timestamp': new Date().toISOString(),
   } as UiEvent;
   uiTelemetryService.addEvent(uiEvent);

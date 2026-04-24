@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildAdvisorConsultationPrompt,
+  buildAdvisorConsultationRepairPrompt,
   extractPolluxConfidenceTagValues,
   parsePolluxStatusTag,
   parseAdvisorModelResponse,
@@ -143,14 +144,31 @@ describe('pollux/prompts', () => {
       const r = parseAdvisorModelResponse('{"guidance":"Use the left file."}');
       expect(r).toEqual({
         ok: true,
+        parserOutcome: 'direct',
         guidance: 'Use the left file.',
         structuredConfidence: undefined,
       });
     });
 
     it('fails closed on invalid JSON', () => {
-      expect(parseAdvisorModelResponse('not json').ok).toBe(false);
-      expect(parseAdvisorModelResponse('{').ok).toBe(false);
+      expect(parseAdvisorModelResponse('not json')).toMatchObject({
+        ok: false,
+        reason: 'malformed_json',
+        parserOutcome: 'malformed_json',
+      });
+      expect(parseAdvisorModelResponse('{')).toMatchObject({
+        ok: false,
+        reason: 'malformed_json',
+        parserOutcome: 'malformed_json',
+      });
+    });
+
+    it('classifies empty responses explicitly', () => {
+      expect(parseAdvisorModelResponse('')).toMatchObject({
+        ok: false,
+        reason: 'empty_response',
+        parserOutcome: 'empty_response',
+      });
     });
 
     it('fails closed on schema violations', () => {
@@ -171,6 +189,7 @@ describe('pollux/prompts', () => {
       );
       expect(r).toEqual({
         ok: true,
+        parserOutcome: 'direct',
         guidance: 'Next step: run tests.',
         structuredConfidence: 6,
       });
@@ -188,6 +207,7 @@ describe('pollux/prompts', () => {
       );
       expect(r).toEqual({
         ok: true,
+        parserOutcome: 'recovered_fence',
         guidance: 'fenced',
         structuredConfidence: undefined,
       });
@@ -199,6 +219,7 @@ describe('pollux/prompts', () => {
       );
       expect(r).toEqual({
         ok: true,
+        parserOutcome: 'recovered_substring',
         guidance: 'Proceed with write_file.',
         structuredConfidence: 9,
       });
@@ -212,6 +233,20 @@ describe('pollux/prompts', () => {
       expect(p).toContain('"guidance"');
       expect(p).toContain('Consultation payload:');
       expect(p.endsWith('summarize')).toBe(true);
+    });
+  });
+
+  describe('buildAdvisorConsultationRepairPrompt', () => {
+    it('includes the original contract and invalid response context', () => {
+      const p = buildAdvisorConsultationRepairPrompt({
+        input: minimalInput('summarize'),
+        previousResponse: '```json\n{"oops":true}\n```',
+        previousFailure: 'parse_error',
+      });
+      expect(p).toContain('Your previous response could not be accepted.');
+      expect(p).toContain('Failure: parse_error');
+      expect(p).toContain('Previous response:');
+      expect(p).toContain('"oops"');
     });
   });
 });

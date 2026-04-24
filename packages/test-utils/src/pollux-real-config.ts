@@ -149,6 +149,9 @@ export function buildRealBenchmarkSettings(
         enabled: condition.polluxEnabled,
         executorModel: condition.executorModel,
         advisorModel: condition.advisorModel,
+        advisorFallbackModel: condition.polluxEnabled
+          ? condition.executorModel
+          : null,
         ...(detector ? { detector } : {}),
       },
     },

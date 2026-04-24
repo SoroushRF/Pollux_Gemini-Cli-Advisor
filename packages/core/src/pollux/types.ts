@@ -155,6 +155,7 @@ export interface PolluxExperimentalConfig {
   readonly enabled: boolean;
   readonly executorModel: string;
   readonly advisorModel: string;
+  readonly advisorFallbackModel: string | null;
   readonly maxAdvisorCallsPerTurn: number;
   readonly maxAdvisorCallsPerSession: number;
   readonly emitAdvisorDebug: boolean;
@@ -191,6 +192,7 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   enabled: false,
   executorModel: 'gemini-2.5-flash',
   advisorModel: 'gemini-3.1-pro-preview',
+  advisorFallbackModel: 'gemini-3-flash-preview',
   maxAdvisorCallsPerTurn: 2,
   maxAdvisorCallsPerSession: 20,
   emitAdvisorDebug: false,
@@ -330,6 +332,10 @@ export function mergePolluxExperimentalConfig(
     enabled: partial?.enabled ?? d.enabled,
     executorModel: partial?.executorModel ?? d.executorModel,
     advisorModel: partial?.advisorModel ?? d.advisorModel,
+    advisorFallbackModel:
+      partial?.advisorFallbackModel === undefined
+        ? d.advisorFallbackModel
+        : partial.advisorFallbackModel,
     maxAdvisorCallsPerTurn: polluxFiniteNumberInRange(
       partial?.maxAdvisorCallsPerTurn,
       d.maxAdvisorCallsPerTurn,

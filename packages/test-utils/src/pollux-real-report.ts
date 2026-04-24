@@ -9,8 +9,11 @@ import * as path from 'node:path';
 import { getRealBenchmarkSeedTask } from '../../core/src/pollux/benchmark/realTasks.js';
 import type {
   RealBenchmarkAdvisorConsultOutcome,
+  RealBenchmarkAdvisorAttemptRecord,
+  RealBenchmarkCanaryReliabilitySummary,
   RealBenchmarkCampaignManifest,
   RealBenchmarkCampaignSummary,
+  RealBenchmarkCellAggregateSummary,
   RealBenchmarkConditionId,
   RealBenchmarkConditionSummary,
   RealBenchmarkConfusionOutcome,
@@ -18,6 +21,9 @@ import type {
   RealBenchmarkEscalationTimingBucket,
   RealBenchmarkEscalationTimingSummary,
   RealBenchmarkLaneConditionSummary,
+  RealBenchmarkNumericStats,
+  RealBenchmarkRateInterval,
+  RealBenchmarkRepeatSummary,
   RealBenchmarkRunRecord,
   RealBenchmarkRunDiagnosticSummary,
   RealBenchmarkStressSummary,
@@ -29,6 +35,67 @@ function mean(values: number[]): number {
     return 0;
   }
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) {
+    return 0;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
+}
+
+function stddev(values: number[]): number {
+  if (values.length <= 1) {
+    return 0;
+  }
+  const avg = mean(values);
+  const variance =
+    values.reduce((sum, value) => sum + (value - avg) ** 2, 0) /
+    (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+function buildNumericStats(values: number[]): RealBenchmarkNumericStats {
+  return {
+    n: values.length,
+    mean: mean(values),
+    median: median(values),
+    stddev: stddev(values),
+  };
+}
+
+function buildWilsonInterval(
+  successCount: number,
+  sampleCount: number,
+): RealBenchmarkRateInterval {
+  if (sampleCount <= 0) {
+    return {
+      n: sampleCount,
+      proportion: null,
+      lower: null,
+      upper: null,
+    };
+  }
+
+  const z = 1.959963984540054;
+  const p = successCount / sampleCount;
+  const denom = 1 + z ** 2 / sampleCount;
+  const center = p + z ** 2 / (2 * sampleCount);
+  const margin =
+    z *
+    Math.sqrt((p * (1 - p)) / sampleCount + z ** 2 / (4 * sampleCount ** 2));
+
+  return {
+    n: sampleCount,
+    proportion: p,
+    lower: Math.max(0, (center - margin) / denom),
+    upper: Math.min(1, (center + margin) / denom),
+  };
 }
 
 function sumNullable(values: Array<number | null>): number | null {
@@ -45,6 +112,12 @@ function divideOrNull(numerator: number, denominator: number): number | null {
 
 function getEscalationEvents(run: RealBenchmarkRunRecord) {
   return run.escalationEvents ?? [];
+}
+
+function getAdvisorAttempts(
+  run: RealBenchmarkRunRecord,
+): RealBenchmarkAdvisorAttemptRecord[] {
+  return run.advisorAttempts ?? [];
 }
 
 function getExcludedFromConfusion(run: RealBenchmarkRunRecord) {
@@ -157,6 +230,12 @@ function getAdvisorFailureKind(run: RealBenchmarkRunRecord): string | null {
     index -= 1
   ) {
     const failureKind = getEscalationEvents(run)[index]?.failureKind;
+    if (failureKind) {
+      return failureKind;
+    }
+  }
+  for (let index = getAdvisorAttempts(run).length - 1; index >= 0; index -= 1) {
+    const failureKind = getAdvisorAttempts(run)[index]?.failureKind;
     if (failureKind) {
       return failureKind;
     }
@@ -502,6 +581,10 @@ function buildCanaryConsultSummary(params: {
       }).advisorConsultOutcome,
   );
 
+  const consulted = consultOutcomes.filter(
+    (outcome) => outcome === 'consulted',
+  ).length;
+
   return {
     expectedPositiveSampleCount: expectedPositiveRuns.length,
     validExpectedPositiveSampleCount: validExpectedPositiveRuns.length,
@@ -512,8 +595,7 @@ function buildCanaryConsultSummary(params: {
         outcome === 'budget_exhausted' ||
         outcome === 'policy_denied',
     ).length,
-    consulted: consultOutcomes.filter((outcome) => outcome === 'consulted')
-      .length,
+    consulted,
     failOpen: consultOutcomes.filter((outcome) => outcome === 'fail_open')
       .length,
     budgetExhausted: consultOutcomes.filter(
@@ -525,6 +607,14 @@ function buildCanaryConsultSummary(params: {
     notAttempted: consultOutcomes.filter(
       (outcome) => outcome === 'not_attempted',
     ).length,
+    consultSuccessRate: divideOrNull(
+      consulted,
+      validExpectedPositiveRuns.length,
+    ),
+    consultSuccessWilson95: buildWilsonInterval(
+      consulted,
+      validExpectedPositiveRuns.length,
+    ),
   };
 }
 
@@ -561,6 +651,225 @@ function buildStressSummary(params: {
       stressRuns.map((run) => run.modelResponseCount),
     ),
     meanTotalTokens: mean(stressRuns.map((run) => run.tokens.total)),
+  };
+}
+
+function buildRepeatSummaries(params: {
+  manifest: RealBenchmarkCampaignManifest;
+  corpusSha: string;
+  runs: RealBenchmarkRunRecord[];
+  publishabilityBlockers: string[];
+}): RealBenchmarkRepeatSummary[] {
+  const summaries: RealBenchmarkRepeatSummary[] = [];
+  const sampleIndexes = [
+    ...new Set(params.runs.map((run) => run.sampleIndex).sort((a, b) => a - b)),
+  ];
+
+  for (const sampleIndex of sampleIndexes) {
+    const repeatRuns = params.runs.filter(
+      (run) => run.sampleIndex === sampleIndex,
+    );
+    const repeatSummary = buildRealBenchmarkCampaignSummary(
+      params.manifest,
+      params.corpusSha,
+      repeatRuns,
+      params.publishabilityBlockers,
+      { includeRepeatSummaries: false },
+    );
+    summaries.push({
+      sampleIndex,
+      sampleCount: repeatSummary.sampleCount,
+      validSampleCount: repeatSummary.validSampleCount,
+      invalidSampleCount: repeatSummary.invalidSampleCount,
+      canaryConsultSummary: repeatSummary.canaryConsultSummary,
+      escalation: repeatSummary.escalation,
+      publishabilityBlockers: repeatSummary.publishabilityBlockers,
+      summaryPath: `repeats/repeat-${String(sampleIndex).padStart(3, '0')}.summary.json`,
+      reportPath: `repeats/repeat-${String(sampleIndex).padStart(3, '0')}.report.md`,
+    });
+  }
+
+  return summaries;
+}
+
+function buildCellAggregateSummaries(
+  runs: RealBenchmarkRunRecord[],
+  polluxEnabledByCondition: Readonly<Record<RealBenchmarkConditionId, boolean>>,
+): RealBenchmarkCellAggregateSummary[] {
+  const cells = new Map<string, RealBenchmarkRunRecord[]>();
+  for (const run of runs) {
+    const key = `${run.taskId}::${run.conditionId}`;
+    const existing = cells.get(key) ?? [];
+    existing.push(run);
+    cells.set(key, existing);
+  }
+
+  return [...cells.entries()]
+    .map(([cellKey, cellRuns]) => {
+      const validRuns = cellRuns.filter((run) => !run.invalidated);
+      const desiredSatisfiedCount = cellRuns.filter(
+        (run) =>
+          computeDesiredOutcome({
+            run,
+            polluxEnabledByCondition,
+          }).satisfied,
+      ).length;
+      const consultSuccessCount = validRuns.filter(
+        (run) =>
+          computeDesiredOutcome({
+            run,
+            polluxEnabledByCondition,
+          }).advisorConsultOutcome === 'consulted',
+      ).length;
+      const lane = getBenchmarkLane(cellRuns[0]);
+      const parseErrorCount = validRuns.filter((run) =>
+        getAdvisorAttempts(run).some(
+          (attempt) => attempt.outcome === 'parse_error',
+        ),
+      ).length;
+
+      return {
+        cellKey,
+        taskId: cellRuns[0].taskId,
+        conditionId: cellRuns[0].conditionId,
+        lane,
+        repeatCount: cellRuns.length,
+        sampleCount: cellRuns.length,
+        validSampleCount: validRuns.length,
+        invalidSampleCount: cellRuns.length - validRuns.length,
+        desiredOutcomeSatisfiedCount: desiredSatisfiedCount,
+        desiredOutcomeSatisfactionRate:
+          divideOrNull(desiredSatisfiedCount, cellRuns.length) ?? 0,
+        desiredOutcomeWilson95: buildWilsonInterval(
+          desiredSatisfiedCount,
+          cellRuns.length,
+        ),
+        consultSuccessCount,
+        consultSuccessRate: divideOrNull(consultSuccessCount, validRuns.length),
+        consultSuccessWilson95: buildWilsonInterval(
+          consultSuccessCount,
+          validRuns.length,
+        ),
+        failOpenCount: validRuns.filter(
+          (run) =>
+            computeDesiredOutcome({
+              run,
+              polluxEnabledByCondition,
+            }).advisorConsultOutcome === 'fail_open',
+        ).length,
+        parseErrorCount,
+        wallClockMs: buildNumericStats(validRuns.map((run) => run.wallClockMs)),
+        totalTokens: buildNumericStats(
+          validRuns.map((run) => run.tokens.total),
+        ),
+        advisorTokens: buildNumericStats(
+          validRuns.map((run) => run.tokens.advisor),
+        ),
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.conditionId.localeCompare(b.conditionId) ||
+        a.taskId.localeCompare(b.taskId),
+    );
+}
+
+function buildCanaryReliabilitySummary(params: {
+  runs: RealBenchmarkRunRecord[];
+  polluxEnabledByCondition: Readonly<Record<RealBenchmarkConditionId, boolean>>;
+}): RealBenchmarkCanaryReliabilitySummary {
+  const expectedPositiveRuns = params.runs.filter((run) => {
+    const desired = computeDesiredOutcome({
+      run,
+      polluxEnabledByCondition: params.polluxEnabledByCondition,
+    });
+    return desired.lane === 'canary' && desired.expectedEscalation;
+  });
+  const validRuns = expectedPositiveRuns.filter((run) => !run.invalidated);
+  const consultedCount = validRuns.filter(
+    (run) =>
+      computeDesiredOutcome({
+        run,
+        polluxEnabledByCondition: params.polluxEnabledByCondition,
+      }).advisorConsultOutcome === 'consulted',
+  ).length;
+  const failOpenCount = validRuns.filter(
+    (run) =>
+      computeDesiredOutcome({
+        run,
+        polluxEnabledByCondition: params.polluxEnabledByCondition,
+      }).advisorConsultOutcome === 'fail_open',
+  ).length;
+  const falseNegativeCount = validRuns.filter((run) => {
+    const desired = computeDesiredOutcome({
+      run,
+      polluxEnabledByCondition: params.polluxEnabledByCondition,
+    });
+    return desired.expectedEscalation && !desired.predictedEscalation;
+  }).length;
+
+  const failureKindCounts = new Map<string, number>();
+  let primarySuccess = 0;
+  let repairRetrySuccess = 0;
+  let fallbackSuccess = 0;
+  let parseErrorCount = 0;
+
+  for (const run of validRuns) {
+    const attempts = [...getAdvisorAttempts(run)].sort(
+      (a, b) => a.attemptIndex - b.attemptIndex || a.eventIndex - b.eventIndex,
+    );
+    const lastAttempt = attempts[attempts.length - 1];
+    if (lastAttempt?.outcome === 'consulted') {
+      if (lastAttempt.attemptKind === 'primary') {
+        primarySuccess += 1;
+      } else if (lastAttempt.attemptKind === 'repair_retry') {
+        repairRetrySuccess += 1;
+      } else if (lastAttempt.attemptKind === 'fallback') {
+        fallbackSuccess += 1;
+      }
+    }
+
+    for (const attempt of attempts) {
+      if (attempt.outcome === 'parse_error') {
+        parseErrorCount += 1;
+      }
+      if (attempt.failureKind) {
+        failureKindCounts.set(
+          attempt.failureKind,
+          (failureKindCounts.get(attempt.failureKind) ?? 0) + 1,
+        );
+      }
+    }
+  }
+
+  return {
+    expectedPositiveSampleCount: expectedPositiveRuns.length,
+    validExpectedPositiveSampleCount: validRuns.length,
+    consultedCount,
+    failOpenCount,
+    parseErrorCount,
+    falseNegativeCount,
+    budgetExhaustedCount: validRuns.filter(
+      (run) =>
+        computeDesiredOutcome({
+          run,
+          polluxEnabledByCondition: params.polluxEnabledByCondition,
+        }).advisorConsultOutcome === 'budget_exhausted',
+    ).length,
+    consultSuccessRate: divideOrNull(consultedCount, validRuns.length),
+    consultSuccessWilson95: buildWilsonInterval(
+      consultedCount,
+      validRuns.length,
+    ),
+    attemptPathCounts: {
+      primarySuccess,
+      repairRetrySuccess,
+      fallbackSuccess,
+      finalFailOpen: failOpenCount,
+    },
+    failureKindCounts: Object.fromEntries(
+      [...failureKindCounts.entries()].sort(([a], [b]) => a.localeCompare(b)),
+    ),
   };
 }
 
@@ -831,6 +1140,7 @@ export function buildRealBenchmarkCampaignSummary(
   corpusSha: string,
   runs: RealBenchmarkRunRecord[],
   publishabilityBlockers: string[],
+  options?: { includeRepeatSummaries?: boolean },
 ): RealBenchmarkCampaignSummary {
   const validRuns = runs.filter((run) => !run.invalidated);
   const includedRuns = validRuns.filter(
@@ -860,6 +1170,23 @@ export function buildRealBenchmarkCampaignSummary(
     runs,
     polluxEnabledByCondition,
   });
+  const repeatSummaries =
+    options?.includeRepeatSummaries === false
+      ? []
+      : buildRepeatSummaries({
+          manifest,
+          corpusSha,
+          runs,
+          publishabilityBlockers,
+        });
+  const cellAggregateSummaries = buildCellAggregateSummaries(
+    runs,
+    polluxEnabledByCondition,
+  );
+  const canaryReliabilitySummary = buildCanaryReliabilitySummary({
+    runs,
+    polluxEnabledByCondition,
+  });
   const stressSummary = buildStressSummary({ runs });
 
   return {
@@ -877,6 +1204,9 @@ export function buildRealBenchmarkCampaignSummary(
     ),
     laneConditionSummaries,
     canaryConsultSummary,
+    repeatSummaries,
+    cellAggregateSummaries,
+    canaryReliabilitySummary,
     stressSummary,
     escalation: {
       includedSampleCount: includedRuns.length,
@@ -925,6 +1255,17 @@ function formatRate(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+function formatWilsonInterval(interval: RealBenchmarkRateInterval): string {
+  if (
+    interval.proportion === null ||
+    interval.lower === null ||
+    interval.upper === null
+  ) {
+    return 'n/a';
+  }
+  return `${formatRate(interval.proportion)} [${formatRate(interval.lower)}, ${formatRate(interval.upper)}]`;
+}
+
 function appendLaneSection(
   lines: string[],
   summary: RealBenchmarkCampaignSummary,
@@ -961,6 +1302,9 @@ function appendLaneSection(
     );
     lines.push(
       `- Consult outcomes: attempted=${summary.canaryConsultSummary.attempted}, consulted=${summary.canaryConsultSummary.consulted}, fail_open=${summary.canaryConsultSummary.failOpen}, budget_exhausted=${summary.canaryConsultSummary.budgetExhausted}, policy_denied=${summary.canaryConsultSummary.policyDenied}, not_attempted=${summary.canaryConsultSummary.notAttempted}`,
+    );
+    lines.push(
+      `- Consult success: ${formatWilsonInterval(summary.canaryConsultSummary.consultSuccessWilson95)}`,
     );
   }
   lines.push('');
@@ -1036,7 +1380,64 @@ export function renderRealBenchmarkCampaignReport(
     lines.push('');
   }
   appendLaneSection(lines, summary, 'canary', '## 5) Canary lane');
-  lines.push('## 6) Escalation confusion matrix');
+  lines.push('## 6) Canary reliability');
+  lines.push('');
+  lines.push(
+    `- Success rate: ${formatWilsonInterval(summary.canaryReliabilitySummary.consultSuccessWilson95)}`,
+  );
+  lines.push(
+    `- Expected-positive canaries: ${summary.canaryReliabilitySummary.expectedPositiveSampleCount} total, ${summary.canaryReliabilitySummary.validExpectedPositiveSampleCount} valid`,
+  );
+  lines.push(
+    `- Outcomes: consulted=${summary.canaryReliabilitySummary.consultedCount}, fail_open=${summary.canaryReliabilitySummary.failOpenCount}, parse_error=${summary.canaryReliabilitySummary.parseErrorCount}, false_negative=${summary.canaryReliabilitySummary.falseNegativeCount}, budget_exhausted=${summary.canaryReliabilitySummary.budgetExhaustedCount}`,
+  );
+  lines.push(
+    `- Recovery paths: primary_success=${summary.canaryReliabilitySummary.attemptPathCounts.primarySuccess}, repair_retry_success=${summary.canaryReliabilitySummary.attemptPathCounts.repairRetrySuccess}, fallback_success=${summary.canaryReliabilitySummary.attemptPathCounts.fallbackSuccess}, final_fail_open=${summary.canaryReliabilitySummary.attemptPathCounts.finalFailOpen}`,
+  );
+  if (
+    Object.keys(summary.canaryReliabilitySummary.failureKindCounts).length > 0
+  ) {
+    lines.push('');
+    lines.push('| Failure kind | Count |');
+    lines.push('| --- | ---: |');
+    for (const [failureKind, count] of Object.entries(
+      summary.canaryReliabilitySummary.failureKindCounts,
+    )) {
+      lines.push(`| ${failureKind} | ${count} |`);
+    }
+  }
+  lines.push('');
+  if (summary.repeatSummaries.length > 0) {
+    lines.push('## 7) Repeat summaries');
+    lines.push('');
+    lines.push(
+      '| Repeat | Samples | Valid | Invalid | Canary consult success | Escalation precision | Escalation recall | Summary | Report |',
+    );
+    lines.push('| --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- |');
+    for (const repeat of summary.repeatSummaries) {
+      lines.push(
+        `| ${repeat.sampleIndex} | ${repeat.sampleCount} | ${repeat.validSampleCount} | ${repeat.invalidSampleCount} | ${formatWilsonInterval(repeat.canaryConsultSummary.consultSuccessWilson95)} | ${formatRate(repeat.escalation.precision)} | ${formatRate(repeat.escalation.recall)} | ${repeat.summaryPath} | ${repeat.reportPath} |`,
+      );
+    }
+    lines.push('');
+  }
+  if (summary.cellAggregateSummaries.length > 0) {
+    lines.push('## 8) Cell aggregates');
+    lines.push('');
+    lines.push(
+      '| Cell | Lane | Repeats | Valid | Invalid | Desired outcome | Consult success | Fail-open | Parse error | Wall ms (mean/median/stddev) | Total tokens (mean/median/stddev) | Advisor tokens (mean/median/stddev) |',
+    );
+    lines.push(
+      '| --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |',
+    );
+    for (const cell of summary.cellAggregateSummaries) {
+      lines.push(
+        `| ${cell.conditionId}/${cell.taskId} | ${cell.lane} | ${cell.repeatCount} | ${cell.validSampleCount} | ${cell.invalidSampleCount} | ${formatWilsonInterval(cell.desiredOutcomeWilson95)} | ${formatWilsonInterval(cell.consultSuccessWilson95)} | ${cell.failOpenCount} | ${cell.parseErrorCount} | ${formatNumber(cell.wallClockMs.mean)}/${formatNumber(cell.wallClockMs.median)}/${formatNumber(cell.wallClockMs.stddev)} | ${formatNumber(cell.totalTokens.mean)}/${formatNumber(cell.totalTokens.median)}/${formatNumber(cell.totalTokens.stddev)} | ${formatNumber(cell.advisorTokens.mean)}/${formatNumber(cell.advisorTokens.median)}/${formatNumber(cell.advisorTokens.stddev)} |`,
+      );
+    }
+    lines.push('');
+  }
+  lines.push('## 9) Escalation confusion matrix');
   lines.push('');
   lines.push(
     `- Included samples: ${summary.escalation.includedSampleCount} (excluded fail_open=${summary.escalation.exclusionCounts.failOpen}, budget_exhausted=${summary.escalation.exclusionCounts.budgetExhausted})`,
@@ -1051,7 +1452,7 @@ export function renderRealBenchmarkCampaignReport(
     `- Recall: ${formatRate(summary.escalation.recall)} (${summary.escalation.truePositive}/${summary.escalation.expectedPositive})`,
   );
   lines.push('');
-  lines.push('## 7) Escalation timing split');
+  lines.push('## 10) Escalation timing split');
   lines.push('');
   lines.push('| Timing | Included | TP | FP | FN | TN | Precision | Recall |');
   lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
@@ -1061,7 +1462,7 @@ export function renderRealBenchmarkCampaignReport(
     );
   }
   lines.push('');
-  lines.push('## 8) Per-sample diagnostics');
+  lines.push('## 11) Per-sample diagnostics');
   lines.push('');
   if (summary.runDiagnostics.length === 0) {
     lines.push('- No run diagnostics were captured.');
@@ -1079,7 +1480,7 @@ export function renderRealBenchmarkCampaignReport(
     }
   }
   lines.push('');
-  lines.push('## 9) Reason-code distribution');
+  lines.push('## 12) Reason-code distribution');
   lines.push('');
   const reasonEntries = Object.entries(summary.reasonCodeCounts);
   if (reasonEntries.length === 0) {
@@ -1092,7 +1493,7 @@ export function renderRealBenchmarkCampaignReport(
     }
   }
   lines.push('');
-  lines.push('## 10) Publishability verdict');
+  lines.push('## 13) Publishability verdict');
   lines.push('');
   if (summary.publishabilityBlockers.length === 0) {
     lines.push(

@@ -1,6 +1,6 @@
 # P4-09 Real Benchmark Operator Playbook
 
-Version: 1.0 Date: 2026-04-22 Status: Foundation ready for live pilot use
+Version: 1.1 Date: 2026-04-24 Status: Milestone 2 pilot reliability runner ready
 
 ---
 
@@ -30,6 +30,10 @@ npm run benchmark:pollux:real:preflight -- --campaign-id pilot-local-001
 npm run benchmark:pollux:real:pilot -- --campaign-id pilot-local-001 --repeats 3
 ```
 
+```powershell
+npm run benchmark:pollux:real:acceptance -- --acceptance-id m2-acceptance-001 --pricing-snapshot docs/core/pollux/P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_TEMPLATE.json
+```
+
 For targeted debugging, constrain runaway samples explicitly:
 
 ```powershell
@@ -49,6 +53,10 @@ npm run benchmark:pollux:real:pilot -- --campaign-id pilot-local-001 --pricing-s
 Artifacts are written under:
 
 `artifacts/pollux/real-runs/<campaign-id>/`
+
+Acceptance artifacts are written under:
+
+`artifacts/pollux/real-runs/<acceptance-id>/`
 
 ---
 
@@ -71,6 +79,9 @@ Run this before every live pilot:
 8. Inspect the self-report smoke result: valid `<pollux:status .../>` tags must
    parse and strip, and malformed near-misses such as
    `<pollux:statusstuck_on=...>` must be rejected.
+9. If using `--repeats > 1`, choose a fresh campaign id or pass
+   `--allow-overwrite true` deliberately. The runner now fails fast on duplicate
+   artifact roots.
 
 ---
 
@@ -110,7 +121,10 @@ The pilot runner:
 9. runs the task oracle
 10. enforces per-sample wall-clock and model-response ceilings
 11. writes one raw JSON record per sample
-12. renders `summary.json` and `report.md`
+12. renders pooled `summary.json` and `report.md`
+13. when `--repeats > 1`, also renders one full summary/report pair per repeat
+14. for Pollux-enabled runs, records one benchmark-visible advisor-attempt event
+    per real advisor model call
 
 ---
 
@@ -127,6 +141,8 @@ For a successful pilot you should expect:
 7. `raw/<condition>/<task>/run-001.json`
 8. `summary.json`
 9. `report.md`
+10. `repeats/repeat-001.summary.json` when repeats are greater than one
+11. `repeats/repeat-001.report.md` when repeats are greater than one
 
 Scratch workspaces/homes are also kept by default so failed samples are easier
 to inspect.
@@ -146,19 +162,37 @@ Then inspect raw samples for:
 2. `promptId`
 3. `responseIds`
 4. `observedAdvisorCalls`
-5. `expectedEscalation`, `predictedEscalation`, and `confusionOutcome`
-6. `stdoutStatusTagCount`, `malformedStatusTagCount`, `nearMissStatusTagCount`,
+5. `advisorAttempts`
+6. `expectedEscalation`, `predictedEscalation`, and `confusionOutcome`
+7. `stdoutStatusTagCount`, `malformedStatusTagCount`, `nearMissStatusTagCount`,
    and `toolErrorCount`
-7. `tokens.total`, `tokens.advisor`, `tokens.executor`
-8. fairness pins
-9. `entrypointKind`, `entrypointPath`, and `buildFreshness`
-10. `structuredErrorEvidence`
-11. `stdoutPath`, `stderrPath`, `telemetryPath`
+8. `tokens.total`, `tokens.advisor`, `tokens.executor`
+9. fairness pins
+10. `entrypointKind`, `entrypointPath`, and `buildFreshness`
+11. `structuredErrorEvidence`
+12. `stdoutPath`, `stderrPath`, `telemetryPath`
 
 In `report.md`, always inspect the per-sample diagnostics table before trusting
 the aggregate rates. A `missing_event` timing row is the expected place for
 valid false negatives: it means Pollux should have escalated for the task and
 condition, but no consult-related telemetry appeared.
+
+For repeat-aware campaigns, read the artifacts in two passes:
+
+1. use top-level `summary.json` and `report.md` for pooled rates across all
+   repeats
+2. use `repeats/repeat-00N.*` to inspect each repeat as a standalone campaign
+3. use `cellAggregateSummaries` and the report's cell-aggregate section to see
+   mean/median/stddev behavior by `task x condition`
+
+For canary interpretation, inspect:
+
+1. `canaryConsultSummary` for top-line consult/fail-open counts
+2. `canaryReliabilitySummary` for expected-positive consult success, Wilson 95%
+   interval, and recovery-path counts
+3. `advisorAttempts` in raw samples to see whether success happened on the
+   primary attempt, repair retry, or fallback model
+4. `advisorFailureKind` only after checking the underlying attempt records
 
 If a task is flaky, fix the task or oracle before increasing repeat counts.
 
@@ -182,6 +216,22 @@ Do not publish results if any of these are true:
     valid samples
 12. model-capacity, timeout, or model-call-ceiling invalidations are not
     disclosed separately from task/oracle failures
+
+For Milestone 2 acceptance, also stop if any of these are true:
+
+1. the run is not scoped to the current pilot pair:
+   `executor=gemini-3-flash-preview`, `advisor=gemini-3.1-pro-preview`,
+   `fallback=gemini-3-flash-preview`
+2. fewer than `5 campaigns x 3 repeats` are present
+3. valid expected-positive canaries are not exactly `30`
+4. canary consult success is below `0.90`
+5. Wilson 95% lower bound for consult success is below `0.75`
+6. any expected-positive canary ends with `parse_error`
+7. any expected-positive canary is a false negative
+8. any expected-positive canary ends with `budget_exhausted`
+9. any core-lane desired outcome fails in the same acceptance batch
+10. acceptance used a dirty worktree, dev-script entrypoint, mismatched dist, or
+    no frozen pricing snapshot
 
 ---
 

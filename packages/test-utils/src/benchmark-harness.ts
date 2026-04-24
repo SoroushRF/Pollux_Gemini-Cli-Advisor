@@ -187,6 +187,7 @@ export interface BenchmarkSettingsOverrides {
       enabled: boolean;
       executorModel: string;
       advisorModel?: string;
+      advisorFallbackModel?: string | null;
       detector?: BenchmarkCondition['detector'];
     };
   };
@@ -345,6 +346,9 @@ export class BenchmarkHarness {
           enabled: condition.advisorModel !== undefined,
           executorModel: condition.executorModel,
           advisorModel: condition.advisorModel,
+          advisorFallbackModel: condition.advisorModel
+            ? condition.executorModel
+            : null,
           detector: condition.detector,
         },
       },

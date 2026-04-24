@@ -1115,7 +1115,7 @@ describe('Gemini Client (client.ts)', () => {
           (event) => event.type === GeminiEventType.UserCancelled,
         ),
       ).toBe(false);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('runs same-turn advisor before yielding high-risk ToolCallRequest events (Phase B pre-tool)', async () => {
@@ -1189,7 +1189,7 @@ describe('Gemini Client (client.ts)', () => {
 
       expect(sawToolCall).toBe(true);
       expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
 
       const remaining: ServerGeminiStreamEvent[] = [];
       // Drain the stream to avoid leaking pending async work in this test.
@@ -1257,7 +1257,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(
         events.some((event) => event.type === GeminiEventType.ToolCallRequest),
       ).toBe(true);
@@ -1395,7 +1395,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
       expect(
         events.filter(
@@ -1484,7 +1484,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(sendMessageStreamSpy).toHaveBeenCalledTimes(2);
       expect(events).not.toContainEqual({ type: GeminiEventType.LoopDetected });
     });
@@ -1628,7 +1628,7 @@ describe('Gemini Client (client.ts)', () => {
             e.value === 'after recovery stream',
         ),
       ).toBe(true);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('Phase C §C.5: HARD_LOOP same-turn policy DENY queues next-turn; recovery turn consults once when ALLOW', async () => {
@@ -1712,7 +1712,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       expect(mockPolicyCheck).toHaveBeenCalledTimes(2);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('Phase C §C.5: HARD_LOOP same-turn budget exhausted downgrades; recovery turn consults queued intent', async () => {
@@ -2051,7 +2051,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     // ──────────────────────────────────────────────────────────────
@@ -2144,7 +2144,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       const events = telemetry.stop();
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       const pending = events.find((e) => e.phase === 'pending');
       expect(pending?.escalationTiming).toBe('next_turn');
       expect(pending?.contributingSignalIds).toEqual([
@@ -2226,7 +2226,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       const events = telemetry.stop();
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       const pending = events.find((e) => e.phase === 'pending');
       expect(pending?.escalationTiming).toBe('same_turn');
       expect(pending?.pauseBoundary).toBe('post_event');
@@ -2330,7 +2330,7 @@ describe('Gemini Client (client.ts)', () => {
       expect(advisorSpy.mock.calls[0]?.[0]).toMatchObject({
         model: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
       });
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(
         events
           .filter((event) => event.phase === 'consulting')
@@ -2419,7 +2419,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       // Exactly one same-turn consult fired during the turn.
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       // The second risk trigger must have been downgraded to a next-turn
       // intent on the client, preserving its reason code.
       const queued = client['polluxPendingNextTurnIntent'];
@@ -2497,7 +2497,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(client['polluxSameTurnFiredThisTurn']).toBe(true);
     });
 
@@ -2978,7 +2978,7 @@ describe('Gemini Client (client.ts)', () => {
           (event) => event.type === GeminiEventType.UserCancelled,
         ),
       ).toBe(false);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('keeps interactive agent-session output baseline-identical when Pollux is disabled (D3 Cell A)', async () => {
@@ -3173,7 +3173,7 @@ describe('Gemini Client (client.ts)', () => {
           (event) => event.type === GeminiEventType.UserCancelled,
         ),
       ).toBe(false);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('keeps non-interactive agent-session output baseline-identical when Pollux is disabled (D4 Cell A)', async () => {
@@ -3368,7 +3368,7 @@ describe('Gemini Client (client.ts)', () => {
           (event) => event.type === GeminiEventType.UserCancelled,
         ),
       ).toBe(false);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it('keeps ACP output baseline-identical when Pollux is disabled (D5 Cell A)', async () => {
@@ -3563,7 +3563,7 @@ describe('Gemini Client (client.ts)', () => {
           (event) => event.type === GeminiEventType.UserCancelled,
         ),
       ).toBe(false);
-      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
     });
 
     it.each([
@@ -3650,7 +3650,7 @@ describe('Gemini Client (client.ts)', () => {
             (event) => event.type === GeminiEventType.UserCancelled,
           ),
         ).toBe(false);
-        expect(advisorSpy).toHaveBeenCalledTimes(1);
+        expect(advisorSpy).toHaveBeenCalledTimes(2);
       },
     );
 
@@ -3732,9 +3732,67 @@ describe('Gemini Client (client.ts)', () => {
             (event) => event.type === GeminiEventType.UserCancelled,
           ),
         ).toBe(false);
-        expect(advisorSpy).toHaveBeenCalledTimes(1);
+        expect(advisorSpy).toHaveBeenCalledTimes(2);
       },
     );
+
+    it('records primary parse_error then repair_retry consulted attempt telemetry on recovery', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield { type: GeminiEventType.Content, value: 'Hello' };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockResolvedValueOnce({
+          candidates: [{ content: { parts: [{ text: '{malformed json' }] } }],
+        } as GenerateContentResponse)
+        .mockResolvedValueOnce({
+          candidates: [
+            { content: { parts: [{ text: '{"guidance":"recovered"}' }] } },
+          ],
+        } as GenerateContentResponse);
+      const attemptSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxAdvisorAttempt')
+        .mockImplementation(() => {});
+
+      seedPolluxCompositeIntent(client);
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: POLLUX_ESCALATION_INPUT }],
+          new AbortController().signal,
+          'pollux-m2-repair-retry',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(attemptSpy).toHaveBeenCalledTimes(2);
+      expect(attemptSpy.mock.calls[0]?.[1]).toMatchObject({
+        attempt_kind: 'primary',
+        outcome: 'parse_error',
+        parser_outcome: 'malformed_json',
+      });
+      expect(attemptSpy.mock.calls[1]?.[1]).toMatchObject({
+        attempt_kind: 'repair_retry',
+        outcome: 'consulted',
+        parser_outcome: 'direct',
+      });
+    });
 
     it.each([
       {
@@ -6826,13 +6884,16 @@ ${JSON.stringify(
         ],
       } as GenerateContentResponse);
 
-      const result = await client['attemptPolluxAdvisorConsultationWithModel'](
-        DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
-        'advisor prompt',
-        new AbortController().signal,
-        DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
-        undefined,
-      );
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorSignal: new AbortController().signal,
+        executorModel: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
+        escalationMeta: undefined,
+      });
 
       expect(result).toMatchObject({
         consultationSucceeded: false,

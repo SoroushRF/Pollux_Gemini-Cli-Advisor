@@ -60,6 +60,14 @@ describe('pollux/types', () => {
       ).toBe(1000);
     });
 
+    it('preserves explicit advisorFallbackModel null overrides', () => {
+      expect(
+        mergePolluxExperimentalConfig({
+          advisorFallbackModel: null,
+        }).advisorFallbackModel,
+      ).toBeNull();
+    });
+
     it('merges nested detector subtree with defaults', () => {
       const merged = mergePolluxExperimentalConfig({
         detector: {
@@ -107,6 +115,7 @@ describe('pollux/types', () => {
       expect(cfg.enabled).toBe(false);
       expect(cfg.executorModel).toBe('gemini-2.5-flash');
       expect(cfg.advisorModel).toBe('gemini-3.1-pro-preview');
+      expect(cfg.advisorFallbackModel).toBe('gemini-3-flash-preview');
       expect(cfg.maxAdvisorCallsPerTurn).toBe(2);
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
       expect(cfg.emitAdvisorDebug).toBe(false);
