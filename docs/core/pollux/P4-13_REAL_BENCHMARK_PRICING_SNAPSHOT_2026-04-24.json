@@ -1,0 +1,23 @@
+{
+  "id": "pricing-snapshot-2026-04-24-gemini-3-pilot-pair",
+  "capturedAt": "2026-04-24T21:45:00.000Z",
+  "sourceUrl": "https://ai.google.dev/pricing",
+  "notes": "Frozen for Pollux Milestone 2 acceptance on 2026-04-24. Uses Gemini Developer API published standard text pricing. gemini-3-flash-preview is taken directly from the official pricing page. gemini-3.1-pro-preview is mapped to Google's published gemini-3-pro-preview pricing because Google docs currently expose gemini-3-pro-preview pricing and model metadata, but not a distinct official gemini-3.1-pro-preview pricing row. This snapshot assumes prompts remain within the <=200k token tier and does not model audio-specific pricing, batch discounts, grounding charges, or cache storage-hour charges.",
+  "models": {
+    "gemini-3-flash-preview": {
+      "inputUsdPerMillion": 0.5,
+      "outputUsdPerMillion": 3,
+      "cachedInputUsdPerMillion": 0.05
+    },
+    "gemini-3.1-pro-preview": {
+      "inputUsdPerMillion": 2,
+      "outputUsdPerMillion": 12,
+      "cachedInputUsdPerMillion": 0.2
+    },
+    "gemini-3-pro-preview": {
+      "inputUsdPerMillion": 2,
+      "outputUsdPerMillion": 12,
+      "cachedInputUsdPerMillion": 0.2
+    }
+  }
+}
