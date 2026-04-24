@@ -18,15 +18,21 @@ import {
 import {
   POLLUX_REAL_AUTH_SEED_FILES,
   buildRealBenchmarkSettings,
+  collectRealBenchmarkBuildFreshness,
   getDefaultGeminiHome,
   resolveCliEntrypoint,
 } from './pollux-real-config.js';
 import type {
   PolluxRealPilotOptions,
+  RealBenchmarkAdvisorConsultOutcome,
   RealBenchmarkConditionProfile,
+  RealBenchmarkConfusionOutcome,
+  RealBenchmarkDesiredOutcomeReasonCode,
   RealBenchmarkEscalationEvent,
+  RealBenchmarkInvalidationReason,
   RealBenchmarkPricingSnapshot,
   RealBenchmarkRunRecord,
+  RealBenchmarkStructuredErrorEvidence,
   RealBenchmarkTelemetrySummary,
 } from './pollux-real-types.js';
 
@@ -40,6 +46,278 @@ interface RunProcessResult {
   stdout: string;
   stderr: string;
   wallClockMs: number;
+  timedOut: boolean;
+}
+
+const CONSULT_ATTEMPT_OUTCOMES = new Set([
+  'consulted',
+  'fail_open',
+  'budget_exhausted',
+  'policy_denied',
+  'deferred_next_turn',
+]);
+
+function countEscalationAttempts(
+  escalationEvents: readonly RealBenchmarkEscalationEvent[],
+): number {
+  return escalationEvents.filter(
+    (event): boolean =>
+      event.outcome !== null && CONSULT_ATTEMPT_OUTCOMES.has(event.outcome),
+  ).length;
+}
+
+function countStatusTagsInText(text: string): number {
+  const matches = text.match(/<pollux:status\b[^>]*\/?>/gi);
+  return matches?.length ?? 0;
+}
+
+function countStatusNearMissesInText(text: string): number {
+  const allStatusPrefixes = text.match(/<pollux:status[^>]*(?:>|$)/gi) ?? [];
+  const validStatusTags = text.match(/<pollux:status\b[^>]*\/?>/gi) ?? [];
+  return Math.max(0, allStatusPrefixes.length - validStatusTags.length);
+}
+
+function countWorkspacePathViolations(stderr: string): number {
+  const matches = stderr.match(/Path not in workspace/gi);
+  return matches?.length ?? 0;
+}
+
+function countToolErrors(stderr: string): number {
+  const patterns = [
+    /Path not in workspace/gi,
+    /Parameter name '[^']+' is ambiguous/gi,
+    /Error executing tool/gi,
+    /Command failed/gi,
+    /exited with code:\s*(?!0\b)-?\d+/gi,
+  ];
+  return patterns.reduce(
+    (sum, pattern) => sum + (stderr.match(pattern)?.length ?? 0),
+    0,
+  );
+}
+
+function formatExitCodeHex(exitCode: number | null): string | null {
+  if (exitCode === null) {
+    return null;
+  }
+  return `0x${(exitCode >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+}
+
+function truncateForEvidence(text: string): string | null {
+  const trimmed = text.replace(/\s+/g, ' ').trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 500) : null;
+}
+
+function extractStructuredErrorEvidence(
+  exitCode: number | null,
+  stderr: string,
+): RealBenchmarkStructuredErrorEvidence | null {
+  if (exitCode === 0 && stderr.trim().length === 0) {
+    return null;
+  }
+
+  const statusMatch = /(?:status|code)[^\d]{0,10}(429|401|403|500|503)/i.exec(
+    stderr,
+  );
+  const reasonMatch =
+    /\b(MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|RATE_LIMIT_EXCEEDED|QUOTA_EXCEEDED|UNAUTHENTICATED|PERMISSION_DENIED)\b/i.exec(
+      stderr,
+    );
+  const codeMatch = /\b(429|401|403|500|503)\b/.exec(stderr);
+
+  return {
+    source: stderr.trim().length > 0 ? 'stderr' : 'process',
+    exitCode,
+    exitCodeHex: formatExitCodeHex(exitCode),
+    matchedStatus: statusMatch
+      ? Number.parseInt(statusMatch[1], 10)
+      : codeMatch
+        ? Number.parseInt(codeMatch[1], 10)
+        : null,
+    matchedReason: reasonMatch?.[1] ?? null,
+    matchedCode: codeMatch?.[1] ?? null,
+    messageSnippet: truncateForEvidence(stderr),
+  };
+}
+
+function classifyInvalidationFromEvidence(
+  evidence: RealBenchmarkStructuredErrorEvidence | null,
+  stderr: string,
+): RealBenchmarkInvalidationReason {
+  const reason = evidence?.matchedReason?.toUpperCase() ?? '';
+  if (
+    reason === 'MODEL_CAPACITY_EXHAUSTED' ||
+    reason === 'RESOURCE_EXHAUSTED' ||
+    /model_capacity_exhausted|resource_exhausted|no capacity available/i.test(
+      stderr,
+    )
+  ) {
+    return 'model_capacity_exhausted';
+  }
+  if (
+    evidence?.matchedStatus === 429 ||
+    reason === 'RATE_LIMIT_EXCEEDED' ||
+    reason === 'QUOTA_EXCEEDED' ||
+    /rate.?limit|quota/i.test(stderr)
+  ) {
+    return 'rate_limit_contamination';
+  }
+  if (
+    reason === 'UNAUTHENTICATED' ||
+    reason === 'PERMISSION_DENIED' ||
+    /auth|login|credential/i.test(stderr)
+  ) {
+    return 'auth_failure';
+  }
+  return 'cli_exit_nonzero';
+}
+
+export function classifyRealBenchmarkProcessFailure(
+  exitCode: number | null,
+  stderr: string,
+): {
+  reason: RealBenchmarkInvalidationReason;
+  evidence: RealBenchmarkStructuredErrorEvidence | null;
+} {
+  const evidence = extractStructuredErrorEvidence(exitCode, stderr);
+  return {
+    reason: classifyInvalidationFromEvidence(evidence, stderr),
+    evidence,
+  };
+}
+
+function computeExpectedEscalation(
+  task: RealBenchmarkTaskSpec,
+  condition: RealBenchmarkConditionProfile,
+): boolean {
+  return task.escalates === true && condition.polluxEnabled;
+}
+
+function computePredictedEscalation(
+  telemetry: RealBenchmarkTelemetrySummary,
+): boolean {
+  return telemetry.escalationAttemptCount > 0 || telemetry.advisorCalls > 0;
+}
+
+function computeAdvisorConsultOutcome(params: {
+  expectedEscalation: boolean;
+  escalationEvents: readonly RealBenchmarkEscalationEvent[];
+}): RealBenchmarkAdvisorConsultOutcome {
+  if (!params.expectedEscalation) {
+    return 'not_expected';
+  }
+
+  for (const event of params.escalationEvents) {
+    if (
+      event.outcome === 'consulted' ||
+      event.outcome === 'fail_open' ||
+      event.outcome === 'budget_exhausted' ||
+      event.outcome === 'policy_denied'
+    ) {
+      return event.outcome;
+    }
+  }
+
+  return 'not_attempted';
+}
+
+function computeAdvisorFailureKind(
+  escalationEvents: readonly RealBenchmarkEscalationEvent[],
+): string | null {
+  for (let index = escalationEvents.length - 1; index >= 0; index -= 1) {
+    const failureKind = escalationEvents[index].failureKind;
+    if (failureKind) {
+      return failureKind;
+    }
+  }
+  return null;
+}
+
+function computeDesiredOutcome(params: {
+  benchmarkLane: RealBenchmarkTaskSpec['benchmarkLane'];
+  invalidated: boolean;
+  oraclePass: boolean;
+  expectedEscalation: boolean;
+  predictedEscalation: boolean;
+  advisorConsultOutcome: RealBenchmarkAdvisorConsultOutcome;
+}): {
+  satisfied: boolean;
+  reasonCode: RealBenchmarkDesiredOutcomeReasonCode;
+} {
+  if (params.benchmarkLane === 'core') {
+    if (params.invalidated) {
+      return { satisfied: false, reasonCode: 'core.invalidated' };
+    }
+    if (!params.oraclePass) {
+      return { satisfied: false, reasonCode: 'core.oracle_failed' };
+    }
+    return { satisfied: true, reasonCode: 'core.oracle_pass' };
+  }
+
+  if (params.benchmarkLane === 'stress') {
+    if (params.invalidated) {
+      return { satisfied: false, reasonCode: 'stress.invalidated' };
+    }
+    if (!params.oraclePass) {
+      return { satisfied: false, reasonCode: 'stress.oracle_failed' };
+    }
+    return { satisfied: true, reasonCode: 'stress.oracle_pass' };
+  }
+
+  if (params.invalidated) {
+    return { satisfied: false, reasonCode: 'canary.invalidated' };
+  }
+  if (!params.oraclePass) {
+    return { satisfied: false, reasonCode: 'canary.oracle_failed' };
+  }
+  if (!params.expectedEscalation && !params.predictedEscalation) {
+    return { satisfied: true, reasonCode: 'canary.true_negative' };
+  }
+  if (!params.expectedEscalation && params.predictedEscalation) {
+    return { satisfied: false, reasonCode: 'canary.unexpected_escalation' };
+  }
+  if (params.expectedEscalation && !params.predictedEscalation) {
+    return { satisfied: false, reasonCode: 'canary.missed_escalation' };
+  }
+
+  if (params.advisorConsultOutcome === 'consulted') {
+    return { satisfied: true, reasonCode: 'canary.consulted_true_positive' };
+  }
+  if (params.advisorConsultOutcome === 'fail_open') {
+    return { satisfied: false, reasonCode: 'canary.fail_open' };
+  }
+  if (params.advisorConsultOutcome === 'budget_exhausted') {
+    return { satisfied: false, reasonCode: 'canary.budget_exhausted' };
+  }
+  if (params.advisorConsultOutcome === 'policy_denied') {
+    return { satisfied: false, reasonCode: 'canary.policy_denied' };
+  }
+
+  return {
+    satisfied: false,
+    reasonCode: 'canary.predicted_without_consult',
+  };
+}
+
+function computeConfusionOutcome(params: {
+  expected: boolean;
+  predicted: boolean;
+  invalidated: boolean;
+  excludedFromConfusion: RealBenchmarkRunRecord['excludedFromConfusion'];
+}): RealBenchmarkConfusionOutcome {
+  if (params.invalidated || params.excludedFromConfusion !== null) {
+    return 'excluded';
+  }
+  if (params.expected && params.predicted) {
+    return 'true_positive';
+  }
+  if (!params.expected && params.predicted) {
+    return 'false_positive';
+  }
+  if (params.expected && !params.predicted) {
+    return 'false_negative';
+  }
+  return 'true_negative';
 }
 
 function sanitizeSegment(value: string): string {
@@ -48,6 +326,10 @@ function sanitizeSegment(value: string): string {
 
 function ensureDir(dirPath: string): void {
   fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function positiveNumberOrFallback(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function writeJson(filePath: string, value: unknown): void {
@@ -259,6 +541,7 @@ export function summarizeRealBenchmarkTelemetry(
   let hasAnyCost = false;
 
   const escalationEvents = parseEscalationTelemetryEvents(events);
+  const escalationAttemptCount = countEscalationAttempts(escalationEvents);
 
   for (const event of events) {
     const attributes = event.attributes;
@@ -319,6 +602,7 @@ export function summarizeRealBenchmarkTelemetry(
     responseIds: [...responseIds],
     serviceLatencyMs,
     advisorCalls,
+    escalationAttemptCount,
     escalationEvents,
     tokens: {
       total: totalTokens,
@@ -381,14 +665,21 @@ async function runHeadlessCli(
   args: string[],
   cwd: string,
   homeDir: string,
+  timeoutMs: number,
 ): Promise<RunProcessResult> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
+    let settled = false;
+    let timedOut = false;
     const child = spawn(command, args, {
       cwd,
       env: buildCleanEnv(homeDir),
       stdio: 'pipe',
     });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
 
     let stdout = '';
     let stderr = '';
@@ -402,14 +693,25 @@ async function runHeadlessCli(
       stderr += chunk;
     });
     child.on('error', (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       reject(error);
     });
     child.on('close', (exitCode) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       resolve({
         exitCode,
         stdout,
         stderr,
         wallClockMs: Date.now() - startedAt,
+        timedOut,
       });
     });
   });
@@ -421,7 +723,10 @@ export class PolluxLiveRunRig {
   private readonly manifest: PolluxRealPilotOptions['manifest'];
   private readonly pricingSnapshot?: RealBenchmarkPricingSnapshot;
   private readonly binaryPath?: string;
+  private readonly entrypointPreference?: PolluxRealPilotOptions['entrypointPreference'];
   private readonly keepScratchDirectories: boolean;
+  private readonly maxWallClockMs: number;
+  private readonly maxModelResponsesPerSample: number;
 
   constructor(options: PolluxRealPilotOptions & { repoRoot: string }) {
     this.repoRoot = options.repoRoot;
@@ -429,7 +734,18 @@ export class PolluxLiveRunRig {
     this.manifest = options.manifest;
     this.pricingSnapshot = options.pricingSnapshot;
     this.binaryPath = options.binaryPath;
+    this.entrypointPreference = options.entrypointPreference;
     this.keepScratchDirectories = options.keepScratchDirectories ?? true;
+    this.maxWallClockMs = positiveNumberOrFallback(
+      options.maxWallClockMs ??
+        Number(process.env['POLLUX_REAL_SAMPLE_TIMEOUT_MS'] ?? 600_000),
+      600_000,
+    );
+    this.maxModelResponsesPerSample = positiveNumberOrFallback(
+      options.maxModelResponsesPerSample ??
+        Number(process.env['POLLUX_REAL_MAX_MODEL_RESPONSES'] ?? 6),
+      6,
+    );
   }
 
   async runSample(
@@ -465,7 +781,11 @@ export class PolluxLiveRunRig {
       terminalSetupPromptShown: true,
     });
 
-    const entrypoint = resolveCliEntrypoint(this.binaryPath);
+    const entrypoint = resolveCliEntrypoint(
+      this.binaryPath,
+      this.entrypointPreference,
+    );
+    const buildFreshness = collectRealBenchmarkBuildFreshness(this.repoRoot);
     const result = await runHeadlessCli(
       entrypoint.command,
       [
@@ -476,6 +796,7 @@ export class PolluxLiveRunRig {
       ],
       workspaceDir,
       homeDir,
+      this.maxWallClockMs,
     );
 
     fs.writeFileSync(stdoutPath, result.stdout);
@@ -488,6 +809,13 @@ export class PolluxLiveRunRig {
       telemetryEvents,
       this.pricingSnapshot,
     );
+    const stdoutStatusTagCount = countStatusTagsInText(result.stdout);
+    const nearMissStatusTagCount = countStatusNearMissesInText(result.stdout);
+    const malformedStatusTagCount = nearMissStatusTagCount;
+    const stderrWorkspacePathViolationCount = countWorkspacePathViolations(
+      result.stderr,
+    );
+    const toolErrorCount = countToolErrors(result.stderr);
     const oraclePass = await task.oracle(result.stdout, workspaceDir);
     const fairnessPins = evaluatePerRunPins(settings as FairnessPinSettings, {
       sessionId: sampleId,
@@ -496,13 +824,39 @@ export class PolluxLiveRunRig {
       utilityRoleCounts: telemetry.utilityRoleCounts,
     });
 
-    const invalidationReason = this.computeInvalidationReason(
+    const structuredErrorEvidence = extractStructuredErrorEvidence(
       result.exitCode,
       result.stderr,
+    );
+    const invalidationReason = this.computeInvalidationReason(
+      result.exitCode,
+      result.timedOut,
       telemetryEvents,
       telemetry,
       fairnessPins,
+      structuredErrorEvidence,
+      result.stderr,
     );
+    const expectedEscalation = computeExpectedEscalation(task, condition);
+    const predictedEscalation = computePredictedEscalation(telemetry);
+    const excludedFromConfusion = deriveConfusionExclusion(
+      telemetry.escalationEvents,
+    );
+    const advisorConsultOutcome = computeAdvisorConsultOutcome({
+      expectedEscalation,
+      escalationEvents: telemetry.escalationEvents,
+    });
+    const advisorFailureKind = computeAdvisorFailureKind(
+      telemetry.escalationEvents,
+    );
+    const desiredOutcome = computeDesiredOutcome({
+      benchmarkLane: task.benchmarkLane,
+      invalidated: invalidationReason !== undefined,
+      oraclePass,
+      expectedEscalation,
+      predictedEscalation,
+      advisorConsultOutcome,
+    });
 
     const record: RealBenchmarkRunRecord = {
       campaignId: this.manifest.campaignId,
@@ -510,6 +864,7 @@ export class PolluxLiveRunRig {
       taskId: task.id,
       conditionId: condition.id,
       sampleIndex,
+      benchmarkLane: task.benchmarkLane,
       gitSha: getGitSha(this.repoRoot),
       lockfileHash: computeHashForFile(
         path.join(this.repoRoot, 'package-lock.json'),
@@ -522,6 +877,13 @@ export class PolluxLiveRunRig {
       tokens: telemetry.tokens,
       costUsd: telemetry.costUsd,
       observedAdvisorCalls: telemetry.advisorCalls,
+      observedEscalationAttempts: telemetry.escalationAttemptCount,
+      polluxEscalationTelemetryCount: telemetry.escalationEvents.length,
+      stdoutStatusTagCount,
+      malformedStatusTagCount,
+      nearMissStatusTagCount,
+      stderrWorkspacePathViolationCount,
+      toolErrorCount,
       escalationEvents: telemetry.escalationEvents,
       escalationTiming: [
         ...new Set(
@@ -540,14 +902,30 @@ export class PolluxLiveRunRig {
             .filter((reasonCode): reasonCode is string => reasonCode !== null),
         ),
       ],
-      excludedFromConfusion: deriveConfusionExclusion(
-        telemetry.escalationEvents,
-      ),
+      excludedFromConfusion,
       fairnessPins,
       oraclePass,
       invalidated: invalidationReason !== undefined,
       invalidationReason,
+      structuredErrorEvidence,
       exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      modelResponseCount: telemetry.responseIds.length,
+      expectedEscalation,
+      predictedEscalation,
+      confusionOutcome: computeConfusionOutcome({
+        expected: expectedEscalation,
+        predicted: predictedEscalation,
+        invalidated: invalidationReason !== undefined,
+        excludedFromConfusion,
+      }),
+      desiredOutcomeSatisfied: desiredOutcome.satisfied,
+      desiredOutcomeReasonCode: desiredOutcome.reasonCode,
+      advisorConsultOutcome,
+      advisorFailureKind,
+      entrypointKind: entrypoint.kind,
+      entrypointPath: entrypoint.path,
+      buildFreshness,
       taskEscalates: task.escalates === true,
       workspaceDir,
       homeDir,
@@ -593,19 +971,23 @@ export class PolluxLiveRunRig {
 
   private computeInvalidationReason(
     exitCode: number | null,
-    stderr: string,
+    timedOut: boolean,
     telemetryEvents: ParsedTelemetryLog[],
     telemetry: RealBenchmarkTelemetrySummary,
     fairnessPins: RealBenchmarkRunRecord['fairnessPins'],
-  ): string | undefined {
+    structuredErrorEvidence: RealBenchmarkStructuredErrorEvidence | null,
+    stderr: string,
+  ): RealBenchmarkInvalidationReason | undefined {
+    if (timedOut) {
+      return 'run_timeout';
+    }
+
     if (exitCode !== 0) {
-      if (/auth|login|credential/i.test(stderr)) {
-        return 'auth_failure';
-      }
-      if (/rate.?limit|quota/i.test(stderr)) {
-        return 'rate_limit_contamination';
-      }
-      return 'cli_exit_nonzero';
+      return classifyInvalidationFromEvidence(structuredErrorEvidence, stderr);
+    }
+
+    if (telemetry.responseIds.length > this.maxModelResponsesPerSample) {
+      return 'model_call_ceiling_exceeded';
     }
 
     if (telemetryEvents.length === 0) {

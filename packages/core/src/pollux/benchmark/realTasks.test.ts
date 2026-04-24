@@ -6,6 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   PILOT_SENTINEL_TASK_IDS,
@@ -15,7 +16,8 @@ import {
 } from './realTasks.js';
 import { REAL_BENCHMARK_REQUIRED_DOMAINS } from './realTypes.js';
 
-const REPO_ROOT = path.resolve(process.cwd());
+const THIS_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(THIS_DIR, '..', '..', '..', '..', '..');
 
 function resolveFixturePath(relativePath: string): string {
   return path.resolve(REPO_ROOT, relativePath);
@@ -79,11 +81,43 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
 
   it('keeps provenance and oracle metadata populated for every task', () => {
     for (const task of REAL_BENCHMARK_SEED_CORPUS) {
+      expect(['core', 'stress', 'canary']).toContain(task.benchmarkLane);
       expect(task.domain.length).toBeGreaterThan(0);
       expect(task.provenance.sourceRef.length).toBeGreaterThan(0);
       expect(task.provenance.sourceType.length).toBeGreaterThan(0);
       expect(typeof task.oracle).toBe('function');
     }
+  });
+
+  it('assigns the milestone 1 lane mapping to the sentinel cohort', () => {
+    const laneByTaskId = Object.fromEntries(
+      REAL_BENCHMARK_SEED_CORPUS.map((task) => [task.id, task.benchmarkLane]),
+    );
+
+    expect(laneByTaskId['CAL-BM-01-SIMPLE']).toBe('core');
+    expect(laneByTaskId['CAL-BM-02-MODERATE']).toBe('core');
+    expect(laneByTaskId['CAL-BM-03-COMPLEX']).toBe('stress');
+    expect(laneByTaskId['CAL-BM-04-ESCALATING']).toBe('canary');
+    expect(laneByTaskId['PILOT-BM-05-STATUS-WRITE']).toBe('canary');
+    expect(laneByTaskId['PILOT-BM-06-YAML-TRANSFORM']).toBe('core');
+  });
+
+  it('defaults self-report tasks to canary and non-self-report tasks to core unless explicitly overridden', () => {
+    const selfReportTask = REAL_BENCHMARK_SEED_CORPUS.find(
+      (task) => task.id === 'PILOT-BM-09-SEARCH-SUMMARY',
+    );
+    const nonSelfReportTask = REAL_BENCHMARK_SEED_CORPUS.find(
+      (task) => task.id === 'PILOT-BM-07-FILE-README',
+    );
+    const explicitStressTask = REAL_BENCHMARK_SEED_CORPUS.find(
+      (task) => task.id === 'CAL-BM-03-COMPLEX',
+    );
+
+    expect(selfReportTask?.escalationSignalClass).toBe('self_report');
+    expect(selfReportTask?.benchmarkLane).toBe('canary');
+    expect(nonSelfReportTask?.escalationSignalClass).toBe('none');
+    expect(nonSelfReportTask?.benchmarkLane).toBe('core');
+    expect(explicitStressTask?.benchmarkLane).toBe('stress');
   });
 
   it('attaches one positive fixture and three negative fixtures to every task', () => {

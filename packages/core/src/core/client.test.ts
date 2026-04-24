@@ -67,6 +67,7 @@ import {
 } from '../pollux/observer/index.js';
 import type { PolluxAdvisorPhasePayload } from '../utils/events.js';
 import { partToString } from '../utils/partUtils.js';
+import { RetryableQuotaError } from '../utils/googleQuotaErrors.js';
 
 /**
  * Sample user phrasing reused across Pollux seam tests for baseline parity.
@@ -1017,6 +1018,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -1877,7 +1879,6 @@ describe('Gemini Client (client.ts)', () => {
         decision: PolicyDecision.ALLOW,
         rule: undefined,
       });
-
       const advisorSpy = vi
         .spyOn(client, 'generateContent')
         .mockRejectedValueOnce(new Error('advisor synthetic throw'))
@@ -2240,6 +2241,110 @@ describe('Gemini Client (client.ts)', () => {
             event.reason_code === PolluxEscalationReasonCode.SELF_REPORT_STUCK,
         );
       expect(consulted?.escalation_timing).toBe('same_turn');
+    });
+
+    it('records capacity_exhausted when the advisor model is capacity-limited', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              'Checking: <pollux:status stuck_on="cannot resolve merge conflict" next="inspect HEAD"/> continuing.',
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockImplementation(async (modelConfigKey) => {
+          if (
+            modelConfigKey.model ===
+            DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel
+          ) {
+            throw new RetryableQuotaError(
+              'No capacity available for advisor model',
+              {
+                code: 429,
+                message: 'No capacity available for advisor model',
+                details: [],
+              },
+            );
+          }
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [{ text: '{"guidance":"unexpected fallback"}' }],
+                },
+              },
+            ],
+          } as GenerateContentResponse;
+        });
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
+      const telemetry = capturePolluxAdvisorPhaseEvents();
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'help with merge conflict' }],
+          new AbortController().signal,
+          'pollux-phase-f-self-report-fallback',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const events = telemetry.stop();
+      expect(advisorSpy.mock.calls[0]?.[0]).toMatchObject({
+        model: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+      });
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
+      expect(
+        events
+          .filter((event) => event.phase === 'consulting')
+          .map((event) => event.advisorModel),
+      ).toEqual([DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel]);
+      const failOpen = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find(
+          (event) =>
+            event.outcome === 'fail_open' &&
+            event.reason_code === PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+        );
+      expect(failOpen?.escalation_timing).toBe('same_turn');
+      expect(failOpen?.failure_kind).toBe('capacity_exhausted');
     });
 
     it('Phase F §11.F.3 7.6: single-shot guardrail — two same-turn-eligible risk triggers collapse to one consult; second downgrades to next-turn', async () => {
@@ -2776,6 +2881,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -2970,6 +3076,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -3164,6 +3271,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -3358,6 +3466,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -3831,6 +3940,7 @@ describe('Gemini Client (client.ts)', () => {
         expect.anything(),
         expect.any(Object),
         LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
     });
 
@@ -6703,6 +6813,42 @@ ${JSON.stringify(
 
         resetChatSpy.mockRestore();
       });
+    });
+
+    it('classifies malformed advisor responses as parse_error', async () => {
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'this is not valid advisor json' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel'](
+        DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        'advisor prompt',
+        new AbortController().signal,
+        DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
+        undefined,
+      );
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        failOpenKind: 'parse_error',
+        retryableForFallback: false,
+      });
+    });
+
+    it('classifies wrapped abort-like advisor failures as timeout instead of parse_error', () => {
+      const wrappedAbort = new Error(
+        'Failed to generate content with model gemini-3.1-pro-preview: The user aborted a request.',
+      );
+
+      expect(client['classifyPolluxAdvisorFailure'](wrappedAbort)).toBe(
+        'timeout',
+      );
     });
   });
 });

@@ -52,6 +52,7 @@ function buildRun(
     taskId: 'TASK-1',
     conditionId: 'F',
     sampleIndex: 1,
+    benchmarkLane: 'canary',
     gitSha: 'sha',
     lockfileHash: 'lock',
     corpusSha: 'corpus',
@@ -101,6 +102,51 @@ function buildRun(
     stdoutPath: 'stdout.txt',
     stderrPath: 'stderr.txt',
     ...partial,
+    observedEscalationAttempts:
+      partial.observedEscalationAttempts ??
+      partial.escalationEvents?.length ??
+      1,
+    polluxEscalationTelemetryCount:
+      partial.polluxEscalationTelemetryCount ??
+      partial.escalationEvents?.length ??
+      1,
+    stdoutStatusTagCount: partial.stdoutStatusTagCount ?? 0,
+    malformedStatusTagCount: partial.malformedStatusTagCount ?? 0,
+    nearMissStatusTagCount: partial.nearMissStatusTagCount ?? 0,
+    stderrWorkspacePathViolationCount:
+      partial.stderrWorkspacePathViolationCount ?? 0,
+    toolErrorCount: partial.toolErrorCount ?? 0,
+    structuredErrorEvidence: partial.structuredErrorEvidence ?? null,
+    timedOut: partial.timedOut ?? false,
+    modelResponseCount: partial.modelResponseCount ?? 1,
+    expectedEscalation:
+      partial.expectedEscalation ??
+      ((partial.taskEscalates ?? true) && (partial.conditionId ?? 'F') === 'F'),
+    predictedEscalation:
+      partial.predictedEscalation ??
+      ((partial.observedEscalationAttempts ??
+        partial.escalationEvents?.length ??
+        1) > 0 ||
+        (partial.observedAdvisorCalls ?? 1) > 0),
+    confusionOutcome: partial.confusionOutcome ?? 'true_positive',
+    desiredOutcomeSatisfied: partial.desiredOutcomeSatisfied ?? true,
+    desiredOutcomeReasonCode:
+      partial.desiredOutcomeReasonCode ?? 'canary.consulted_true_positive',
+    advisorConsultOutcome: partial.advisorConsultOutcome ?? 'consulted',
+    advisorFailureKind: partial.advisorFailureKind ?? null,
+    entrypointKind: partial.entrypointKind ?? 'binary',
+    entrypointPath: partial.entrypointPath ?? process.execPath,
+    buildFreshness: partial.buildFreshness ?? {
+      gitHead: 'sha',
+      repoDirty: false,
+      dirtyStatus: [],
+      cliSourceGitCommit: 'sha',
+      cliDistGitCommit: 'sha',
+      coreSourceGitCommit: 'sha',
+      coreDistGitCommit: 'sha',
+      sourceCommitsMatchHead: true,
+      distCommitsMatchSource: true,
+    },
   };
 }
 
@@ -228,6 +274,189 @@ describe('buildRealBenchmarkCampaignSummary', () => {
       'missing reason_code or escalation_timing',
     );
   });
+
+  it('surfaces false negatives in blockers and the missing_event timing bucket', () => {
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      [
+        buildRun({
+          sampleId: 'fn',
+          conditionId: 'F',
+          taskEscalates: true,
+          observedAdvisorCalls: 0,
+          observedEscalationAttempts: 0,
+          polluxEscalationTelemetryCount: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          predictedEscalation: false,
+        }),
+      ],
+      [],
+    );
+
+    expect(summary.escalation.falseNegative).toBe(1);
+    expect(
+      summary.escalationTiming.find((entry) => entry.timing === 'missing_event')
+        ?.falseNegative,
+    ).toBe(1);
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'false negatives',
+    );
+    expect(summary.runDiagnostics[0]).toMatchObject({
+      sampleId: 'fn',
+      confusionOutcome: 'false_negative',
+      primaryTiming: 'missing_event',
+    });
+  });
+
+  it('adds blockers for malformed status near-misses and tool errors', () => {
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      [
+        buildRun({
+          sampleId: 'dirty-evidence',
+          malformedStatusTagCount: 1,
+          nearMissStatusTagCount: 1,
+          toolErrorCount: 2,
+        }),
+      ],
+      [],
+    );
+
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'malformed pollux:status near-misses',
+    );
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'tool/shell errors',
+    );
+  });
+
+  it('emits core, stress, and canary lane summaries with milestone semantics', () => {
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      [
+        buildRun({
+          sampleId: 'core-pass',
+          taskId: 'CAL-BM-01-SIMPLE',
+          conditionId: 'A',
+          benchmarkLane: 'core',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          observedEscalationAttempts: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          expectedEscalation: false,
+          predictedEscalation: false,
+        }),
+        buildRun({
+          sampleId: 'stress-invalid',
+          taskId: 'CAL-BM-03-COMPLEX',
+          conditionId: 'A',
+          benchmarkLane: 'stress',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          observedEscalationAttempts: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          expectedEscalation: false,
+          predictedEscalation: false,
+          invalidated: true,
+          invalidationReason: 'model_call_ceiling_exceeded',
+          confusionOutcome: 'excluded',
+        }),
+        buildRun({
+          sampleId: 'canary-fail-open',
+          taskId: 'CAL-BM-04-ESCALATING',
+          benchmarkLane: 'canary',
+          excludedFromConfusion: 'fail_open',
+          escalationEvents: [
+            {
+              turnId: 'prompt:3',
+              reasonCode: 'pollux.escalation.self_report_stuck',
+              escalationTiming: 'same_turn',
+              outcome: 'fail_open',
+              sameTurnDowngraded: false,
+              pauseBoundary: 'post_event',
+              contributingSignalIds: ['self.structured_status_stuck'],
+              failureKind: 'timeout',
+              eventIndex: 3,
+            },
+          ],
+          escalationTiming: ['same_turn'],
+          reasonCodes: ['pollux.escalation.self_report_stuck'],
+        }),
+      ],
+      [],
+    );
+
+    expect(summary.laneConditionSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          lane: 'core',
+          conditionId: 'A',
+          sampleCount: 1,
+          desiredOutcomeSatisfiedCount: 1,
+        }),
+        expect.objectContaining({
+          lane: 'stress',
+          conditionId: 'A',
+          sampleCount: 1,
+          desiredOutcomeSatisfiedCount: 0,
+        }),
+        expect.objectContaining({
+          lane: 'canary',
+          conditionId: 'F',
+          sampleCount: 1,
+          desiredOutcomeSatisfiedCount: 0,
+        }),
+      ]),
+    );
+    expect(summary.canaryConsultSummary).toMatchObject({
+      expectedPositiveSampleCount: 1,
+      validExpectedPositiveSampleCount: 1,
+      attempted: 1,
+      failOpen: 1,
+      consulted: 0,
+    });
+    expect(summary.stressSummary).toMatchObject({
+      sampleCount: 1,
+      invalidSampleCount: 1,
+      modelCallCeilingExceededCount: 1,
+      invalidationReasonCounts: {
+        model_call_ceiling_exceeded: 1,
+      },
+    });
+    expect(summary.runDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sampleId: 'core-pass',
+          benchmarkLane: 'core',
+          desiredOutcomeSatisfied: true,
+          desiredOutcomeReasonCode: 'core.oracle_pass',
+        }),
+        expect.objectContaining({
+          sampleId: 'stress-invalid',
+          benchmarkLane: 'stress',
+          desiredOutcomeSatisfied: false,
+          desiredOutcomeReasonCode: 'stress.invalidated',
+        }),
+        expect.objectContaining({
+          sampleId: 'canary-fail-open',
+          benchmarkLane: 'canary',
+          desiredOutcomeSatisfied: false,
+          desiredOutcomeReasonCode: 'canary.fail_open',
+          advisorConsultOutcome: 'fail_open',
+          advisorFailureKind: 'timeout',
+        }),
+      ]),
+    );
+  });
 });
 
 describe('renderRealBenchmarkCampaignReport', () => {
@@ -240,8 +469,13 @@ describe('renderRealBenchmarkCampaignReport', () => {
     );
 
     const markdown = renderRealBenchmarkCampaignReport(summary);
-    expect(markdown).toContain('## 3) Escalation confusion matrix');
-    expect(markdown).toContain('## 4) Escalation timing split');
-    expect(markdown).toContain('## 5) Reason-code distribution');
+    expect(markdown).toContain('## 3) Core lane');
+    expect(markdown).toContain('## 4) Stress lane');
+    expect(markdown).toContain('## 5) Canary lane');
+    expect(markdown).toContain('## 6) Escalation confusion matrix');
+    expect(markdown).toContain('## 7) Escalation timing split');
+    expect(markdown).toContain('## 8) Per-sample diagnostics');
+    expect(markdown).toContain('Desired outcome');
+    expect(markdown).toContain('Consult outcome');
   });
 });

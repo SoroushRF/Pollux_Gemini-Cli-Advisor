@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { BENCHMARK_CORPUS, type BenchmarkTask } from './tasks.js';
-import type { RealBenchmarkTaskSpec } from './realTypes.js';
+import type { RealBenchmarkLane, RealBenchmarkTaskSpec } from './realTypes.js';
 
 export const SHARED_REAL_POSITIVE_FIXTURE_PATH =
   'packages/core/src/pollux/benchmark/real-fixtures/shared/positive-ready.txt';
@@ -28,8 +28,19 @@ const DOC_PREREG =
 
 type RealTaskDefinition = Omit<
   RealBenchmarkTaskSpec,
-  'positiveFixturePaths' | 'negativeFixturePaths'
->;
+  'benchmarkLane' | 'positiveFixturePaths' | 'negativeFixturePaths'
+> & {
+  benchmarkLane?: RealBenchmarkLane;
+};
+
+const BENCHMARK_LANE_OVERRIDES: Readonly<Record<string, RealBenchmarkLane>> = {
+  'CAL-BM-01-SIMPLE': 'core',
+  'CAL-BM-02-MODERATE': 'core',
+  'CAL-BM-03-COMPLEX': 'stress',
+  'CAL-BM-04-ESCALATING': 'canary',
+  'PILOT-BM-05-STATUS-WRITE': 'canary',
+  'PILOT-BM-06-YAML-TRANSFORM': 'core',
+};
 
 function getBenchmarkTask(id: string): BenchmarkTask {
   const task = BENCHMARK_CORPUS.find((entry) => entry.id === id);
@@ -62,6 +73,10 @@ function withMetadata(
 function withSharedFixtures(task: RealTaskDefinition): RealBenchmarkTaskSpec {
   return {
     ...task,
+    benchmarkLane:
+      task.benchmarkLane ??
+      BENCHMARK_LANE_OVERRIDES[task.id] ??
+      (task.escalationSignalClass === 'self_report' ? 'canary' : 'core'),
     positiveFixturePaths: [SHARED_REAL_POSITIVE_FIXTURE_PATH],
     negativeFixturePaths: [...SHARED_REAL_NEGATIVE_FIXTURE_PATHS],
   };

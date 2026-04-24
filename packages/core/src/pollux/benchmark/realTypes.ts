@@ -27,6 +27,8 @@ export type RealBenchmarkEscalationSignalClass =
   | 'hard_loop'
   | 'fusion_composite';
 
+export type RealBenchmarkLane = 'core' | 'stress' | 'canary';
+
 export interface RealBenchmarkTaskProvenance {
   sourceType: RealBenchmarkSourceType;
   sourceRef: string;
@@ -36,6 +38,7 @@ export interface RealBenchmarkTaskSpec extends BenchmarkTask {
   domain: RealBenchmarkDomain;
   provenance: RealBenchmarkTaskProvenance;
   escalationSignalClass: RealBenchmarkEscalationSignalClass;
+  benchmarkLane: RealBenchmarkLane;
   positiveFixturePaths: string[];
   negativeFixturePaths: string[];
 }

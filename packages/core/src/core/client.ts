@@ -34,7 +34,11 @@ import {
   retryWithBackoff,
   type RetryAvailabilityContext,
 } from '../utils/retry.js';
-import type { ValidationRequiredError } from '../utils/googleQuotaErrors.js';
+import {
+  RetryableQuotaError,
+  TerminalQuotaError,
+  type ValidationRequiredError,
+} from '../utils/googleQuotaErrors.js';
 import { getErrorMessage, isAbortError } from '../utils/errors.js';
 import { tokenLimit } from './tokenLimits.js';
 import type {
@@ -73,6 +77,7 @@ import {
   applyModelSelection,
   createAvailabilityContextProvider,
 } from '../availability/policyHelpers.js';
+import { classifyFailureKind } from '../availability/errorClassification.js';
 import { getDisplayString, resolveModel } from '../config/models.js';
 import { getResponseText, partToString } from '../utils/partUtils.js';
 import { coreEvents, CoreEvent } from '../utils/events.js';
@@ -98,10 +103,13 @@ import {
   checkAdvisorInvocationBudget,
   getAdvisorRequestTimeoutMs,
   resolveAdvisorPathFailure,
+  type AdvisorPathFailureKind,
 } from '../pollux/safeguards.js';
 import {
   buildAdvisorConsultationPrompt,
+  flushPolluxStatusTagStreamCarry,
   parseAdvisorModelResponse,
+  stripPolluxStatusTagsFromStreamChunk,
   stripPolluxStatusTags,
 } from '../pollux/prompts.js';
 import {
@@ -867,7 +875,7 @@ export class GeminiClient {
       getAdvisorRequestTimeoutMs(experimental),
     );
     const advisorSignal = AbortSignal.any([signal, timeoutSignal]);
-    let failOpenKind: 'parse_error' | 'timeout' | 'empty_response' | undefined;
+    let failOpenKind: AdvisorPathFailureKind | undefined;
     let consultationSucceeded = false;
 
     // Resolve the advisor model up-front so the UI lifecycle event can include
@@ -887,13 +895,22 @@ export class GeminiClient {
     });
 
     try {
-      coreEvents.emitPolluxAdvisorPhase({
-        phase: 'consulting',
-        advisorModel: advisorModel.canonicalModelId,
-        executorModel: experimental.executorModel,
-        ...escalationMeta,
-      });
+      const primaryAttempt =
+        await this.attemptPolluxAdvisorConsultationWithModel(
+          advisorModel.canonicalModelId,
+          advisorPrompt,
+          advisorSignal,
+          experimental.executorModel,
+          escalationMeta,
+        );
+      consultationSucceeded = primaryAttempt.consultationSucceeded;
+      failOpenKind = primaryAttempt.failOpenKind;
 
+      if (experimental.emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor attempt completed (success=${consultationSucceeded ? 'yes' : 'no'}, retryable=${primaryAttempt.retryableForFallback ? 'yes' : 'no'})`,
+        );
+        /*
       // eslint-disable-next-line no-console
       console.log(
         `[Pollux] 🧠 Consulting advisor (${advisorModel.canonicalModelId})...`,
@@ -911,31 +928,37 @@ export class GeminiClient {
       console.log(`[Pollux] ✅ Advisor consultation finished.`);
 
       const rawAdvisorResponse = getResponseText(advisorResponse);
-      if (!rawAdvisorResponse) {
+      if (rawAdvisorResponse == null || rawAdvisorResponse === '') {
         failOpenKind = 'empty_response';
       } else {
-        const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
+        const parsedResponse = parseAdvisorModelResponse(
+          rawAdvisorResponse ?? '',
+        );
         if (!parsedResponse.ok) {
           failOpenKind = 'parse_error';
         } else {
           consultationSucceeded = true;
           if (experimental.emitAdvisorDebug) {
+            const structuredConfidence = (
+              parsedResponse as { structuredConfidence?: number }
+            ).structuredConfidence;
             debugLogger.log(
-              `Pollux advisor consulted (confidence=${parsedResponse.structuredConfidence ?? 'n/a'})`,
+              `Pollux advisor consulted (confidence=${structuredConfidence ?? 'n/a'})`,
             );
           }
         }
+      }
+        */
       }
     } catch (error) {
       if (signal.aborted) {
         throw error;
       }
 
-      if (isAbortError(error) || timeoutSignal.aborted) {
-        failOpenKind = 'timeout';
-      } else {
-        failOpenKind = 'parse_error';
-      }
+      failOpenKind =
+        isAbortError(error) || timeoutSignal.aborted
+          ? 'timeout'
+          : this.classifyPolluxAdvisorFailure(error);
     } finally {
       this.polluxAdvisorCallsThisTurn++;
       this.polluxAdvisorCallsThisSession++;
@@ -974,6 +997,142 @@ export class GeminiClient {
       });
     }
     return outcome;
+  }
+
+  private async attemptPolluxAdvisorConsultationWithModel(
+    advisorModelId: string,
+    advisorPrompt: string,
+    advisorSignal: AbortSignal,
+    executorModel: string,
+    escalationMeta:
+      | {
+          reasonCode?: string;
+          escalationTiming?: 'same_turn' | 'next_turn';
+          pauseBoundary?: 'pre_tool' | 'post_event';
+          contributingSignalIds?: readonly string[];
+          sameTurnDowngraded?: boolean;
+        }
+      | undefined,
+  ): Promise<{
+    consultationSucceeded: boolean;
+    failOpenKind?: AdvisorPathFailureKind;
+    retryableForFallback: boolean;
+  }> {
+    coreEvents.emitPolluxAdvisorPhase({
+      phase: 'consulting',
+      advisorModel: advisorModelId,
+      executorModel,
+      ...escalationMeta,
+    });
+
+    // eslint-disable-next-line no-console
+    console.log(`[Pollux] Consulting advisor (${advisorModelId})...`);
+
+    try {
+      const advisorResponse = await this.generateContent(
+        {
+          model: advisorModelId,
+          isChatModel: true,
+        },
+        [createUserContent(advisorPrompt)],
+        advisorSignal,
+        LlmRole.UTILITY_ADVISOR,
+        { maxAttemptsOverride: 1 },
+      );
+      // eslint-disable-next-line no-console
+      console.log(`[Pollux] Advisor consultation finished.`);
+
+      const rawAdvisorResponse = getResponseText(advisorResponse);
+      if (!rawAdvisorResponse) {
+        return {
+          consultationSucceeded: false,
+          failOpenKind: 'empty_response',
+          retryableForFallback: false,
+        };
+      }
+
+      const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
+      if (!parsedResponse.ok) {
+        return {
+          consultationSucceeded: false,
+          failOpenKind: 'parse_error',
+          retryableForFallback: false,
+        };
+      }
+
+      if (this.config.getPolluxExperimentalConfig().emitAdvisorDebug) {
+        debugLogger.log(
+          `Pollux advisor consulted (confidence=${parsedResponse.structuredConfidence ?? 'n/a'})`,
+        );
+      }
+
+      return {
+        consultationSucceeded: true,
+        retryableForFallback: false,
+      };
+    } catch (error) {
+      if (advisorSignal.aborted && isAbortError(error)) {
+        return {
+          consultationSucceeded: false,
+          failOpenKind: 'timeout',
+          retryableForFallback: false,
+        };
+      }
+
+      const failOpenKind = this.classifyPolluxAdvisorFailure(error);
+      return {
+        consultationSucceeded: false,
+        failOpenKind,
+        retryableForFallback:
+          failOpenKind === 'capacity_exhausted' ||
+          failOpenKind === 'quota_exhausted',
+      };
+    }
+  }
+
+  private classifyPolluxAdvisorFailure(error: unknown): AdvisorPathFailureKind {
+    const errorName = error instanceof Error ? error.name : undefined;
+    const message = getErrorMessage(error);
+    const normalizedMessage = message.toLowerCase();
+
+    if (
+      isAbortError(error) ||
+      /user aborted a request|request was aborted|\baborted\b|\btimeout\b|timed out/i.test(
+        message,
+      )
+    ) {
+      return 'timeout';
+    }
+    if (
+      error instanceof RetryableQuotaError ||
+      errorName === 'RetryableQuotaError' ||
+      /\b(model_capacity_exhausted|resource_exhausted|rate_limit_exceeded)\b/i.test(
+        message,
+      ) ||
+      /no capacity available|capacity exhausted|resource exhausted|rate limit/i.test(
+        normalizedMessage,
+      )
+    ) {
+      return 'capacity_exhausted';
+    }
+    if (
+      error instanceof TerminalQuotaError ||
+      errorName === 'TerminalQuotaError' ||
+      /\bquota_exceeded\b/i.test(message) ||
+      /quota exhausted|insufficient quota|quota limit/i.test(normalizedMessage)
+    ) {
+      return 'quota_exhausted';
+    }
+
+    const failureKind = classifyFailureKind(error);
+    if (failureKind === 'transient') {
+      return 'capacity_exhausted';
+    }
+    if (failureKind === 'terminal') {
+      return 'quota_exhausted';
+    }
+
+    return 'parse_error';
   }
 
   private async maybeRunPolluxAdvisorConsultation(
@@ -1439,6 +1598,7 @@ export class GeminiClient {
     );
     let isError = false;
     let isInvalidStream = false;
+    let polluxStatusTagStreamCarry = '';
 
     let loopDetectedAbort = false;
     let loopRecoverResult: { detail?: string } | undefined;
@@ -1542,10 +1702,17 @@ export class GeminiClient {
         polluxExperimental.detector.selfReport.enabled
       ) {
         if (event.type === GeminiEventType.Content) {
-          yield {
-            ...event,
-            value: stripPolluxStatusTags(event.value),
-          };
+          const sanitized = stripPolluxStatusTagsFromStreamChunk(
+            event.value,
+            polluxStatusTagStreamCarry,
+          );
+          polluxStatusTagStreamCarry = sanitized.carry;
+          if (sanitized.output.length > 0) {
+            yield {
+              ...event,
+              value: sanitized.output,
+            };
+          }
         } else if (event.type === GeminiEventType.Thought) {
           yield {
             ...event,
@@ -1568,6 +1735,22 @@ export class GeminiClient {
       }
       if (event.type === GeminiEventType.Error) {
         isError = true;
+      }
+    }
+
+    const polluxExperimentalAfterStream =
+      this.config.getPolluxExperimentalConfig();
+    if (
+      polluxStatusTagStreamCarry.length > 0 &&
+      polluxExperimentalAfterStream.enabled &&
+      polluxExperimentalAfterStream.detector.selfReport.enabled
+    ) {
+      const flushed = flushPolluxStatusTagStreamCarry(
+        polluxStatusTagStreamCarry,
+      );
+      polluxStatusTagStreamCarry = '';
+      if (flushed.length > 0) {
+        yield { type: GeminiEventType.Content, value: flushed };
       }
     }
 
@@ -1878,6 +2061,7 @@ export class GeminiClient {
     contents: Content[],
     abortSignal: AbortSignal,
     role: LlmRole,
+    options?: { maxAttemptsOverride?: number },
   ): Promise<GenerateContentResponse> {
     const desiredModelConfig =
       this.config.modelConfigService.getResolvedConfig(modelConfigKey);
@@ -1970,14 +2154,16 @@ export class GeminiClient {
         onPersistent429: onPersistent429Callback,
         onValidationRequired: onValidationRequiredCallback,
         authType: this.config.getContentGeneratorConfig()?.authType,
-        maxAttempts: availabilityMaxAttempts,
+        maxAttempts: options?.maxAttemptsOverride ?? availabilityMaxAttempts,
         retryFetchErrors: this.config.getRetryFetchErrors(),
         getAvailabilityContext,
         onRetry: (attempt, error, delayMs) => {
           coreEvents.emitRetryAttempt({
             attempt,
             maxAttempts:
-              availabilityMaxAttempts ?? this.config.getMaxAttempts(),
+              options?.maxAttemptsOverride ??
+              availabilityMaxAttempts ??
+              this.config.getMaxAttempts(),
             delayMs,
             error: error instanceof Error ? error.message : String(error),
             model: getDisplayString(currentAttemptModel),
