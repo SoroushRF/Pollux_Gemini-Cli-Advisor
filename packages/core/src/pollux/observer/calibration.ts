@@ -408,8 +408,7 @@ export function runCalibrationTrace(
               break;
             }
             case 'content':
-              currentTurnModelOutput =
-                `${currentTurnModelOutput}\n${streamEvent.value}`.trim();
+              currentTurnModelOutput += streamEvent.value;
               break;
             case 'finished': {
               const usageMetadata = streamEvent.value.usageMetadata;

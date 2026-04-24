@@ -10,6 +10,8 @@ import {
   extractPolluxConfidenceTagValues,
   parsePolluxStatusTag,
   parseAdvisorModelResponse,
+  flushPolluxStatusTagStreamCarry,
+  stripPolluxStatusTagsFromStreamChunk,
   stripPolluxConfidenceTags,
   stripPolluxStatusTags,
 } from './prompts.js';
@@ -96,6 +98,44 @@ describe('pollux/prompts', () => {
       expect(stripPolluxStatusTags(stripPolluxConfidenceTags(raw))).toBe('x y');
       expect(extractPolluxConfidenceTagValues(raw)).toEqual([3]);
     });
+
+    it('keeps malformed no-space status tags out of the valid parser', () => {
+      const raw =
+        '<pollux:statusstuck_on="refactor strategy" next="write marker"/>';
+      expect(parsePolluxStatusTag(raw)).toEqual([]);
+      expect(stripPolluxStatusTags(raw)).toBe(raw);
+    });
+
+    it('strips valid status tags split across streamed content chunks', () => {
+      const first = stripPolluxStatusTagsFromStreamChunk(
+        'Checking <pollux:sta',
+      );
+      expect(first).toEqual({ output: 'Checking', carry: '<pollux:sta' });
+
+      const second = stripPolluxStatusTagsFromStreamChunk(
+        'tus stuck_on="ci fails on windows"',
+        first.carry,
+      );
+      expect(second).toEqual({
+        output: '',
+        carry: '<pollux:status stuck_on="ci fails on windows"',
+      });
+
+      const third = stripPolluxStatusTagsFromStreamChunk(
+        ' next="inspect logs"/> done',
+        second.carry,
+      );
+      expect(third).toEqual({ output: 'done', carry: '' });
+      expect(flushPolluxStatusTagStreamCarry(third.carry)).toBe('');
+    });
+
+    it('does not silently strip malformed streamed status near-misses', () => {
+      const chunk = stripPolluxStatusTagsFromStreamChunk(
+        '<pollux:statusstuck_on="bad" next="x"/>',
+      );
+      expect(chunk.output).toBe('<pollux:statusstuck_on="bad" next="x"/>');
+      expect(chunk.carry).toBe('');
+    });
   });
 
   describe('parseAdvisorModelResponse', () => {
@@ -150,6 +190,17 @@ describe('pollux/prompts', () => {
         ok: true,
         guidance: 'fenced',
         structuredConfidence: undefined,
+      });
+    });
+
+    it('parses JSON when the model prepends pollux status and prose', () => {
+      const r = parseAdvisorModelResponse(
+        'I will respond with JSON.\n<pollux:status stuck_on="refactor strategy" next="write marker"/>\n{"guidance":"Proceed with write_file.","confidence":9}',
+      );
+      expect(r).toEqual({
+        ok: true,
+        guidance: 'Proceed with write_file.',
+        structuredConfidence: 9,
       });
     });
   });

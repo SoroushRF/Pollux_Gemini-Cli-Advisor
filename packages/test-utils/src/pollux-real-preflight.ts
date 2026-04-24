@@ -20,15 +20,30 @@ import {
   POLLUX_REAL_DEFAULT_POWER_ANALYSIS_PATH,
   POLLUX_REAL_DEFAULT_PREREGISTRATION_PATH,
   buildDefaultCampaignManifest,
+  collectRealBenchmarkBuildFreshness,
   getDefaultGeminiHome,
   resolveCliEntrypoint,
 } from './pollux-real-config.js';
+import {
+  parsePolluxStatusTag,
+  stripPolluxStatusTags,
+} from '../../core/src/pollux/prompts.js';
 import type {
   RealBenchmarkCampaignManifest,
   RealBenchmarkCorpusStats,
+  RealBenchmarkEntrypointPreference,
   RealBenchmarkPreflightReport,
   RealBenchmarkPricingSnapshot,
 } from './pollux-real-types.js';
+
+function parseEntrypointPreference(
+  value: string | undefined,
+): RealBenchmarkEntrypointPreference | undefined {
+  if (value === 'auto' || value === 'bundle' || value === 'dev_script') {
+    return value;
+  }
+  return undefined;
+}
 
 function computeCorpusSha(tasks: RealBenchmarkTaskSpec[]): string {
   return crypto
@@ -113,9 +128,28 @@ export function buildRealBenchmarkPreflightReport(
   tasks: RealBenchmarkTaskSpec[],
   pricingSnapshot?: RealBenchmarkPricingSnapshot,
   explicitBinaryPath?: string,
+  entrypointPreference?: RealBenchmarkEntrypointPreference,
 ): RealBenchmarkPreflightReport {
   const corpus = buildRealBenchmarkCorpusStats(tasks);
-  const cliEntrypoint = resolveCliEntrypoint(explicitBinaryPath);
+  const cliEntrypoint = resolveCliEntrypoint(
+    explicitBinaryPath,
+    entrypointPreference,
+  );
+  const buildFreshness = collectRealBenchmarkBuildFreshness();
+  const selfReportSmokeTest = {
+    validStatusTagParsed:
+      parsePolluxStatusTag(
+        '<pollux:status stuck_on="ci fails on windows" next="inspect logs"/>',
+      )[0]?.stuckOn === 'ci fails on windows',
+    malformedStatusTagRejected:
+      parsePolluxStatusTag(
+        '<pollux:statusstuck_on="ci fails on windows" next="inspect logs"/>',
+      ).length === 0,
+    validStatusTagStripped:
+      stripPolluxStatusTags(
+        'x <pollux:status stuck_on="ci fails on windows" next="inspect logs"/> y',
+      ) === 'x y',
+  };
   const authSeedHome = getDefaultGeminiHome();
   const presentFiles = POLLUX_REAL_AUTH_SEED_FILES.filter((fileName) =>
     fs.existsSync(path.join(authSeedHome, fileName)),
@@ -153,6 +187,21 @@ export function buildRealBenchmarkPreflightReport(
         'Publishable campaigns must use a built bundle or explicit binary, not the dev start script fallback.',
       );
     }
+    if (buildFreshness.repoDirty) {
+      publishabilityBlockers.push(
+        `Publishable campaigns require a clean git worktree; observed ${buildFreshness.dirtyStatus.length} dirty paths.`,
+      );
+    }
+    if (!buildFreshness.sourceCommitsMatchHead) {
+      publishabilityBlockers.push(
+        'Generated source git-commit metadata does not match HEAD; run the build before publishable campaigns.',
+      );
+    }
+    if (!buildFreshness.distCommitsMatchSource) {
+      publishabilityBlockers.push(
+        'Built dist git-commit metadata does not match source metadata; run npm run build before publishable campaigns.',
+      );
+    }
     if (manifest.authIsolationMode !== 'isolated_keys') {
       publishabilityBlockers.push(
         'Publishable campaigns require isolated benchmark credentials or quota windows.',
@@ -161,6 +210,26 @@ export function buildRealBenchmarkPreflightReport(
   } else if (!cliEntrypoint.publishableEligible) {
     warnings.push(
       'Using the dev start-script fallback is acceptable for pilot debugging, but not for publishable evidence.',
+    );
+  }
+
+  if (buildFreshness.repoDirty) {
+    warnings.push(
+      `Benchmark build freshness check saw ${buildFreshness.dirtyStatus.length} dirty paths; pilot runs may be useful for debugging but are not publishable evidence.`,
+    );
+  }
+  if (!buildFreshness.distCommitsMatchSource) {
+    warnings.push(
+      'Dist git-commit metadata is stale relative to source metadata; rebuild before trusting bundle-backed benchmark evidence.',
+    );
+  }
+  if (
+    !selfReportSmokeTest.validStatusTagParsed ||
+    !selfReportSmokeTest.malformedStatusTagRejected ||
+    !selfReportSmokeTest.validStatusTagStripped
+  ) {
+    runBlockers.push(
+      'Synthetic Pollux self-report smoke test failed; status-tag parsing/stripping is not trustworthy enough to run live benchmarks.',
     );
   }
 
@@ -248,6 +317,8 @@ export function buildRealBenchmarkPreflightReport(
       path: cliEntrypoint.path,
       publishableEligible: cliEntrypoint.publishableEligible,
     },
+    buildFreshness,
+    selfReportSmokeTest,
     corpus,
     authSeed: {
       mode: manifest.authIsolationMode,
@@ -286,6 +357,19 @@ export function renderRealBenchmarkPreflightReport(
   lines.push(`- Path: \`${report.cliEntrypoint.path}\``);
   lines.push(
     `- Publishable eligible: ${report.cliEntrypoint.publishableEligible ? 'yes' : 'no'}`,
+  );
+  lines.push(`- Git HEAD: \`${report.buildFreshness.gitHead}\``);
+  lines.push(
+    `- Dirty worktree: ${report.buildFreshness.repoDirty ? `yes (${report.buildFreshness.dirtyStatus.length} paths)` : 'no'}`,
+  );
+  lines.push(
+    `- Source git metadata matches HEAD: ${report.buildFreshness.sourceCommitsMatchHead ? 'yes' : 'no'}`,
+  );
+  lines.push(
+    `- Dist git metadata matches source: ${report.buildFreshness.distCommitsMatchSource ? 'yes' : 'no'}`,
+  );
+  lines.push(
+    `- Self-report smoke: parsed=${report.selfReportSmokeTest.validStatusTagParsed ? 'yes' : 'no'}, malformed rejected=${report.selfReportSmokeTest.malformedStatusTagRejected ? 'yes' : 'no'}, stripped=${report.selfReportSmokeTest.validStatusTagStripped ? 'yes' : 'no'}`,
   );
   lines.push('');
   lines.push('## 2) Corpus');
@@ -385,6 +469,7 @@ async function main() {
     REAL_BENCHMARK_SEED_CORPUS,
     pricingSnapshot,
     parseArg('--binary-path'),
+    parseEntrypointPreference(parseArg('--entrypoint')),
   );
 
   const artifactRoot = path.join(POLLUX_REAL_ARTIFACT_ROOT, campaignId);

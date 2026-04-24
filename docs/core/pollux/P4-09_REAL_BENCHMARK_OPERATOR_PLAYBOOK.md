@@ -30,6 +30,12 @@ npm run benchmark:pollux:real:preflight -- --campaign-id pilot-local-001
 npm run benchmark:pollux:real:pilot -- --campaign-id pilot-local-001 --repeats 3
 ```
 
+For targeted debugging, constrain runaway samples explicitly:
+
+```powershell
+npm run benchmark:pollux:real:pilot -- --campaign-id pilot-debug-001 --repeats 1 --task-ids CAL-BM-04-ESCALATING,PILOT-BM-05-STATUS-WRITE,PILOT-BM-06-YAML-TRANSFORM --max-wall-clock-ms 600000 --max-model-responses 6
+```
+
 Optional:
 
 ```powershell
@@ -59,17 +65,25 @@ Run this before every live pilot:
    pilot mode.
 5. Freeze or at least record the intended task subset and repeat count.
 6. Freeze or at least record the pricing snapshot path if you want cost output.
+7. Inspect preflight build freshness: publishable runs require a clean worktree,
+   generated source commit metadata matching HEAD, and dist commit metadata
+   matching source metadata.
+8. Inspect the self-report smoke result: valid `<pollux:status .../>` tags must
+   parse and strip, and malformed near-misses such as
+   `<pollux:statusstuck_on=...>` must be rejected.
 
 ---
 
 ## 4) What preflight does
 
-The preflight command checks four things:
+The preflight command checks six things:
 
 1. the CLI entrypoint exists
 2. the selected task set exists
 3. auth seed files exist for single-account pilot mode
 4. publishability blockers are surfaced honestly
+5. build freshness metadata is recorded
+6. the synthetic self-report parser/stripper smoke check passes
 
 Read:
 
@@ -94,8 +108,9 @@ The pilot runner:
 7. parses the real telemetry file
 8. evaluates fairness pins using the same pin semantics as the synthetic lane
 9. runs the task oracle
-10. writes one raw JSON record per sample
-11. renders `summary.json` and `report.md`
+10. enforces per-sample wall-clock and model-response ceilings
+11. writes one raw JSON record per sample
+12. renders `summary.json` and `report.md`
 
 ---
 
@@ -131,9 +146,19 @@ Then inspect raw samples for:
 2. `promptId`
 3. `responseIds`
 4. `observedAdvisorCalls`
-5. `tokens.total`, `tokens.advisor`, `tokens.executor`
-6. fairness pins
-7. `stdoutPath`, `stderrPath`, `telemetryPath`
+5. `expectedEscalation`, `predictedEscalation`, and `confusionOutcome`
+6. `stdoutStatusTagCount`, `malformedStatusTagCount`, `nearMissStatusTagCount`,
+   and `toolErrorCount`
+7. `tokens.total`, `tokens.advisor`, `tokens.executor`
+8. fairness pins
+9. `entrypointKind`, `entrypointPath`, and `buildFreshness`
+10. `structuredErrorEvidence`
+11. `stdoutPath`, `stderrPath`, `telemetryPath`
+
+In `report.md`, always inspect the per-sample diagnostics table before trusting
+the aggregate rates. A `missing_event` timing row is the expected place for
+valid false negatives: it means Pollux should have escalated for the task and
+condition, but no consult-related telemetry appeared.
 
 If a task is flaky, fix the task or oracle before increasing repeat counts.
 
@@ -152,6 +177,11 @@ Do not publish results if any of these are true:
 7. required fixture coverage is missing
 8. synthetic self-test is not green on the same build
 9. live artifact bundle cannot provide the methodology-required evidence
+10. build freshness is stale, dirty, or dist/source commit metadata disagrees
+11. malformed Pollux status near-misses or unexplained tool errors appear in
+    valid samples
+12. model-capacity, timeout, or model-call-ceiling invalidations are not
+    disclosed separately from task/oracle failures
 
 ---
 

@@ -14,7 +14,10 @@ import {
   buildRealBenchmarkCorpusStats,
   buildRealBenchmarkPreflightReport,
 } from './pollux-real-preflight.js';
-import { summarizeRealBenchmarkTelemetry } from './pollux-live-run-rig.js';
+import {
+  classifyRealBenchmarkProcessFailure,
+  summarizeRealBenchmarkTelemetry,
+} from './pollux-live-run-rig.js';
 
 describe('buildRealBenchmarkCorpusStats', () => {
   it('captures the seed-corpus methodology gaps honestly', () => {
@@ -66,6 +69,36 @@ describe('buildRealBenchmarkPreflightReport', () => {
     expect(report.publishabilityBlockers.join('\n')).not.toContain(
       'reason-code and timing breakdowns',
     );
+    expect(report.selfReportSmokeTest).toEqual({
+      validStatusTagParsed: true,
+      malformedStatusTagRejected: true,
+      validStatusTagStripped: true,
+    });
+  });
+});
+
+describe('classifyRealBenchmarkProcessFailure', () => {
+  it('classifies capacity exhaustion before generic OAuth/auth stack text', () => {
+    const classified = classifyRealBenchmarkProcessFailure(
+      3221225786,
+      'OAuth2Client.requestAsync failed: 429 RESOURCE_EXHAUSTED MODEL_CAPACITY_EXHAUSTED No capacity available for model gemini-2.5-flash',
+    );
+
+    expect(classified.reason).toBe('model_capacity_exhausted');
+    expect(classified.evidence).toMatchObject({
+      exitCode: 3221225786,
+      exitCodeHex: '0xC000013A',
+      matchedReason: 'RESOURCE_EXHAUSTED',
+    });
+  });
+
+  it('classifies plain credential failures as auth failures', () => {
+    expect(
+      classifyRealBenchmarkProcessFailure(
+        1,
+        'Please login again: credential expired',
+      ).reason,
+    ).toBe('auth_failure');
   });
 });
 

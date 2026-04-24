@@ -159,6 +159,91 @@ describe('pollux/observer', () => {
     );
   });
 
+  it('self-report status tag split across content chunks still produces a same-turn intent', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value: 'x <pollux:status stuck_on="ci fails',
+    });
+    expect(obs.peekSameTurnIntent()).toBeUndefined();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value: ' on windows" next="inspect logs"/> y',
+    });
+
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        timing: 'same_turn',
+        pauseBoundary: 'post_event',
+        reasonCode: PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+      }),
+    );
+  });
+
+  it('self-report status tag split inside stuck_on still produces a same-turn intent', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value: '<pollux:status stuck',
+    });
+    expect(obs.peekSameTurnIntent()).toBeUndefined();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value: '_on="drafting memo" next="write preview"/>',
+    });
+
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        timing: 'same_turn',
+        pauseBoundary: 'post_event',
+        reasonCode: PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+      }),
+    );
+  });
+
+  it('does not treat malformed no-space status near-misses as self-report escalation', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value:
+        '<pollux:statusstuck_on="ci fails on windows" next="inspect logs"/>',
+    });
+
+    expect(obs.peekSameTurnIntent()).toBeUndefined();
+  });
+
   it('emits a pre-tool same-turn intent for high-risk shell commands', () => {
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({

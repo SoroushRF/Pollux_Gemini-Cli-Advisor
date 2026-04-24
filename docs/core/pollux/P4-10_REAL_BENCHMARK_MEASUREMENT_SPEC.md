@@ -72,6 +72,8 @@ A sample with:
 3. prompt id present
 4. response id evidence present
 5. fairness pins satisfied
+6. no wall-clock timeout
+7. no model-response ceiling breach
 
 ### Invalid sample
 
@@ -97,11 +99,18 @@ The foundation runner records:
     compatibility
 11. derived run-level confusion exclusion marker for `fail_open` and
     `budget_exhausted`
+12. expected-vs-predicted escalation labels and run-level confusion outcome
+13. status-tag leakage diagnostics, including malformed/near-miss tags that are
+    not valid Pollux self-report signals
+14. tool/shell error counts
+15. structured process-error evidence, including exit code hex and matched API
+    error reason/status when present
+16. CLI entrypoint kind/path and build freshness metadata
 
 Publishable campaigns additionally require:
 
 1. reason-code breakdown
-2. timing breakdown (`same_turn` / `next_turn`)
+2. timing breakdown (`same_turn` / `next_turn` / `missing_event`)
 3. explicit exclusion-bucket disclosure for `fail_open` and `budget_exhausted`
    in confusion reporting
 4. methodology-level statistics from `P4-05_REAL_BENCHMARK_METHODOLOGY.md`
@@ -114,13 +123,21 @@ The foundation runner can invalidate a sample for reasons including:
 
 1. `auth_failure`
 2. `rate_limit_contamination`
-3. `cli_exit_nonzero`
-4. `missing_telemetry`
-5. `missing_prompt_id`
-6. `missing_response_id`
-7. `fairness_pin_failure`
+3. `model_capacity_exhausted`
+4. `cli_exit_nonzero`
+5. `run_timeout`
+6. `model_call_ceiling_exceeded`
+7. `missing_telemetry`
+8. `missing_prompt_id`
+9. `missing_response_id`
+10. `fairness_pin_failure`
 
 These reasons are artifact evidence, not cleanup hints.
+
+Classifier order matters. Structured capacity/quota evidence such as
+`MODEL_CAPACITY_EXHAUSTED`, `RESOURCE_EXHAUSTED`, or HTTP `429` must be
+recognized before generic OAuth/auth stack text. A capacity outage is not an
+`auth_failure` merely because the stack includes an OAuth client frame.
 
 ---
 
@@ -159,15 +176,23 @@ Each raw sample must include:
 14. invalidation state
 15. escalation event list with outcome / reason / timing metadata
 16. derived confusion exclusion marker (if any)
+17. expected escalation label
+18. predicted escalation label
+19. confusion outcome
+20. CLI entrypoint kind/path
+21. build freshness metadata
+22. structured process-error evidence
+23. status-tag and tool-error diagnostics
 
 Summary artifacts must include:
 
 1. confusion matrix counts over included runs only
 2. exclusion counts for `fail_open` and `budget_exhausted`
-3. timing-stratified precision/recall
+3. timing-stratified precision/recall, including the `missing_event` bucket
 4. reason-code distribution counts
 5. evidence-driven publishability blockers when escalation instrumentation is
    missing or malformed
+6. per-sample diagnostics so aggregate rates can be traced back to raw runs
 
 ---
 

@@ -55,6 +55,9 @@ Before run start, enforce:
 - Latency split between service-side latency and wall-clock latency.
 - Frozen prompt/system seed and tool definitions for the full campaign.
 - No hidden retries/regenerations that corrupt token accounting.
+- Per-sample wall-clock and model-response ceilings recorded in the campaign
+  artifact so runaway verification loops become explicit invalidations rather
+  than silent contamination.
 
 ## 4) Token accounting and reconciliation
 
@@ -76,12 +79,16 @@ remains observed advisor-consult telemetry events.
 Required breakdowns for current runtime:
 
 - Timing stratification: precision/recall split by `escalationTiming`
-  (`same_turn` vs `next_turn`).
+  (`same_turn`, `next_turn`, plus `missing_event` for expected-positive samples
+  with no consult-related telemetry).
 - Reason-code stratification using current enum values (for example
   `RISK_GATE_BLOCK`, `HARD_LOOP`, `SELF_REPORT_STUCK`,
   `FUSION_COMPOSITE[_EMPHATIC]`, `LIVE_OBSERVER_MATCH`).
 - `BUDGET_EXHAUSTED` is a separate bucket (not silently counted as FN).
 - `FAIL_OPEN` is a separate bucket (not silently counted as TP/FP).
+- Malformed Pollux status near-misses are diagnostics, not escalation evidence.
+  Only valid `<pollux:status stuck_on="..." next="..."/>` tags may count toward
+  self-report escalation.
 
 Legacy strategy-stratified B/C/D precision/recall is not applicable after Phase
 I detector deletion.
@@ -92,6 +99,7 @@ Every published number must be reproducible from:
 
 - Corpus snapshot SHA
 - CLI build SHA + lockfile
+- CLI entrypoint kind/path and build freshness metadata
 - Condition matrix and settings overrides
 - Fairness pin evidence
 - Prompt/system seed
@@ -111,6 +119,9 @@ true:
 5. Confusion matrix in section 5 includes timing/reason breakdowns.
 6. Reproducibility requirements in section 6 are met.
 7. Synthetic harness self-test passes on the same CLI build used for the run.
+8. Preflight build freshness is clean and dist/source git metadata agrees.
+9. Invalidations distinguish auth failures, rate/quota contamination,
+   model-capacity exhaustion, timeouts, and model-call ceiling breaches.
 
 Until section 1-7 hold, no artifact in this repo should present executor vs
 advisor comparison as a real benchmark result.

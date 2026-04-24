@@ -48,13 +48,20 @@ function extractInspectableText(input: SensorInput): string | undefined {
     return `${entry.subject}\n${entry.description}`.trim();
   }
   if (input.event.type === GeminiEventType.Content) {
-    return String(input.event.value ?? '').trim();
+    return (
+      input.currentTurnModelOutput ?? String(input.event.value ?? '')
+    ).trim();
   }
   return undefined;
 }
 
 export class SelfReportSensor implements Sensor {
   readonly id = SELF_REPORT_SENSOR_ID;
+  private readonly emittedStuckAttributions = new Set<string>();
+
+  beginTurn(): void {
+    this.emittedStuckAttributions.clear();
+  }
 
   observe(input: SensorInput): readonly SensorSignal[] {
     try {
@@ -70,6 +77,11 @@ export class SelfReportSensor implements Sensor {
           typeof tag.stuckOn === 'string' &&
           isNonTrivialStuckValue(tag.stuckOn)
         ) {
+          const stuckOn = tag.stuckOn.trim();
+          if (this.emittedStuckAttributions.has(stuckOn)) {
+            continue;
+          }
+          this.emittedStuckAttributions.add(stuckOn);
           out.push({
             id: SELF_STRUCTURED_STATUS_STUCK_SIGNAL_ID,
             weight: SELF_STRUCTURED_STATUS_STUCK_WEIGHT,
@@ -77,7 +89,7 @@ export class SelfReportSensor implements Sensor {
             category: 'self',
             hardPrecision: true,
             tsMs: nowMs,
-            attribution: `self_report stuck_on="${tag.stuckOn.trim()}"`,
+            attribution: `self_report stuck_on="${stuckOn}"`,
           });
           break;
         }

@@ -4,6 +4,11 @@ Version: 1.1 Date: 2026-04-23 Status: Agent handoff snapshot after
 publishability-stats telemetry/reporting foundation Repo commit:
 `1dfce403bab6d9e353cfbdc3165e0583fd8d439e`
 
+Update note: the live pilot lane now also records build freshness, per-sample
+expected/predicted escalation labels, confusion outcome, malformed status-tag
+diagnostics, tool-error counts, structured process-error evidence, and
+`missing_event` timing buckets for false negatives.
+
 ---
 
 ## 1) Purpose
@@ -174,7 +179,8 @@ The live pilot system works like this:
 9. evaluate fairness pins using the same fairness logic used by the synthetic
    harness
 10. run the task oracle
-11. emit one raw JSON file per sample plus summary/report artifacts
+11. classify invalidations with structured process-error evidence
+12. emit one raw JSON file per sample plus summary/report artifacts
 
 Key code paths:
 
@@ -374,10 +380,12 @@ explicitly expanded.
 6. pricing snapshot template
 7. seed real benchmark corpus
 8. standalone live runner
-9. preflight command
-10. pilot command
+9. preflight command with build-freshness and self-report smoke checks
+10. pilot command with wall-clock and model-response ceilings
 11. raw artifact bundle shape
-12. focused tests for seed corpus and preflight/telemetry summary logic
+12. per-sample diagnostics for false negatives, malformed tags, and tool errors
+13. focused tests for seed corpus, preflight/telemetry summary logic, and report
+    truthfulness gates
 
 ### Not yet implemented
 
@@ -386,7 +394,7 @@ explicitly expanded.
 3. isolated benchmark credentials/projects
 4. publishable campaign automation path
 5. campaign-scale validation of reason/timing evidence quality across larger
-   runs (instrumentation exists; now needs operational hardening)
+   runs (instrumentation and blockers exist; now needs operational hardening)
 6. final publishable statistical layer (`N >= 30 per cell`, prereg complete,
    power analysis complete, Wilson interval gate, etc.)
 7. full dress-rehearsal and publishable campaign scripts
@@ -462,8 +470,11 @@ Where to investigate:
 Notes:
 
 The repo now emits `gemini_cli.pollux_escalation` telemetry and aggregates
-reason/timing data into campaign summaries. Follow-on work should focus on
-quality gates and large-run validation, not redefining reason/timing enums.
+reason/timing data into campaign summaries. The report now includes per-sample
+expected/predicted escalation labels, false-negative blockers, malformed
+status-tag blockers, and a `missing_event` timing bucket. Follow-on work should
+focus on large-run validation and reducing real-model flake, not redefining
+reason/timing enums.
 
 Recommended model:
 

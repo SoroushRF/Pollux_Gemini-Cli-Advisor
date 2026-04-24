@@ -29,12 +29,30 @@ import {
 } from './pollux-real-report.js';
 import type { RealBenchmarkRunRecord } from './pollux-real-types.js';
 
+function parseEntrypointPreference(
+  value: string | undefined,
+): 'auto' | 'bundle' | 'dev_script' | undefined {
+  if (value === 'auto' || value === 'bundle' || value === 'dev_script') {
+    return value;
+  }
+  return undefined;
+}
+
 function parseArg(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
   if (index === -1 || index === process.argv.length - 1) {
     return undefined;
   }
   return process.argv[index + 1];
+}
+
+function parsePositiveNumberArg(flag: string): number | undefined {
+  const raw = parseArg(flag);
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function writeJson(filePath: string, value: unknown): void {
@@ -70,6 +88,9 @@ export async function runPolluxRealPilot() {
   const pricingSnapshotPath = parseArg('--pricing-snapshot');
   const pricingSnapshot = loadPricingSnapshotFromPath(pricingSnapshotPath);
   const binaryPath = parseArg('--binary-path');
+  const entrypointPreference = parseEntrypointPreference(
+    parseArg('--entrypoint'),
+  );
 
   const manifest = buildDefaultCampaignManifest(campaignId, taskIds);
   manifest.repeatsPerCell = repeats;
@@ -82,6 +103,7 @@ export async function runPolluxRealPilot() {
     REAL_BENCHMARK_SEED_CORPUS,
     pricingSnapshot,
     binaryPath,
+    entrypointPreference,
   );
   if (preflight.runBlockers.length > 0) {
     throw new Error(
@@ -118,8 +140,11 @@ export async function runPolluxRealPilot() {
     artifactRoot,
     pricingSnapshot,
     binaryPath,
+    entrypointPreference,
     keepScratchDirectories:
       (parseArg('--keep-scratch-directories') ?? 'true') !== 'false',
+    maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
+    maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
     repoRoot: POLLUX_REAL_REPO_ROOT,
   });
 

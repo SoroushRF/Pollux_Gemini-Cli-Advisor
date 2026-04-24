@@ -67,6 +67,7 @@ export interface SensorSignal {
 /** Observer sensor contract (DETECTOR_IMPLEMENTATION_PLAN §D.2). */
 export interface Sensor {
   readonly id: string;
+  beginTurn?(): void;
   observe(input: SensorInput): readonly SensorSignal[];
 }
 

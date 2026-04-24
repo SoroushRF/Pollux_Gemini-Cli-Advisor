@@ -263,6 +263,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     this.currentTurnAdvisorSuccess = false;
     this.fusionEscalatedThisTurn = false;
     this.loopSensor?.resetEdgeTracking();
+    for (const sensor of this.streamSensors) {
+      sensor.beginTurn?.();
+    }
   }
 
   ingest(event: ServerGeminiStreamEvent): void {
@@ -408,8 +411,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         break;
       }
       case GeminiEventType.Content: {
-        this.currentTurnModelOutput =
-          `${this.currentTurnModelOutput}\n${event.value}`.trim();
+        this.currentTurnModelOutput += event.value;
         break;
       }
       case GeminiEventType.Finished: {

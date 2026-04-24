@@ -86,11 +86,13 @@ describe('pollux/safeguards', () => {
   });
 
   describe('resolveAdvisorPathFailure', () => {
-    it('returns fail-open for parse, timeout, and empty response', () => {
+    it('returns fail-open for advisor path failure kinds', () => {
       for (const kind of [
         'parse_error',
         'timeout',
         'empty_response',
+        'capacity_exhausted',
+        'quota_exhausted',
       ] as const) {
         const o = resolveAdvisorPathFailure(kind);
         expect(o.continueWithExecutor).toBe(true);

@@ -4,14 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BenchmarkSettingsOverrides } from './benchmark-harness.js';
 import type {
   RealBenchmarkCampaignManifest,
+  RealBenchmarkBuildFreshness,
   RealBenchmarkConditionProfile,
+  RealBenchmarkEntrypointPreference,
 } from './pollux-real-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,7 +60,7 @@ export const POLLUX_REAL_AUTH_SEED_FILES = [
 export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'A',
-    executorModel: 'gemini-2.5-flash',
+    executorModel: 'gemini-3-flash-preview',
     polluxEnabled: false,
     authProfile: 'baseline-executor',
     publishableEligible: true,
@@ -73,7 +76,7 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   },
   {
     id: 'F',
-    executorModel: 'gemini-2.5-flash',
+    executorModel: 'gemini-3-flash-preview',
     advisorModel: 'gemini-3.1-pro-preview',
     polluxEnabled: true,
     authProfile: 'pollux-advisor',
@@ -175,13 +178,120 @@ export function getDefaultGeminiHome(): string {
   return join(homedir(), '.gemini');
 }
 
-export function resolveCliEntrypoint(explicitBinaryPath?: string): {
+function getDirtyStatus(repoRoot: string): string[] {
+  try {
+    const output = execFileSync('git', ['status', '--porcelain'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    return output
+      .split(/\r?\n/g)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function hasDirtyWorktree(repoRoot: string): boolean {
+  return getDirtyStatus(repoRoot).length > 0;
+}
+
+function getGitHead(repoRoot: string): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--short=9', 'HEAD'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function readGeneratedGitCommit(filePath: string): string | null {
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  const content = readFileSync(filePath, 'utf8');
+  return /GIT_COMMIT_INFO\s*=\s*['"]([^'"]+)['"]/.exec(content)?.[1] ?? null;
+}
+
+export function collectRealBenchmarkBuildFreshness(
+  repoRoot: string = POLLUX_REAL_REPO_ROOT,
+): RealBenchmarkBuildFreshness {
+  const gitHead = getGitHead(repoRoot);
+  const dirtyStatus = getDirtyStatus(repoRoot);
+  const cliSourceGitCommit = readGeneratedGitCommit(
+    join(repoRoot, 'packages', 'cli', 'src', 'generated', 'git-commit.ts'),
+  );
+  const cliDistGitCommit = readGeneratedGitCommit(
+    join(
+      repoRoot,
+      'packages',
+      'cli',
+      'dist',
+      'src',
+      'generated',
+      'git-commit.js',
+    ),
+  );
+  const coreSourceGitCommit = readGeneratedGitCommit(
+    join(repoRoot, 'packages', 'core', 'src', 'generated', 'git-commit.ts'),
+  );
+  const coreDistGitCommit = readGeneratedGitCommit(
+    join(
+      repoRoot,
+      'packages',
+      'core',
+      'dist',
+      'src',
+      'generated',
+      'git-commit.js',
+    ),
+  );
+
+  return {
+    gitHead,
+    repoDirty: dirtyStatus.length > 0,
+    dirtyStatus,
+    cliSourceGitCommit,
+    cliDistGitCommit,
+    coreSourceGitCommit,
+    coreDistGitCommit,
+    sourceCommitsMatchHead:
+      cliSourceGitCommit === gitHead && coreSourceGitCommit === gitHead,
+    distCommitsMatchSource:
+      cliSourceGitCommit !== null &&
+      cliSourceGitCommit === cliDistGitCommit &&
+      coreSourceGitCommit !== null &&
+      coreSourceGitCommit === coreDistGitCommit,
+  };
+}
+
+function pickEntrypointPreference(
+  preference: RealBenchmarkEntrypointPreference | undefined,
+): RealBenchmarkEntrypointPreference {
+  if (
+    preference === 'bundle' ||
+    preference === 'dev_script' ||
+    preference === 'auto'
+  ) {
+    return preference;
+  }
+  return 'auto';
+}
+
+export function resolveCliEntrypoint(
+  explicitBinaryPath?: string,
+  preference?: RealBenchmarkEntrypointPreference,
+): {
   kind: 'bundle' | 'binary' | 'dev_script';
   command: string;
   initialArgs: string[];
   path: string;
   publishableEligible: boolean;
 } {
+  const normalizedPreference = pickEntrypointPreference(preference);
   const envBinaryPath = process.env['POLLUX_REAL_BENCHMARK_BINARY_PATH'];
   const binaryPath = explicitBinaryPath ?? envBinaryPath;
   if (binaryPath) {
@@ -194,8 +304,26 @@ export function resolveCliEntrypoint(explicitBinaryPath?: string): {
     };
   }
 
+  const startScriptPath = join(POLLUX_REAL_REPO_ROOT, 'scripts', 'start.js');
   const bundlePath = join(POLLUX_REAL_REPO_ROOT, 'bundle', 'gemini.js');
-  if (existsSync(bundlePath)) {
+  const bundleExists = existsSync(bundlePath);
+  const preferDevScript =
+    normalizedPreference === 'dev_script' ||
+    (normalizedPreference === 'auto' &&
+      bundleExists &&
+      hasDirtyWorktree(POLLUX_REAL_REPO_ROOT));
+
+  if (preferDevScript && existsSync(startScriptPath)) {
+    return {
+      kind: 'dev_script',
+      command: 'node',
+      initialArgs: [startScriptPath],
+      path: startScriptPath,
+      publishableEligible: false,
+    };
+  }
+
+  if (bundleExists) {
     return {
       kind: 'bundle',
       command: 'node',
@@ -205,7 +333,6 @@ export function resolveCliEntrypoint(explicitBinaryPath?: string): {
     };
   }
 
-  const startScriptPath = join(POLLUX_REAL_REPO_ROOT, 'scripts', 'start.js');
   return {
     kind: 'dev_script',
     command: 'node',

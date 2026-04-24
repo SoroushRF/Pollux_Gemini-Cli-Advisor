@@ -73,7 +73,9 @@ export function checkAdvisorInvocationBudget(
 export type AdvisorPathFailureKind =
   | 'parse_error'
   | 'timeout'
-  | 'empty_response';
+  | 'empty_response'
+  | 'capacity_exhausted'
+  | 'quota_exhausted';
 
 /**
  * Observable fail-open outcome when the advisor path cannot return guidance

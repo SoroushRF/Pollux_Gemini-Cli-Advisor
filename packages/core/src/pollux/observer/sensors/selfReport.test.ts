@@ -20,6 +20,19 @@ function inputForEvent(event: ServerGeminiStreamEvent) {
   } as const;
 }
 
+function inputForContentChunk(value: string, currentTurnModelOutput: string) {
+  return {
+    event: {
+      type: GeminiEventType.Content,
+      value,
+    } as ServerGeminiStreamEvent,
+    turnElapsedMs: 0,
+    toolEventWindow: [],
+    thoughtWindow: [],
+    currentTurnModelOutput,
+  } as const;
+}
+
 describe('pollux/observer/sensors/selfReport', () => {
   it('emits no stuck signal when stuck_on is trivial (nothing)', () => {
     const sensor = new SelfReportSensor();
@@ -44,6 +57,66 @@ describe('pollux/observer/sensors/selfReport', () => {
     const stuck = signals.find((s) => s.id === 'self.structured_status_stuck');
     expect(stuck).toBeDefined();
     expect(stuck?.hardPrecision).toBe(true);
+  });
+
+  it('detects non-trivial stuck_on when the status tag is split across content chunks', () => {
+    const sensor = new SelfReportSensor();
+    expect(
+      sensor.observe(
+        inputForContentChunk(
+          '<pollux:status stuck_on="ci fails',
+          '<pollux:status stuck_on="ci fails',
+        ),
+      ),
+    ).toEqual([]);
+
+    const signals = sensor.observe(
+      inputForContentChunk(
+        ' on windows" next="inspect logs"/>',
+        '<pollux:status stuck_on="ci fails on windows" next="inspect logs"/>',
+      ),
+    );
+    const stuck = signals.find((s) => s.id === 'self.structured_status_stuck');
+    expect(stuck).toBeDefined();
+    expect(stuck?.hardPrecision).toBe(true);
+  });
+
+  it('detects non-trivial stuck_on when the stream splits inside the attribute name', () => {
+    const sensor = new SelfReportSensor();
+    const signals = sensor.observe(
+      inputForContentChunk(
+        '_on="drafting memo" next="write preview"/>',
+        '<pollux:status stuck_on="drafting memo" next="write preview"/>',
+      ),
+    );
+    const stuck = signals.find((s) => s.id === 'self.structured_status_stuck');
+    expect(stuck).toBeDefined();
+    expect(stuck?.attribution).toBe('self_report stuck_on="drafting memo"');
+  });
+
+  it('does not emit duplicate stuck signals for the same tag within a turn', () => {
+    const sensor = new SelfReportSensor();
+    const input = inputForContentChunk(
+      '<pollux:status stuck_on="ci fails on windows" next="inspect logs"/>',
+      '<pollux:status stuck_on="ci fails on windows" next="inspect logs"/>',
+    );
+    expect(
+      sensor
+        .observe(input)
+        .some((s) => s.id === 'self.structured_status_stuck'),
+    ).toBe(true);
+    expect(
+      sensor
+        .observe(input)
+        .some((s) => s.id === 'self.structured_status_stuck'),
+    ).toBe(false);
+
+    sensor.beginTurn();
+    expect(
+      sensor
+        .observe(input)
+        .some((s) => s.id === 'self.structured_status_stuck'),
+    ).toBe(true);
   });
 
   it('does not emit confidence-low when confidence is high', () => {
