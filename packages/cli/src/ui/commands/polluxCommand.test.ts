@@ -147,15 +147,16 @@ describe('polluxCommand', () => {
     const formatted = formatPolluxStatus(
       {
         enabled: true,
-        executorModel: 'gemini-2.5-flash',
+        executorModel: 'gemini-3-flash-preview',
         advisorModel: 'gemini-3.1-pro-preview',
+        advisorFallbackModel: 'gemini-2.5-pro',
         maxAdvisorCallsPerTurn: 2,
         maxAdvisorCallsPerSession: 20,
         emitAdvisorDebug: false,
         advisorRequestTimeoutMs: 120000,
         detector: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
       } as Parameters<typeof formatPolluxStatus>[0],
-      'gemini-2.5-flash',
+      'gemini-3-flash-preview',
     );
     expect(formatted).toContain('Pollux is enabled.');
     expect(formatted).toContain('Settings path: experimental.pollux.*');
