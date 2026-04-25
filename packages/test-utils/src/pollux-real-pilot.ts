@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PILOT_SENTINEL_TASK_IDS,
   REAL_BENCHMARK_SEED_CORPUS,
+  getRealBenchmarkTasksByIds,
 } from '../../core/src/pollux/benchmark/realTasks.js';
 import {
   POLLUX_REAL_ARTIFACT_ROOT,
@@ -28,6 +29,7 @@ import {
   renderRealBenchmarkCampaignReport,
 } from './pollux-real-report.js';
 import type { RealBenchmarkRunRecord } from './pollux-real-types.js';
+import type { RealBenchmarkConditionId } from './pollux-real-types.js';
 
 function parseEntrypointPreference(
   value: string | undefined,
@@ -69,15 +71,7 @@ function writeJson(filePath: string, value: unknown): void {
 }
 
 function getSelectedTasks(taskIds: string[]) {
-  const tasks = REAL_BENCHMARK_SEED_CORPUS.filter((task) =>
-    taskIds.includes(task.id),
-  );
-  if (tasks.length !== taskIds.length) {
-    const foundIds = new Set(tasks.map((task) => task.id));
-    const missing = taskIds.filter((taskId) => !foundIds.has(taskId));
-    throw new Error(`Unknown pilot task ids: ${missing.join(', ')}`);
-  }
-  return tasks;
+  return getRealBenchmarkTasksByIds(taskIds);
 }
 
 export async function runPolluxRealCampaign(params: {
@@ -92,6 +86,7 @@ export async function runPolluxRealCampaign(params: {
   maxModelResponsesPerSample?: number;
   artifactRoot?: string;
   allowOverwrite?: boolean;
+  conditionIds?: RealBenchmarkConditionId[];
 }) {
   const selectedTasks = getSelectedTasks(params.taskIds);
   const pricingSnapshot = loadPricingSnapshotFromPath(
@@ -100,6 +95,7 @@ export async function runPolluxRealCampaign(params: {
   const manifest = buildDefaultCampaignManifest(
     params.campaignId,
     params.taskIds,
+    params.conditionIds,
   );
   manifest.repeatsPerCell = params.repeats;
   if (params.pricingSnapshotPath) {

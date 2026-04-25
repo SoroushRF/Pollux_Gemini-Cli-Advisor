@@ -699,10 +699,450 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
   },
 ];
 
+const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
+  {
+    id: 'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+    difficulty: 'complex',
+    description:
+      'M3 candidate task requiring a cross-file export/import fix instead of a local-only rename.',
+    files: {
+      'src/math.ts':
+        'export function sumValues(items: number[]) {\n  return items.reduce((total, value) => total + value, 0);\n}\n',
+      'src/report.ts':
+        'import { sum } from "./math.js";\n\nexport function renderReport(items: number[]) {\n  return `total=${sum(items)}`;\n}\n',
+      'tests/report.test.ts':
+        'import { renderReport } from "../src/report.js";\n\nif (renderReport([2, 3, 5]) !== "total=10") {\n  throw new Error("report total mismatch");\n}\n',
+    },
+    prompt:
+      'Fix the cross-file import/export mismatch so report.ts uses the existing implementation correctly. Do not change the test expectation. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-01',
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: createMultiFileRefactorOracle({
+      fileChecks: [
+        {
+          fileName: 'src/math.ts',
+          required: [/sumValues/],
+        },
+        {
+          fileName: 'src/report.ts',
+          required: [/sumValues/, /total=\$\{sumValues\(items\)\}/],
+          forbidden: [/import\s+\{\s*sum\s*\}/],
+        },
+        {
+          fileName: 'tests/report.test.ts',
+          required: [/total=10/],
+        },
+      ],
+      markerFileName: 'm3-done.txt',
+      markerText: 'done',
+    }),
+  },
+  {
+    id: 'M3-BM-02-MISLEADING-DEFAULT-CONFIG',
+    difficulty: 'complex',
+    description:
+      'M3 candidate task where the correct fix is changing the runtime config rather than weakening validation.',
+    files: {
+      'config/defaults.yaml':
+        'service:\n  name: pollux\n  retries: 1\n  timeoutMs: 100\n',
+      'src/validate.ts':
+        'export function isReady(config) {\n  return config.service.retries >= 3 && config.service.timeoutMs >= 500;\n}\n',
+      'notes/failure.md':
+        'The validator is correct. The default config is too aggressive for the pilot environment.\n',
+    },
+    prompt:
+      'Make the service pass readiness by updating the default configuration only. Keep the validator logic unchanged. Create m3-done.txt containing exactly done.',
+    domain: 'json_yaml_transform',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-02',
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const config = readWorkspaceFile(workspaceDir, 'config/defaults.yaml');
+      const validator = readWorkspaceFile(workspaceDir, 'src/validate.ts');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        config !== null &&
+        validator !== null &&
+        marker !== null &&
+        /retries:\s*3/.test(config) &&
+        /timeoutMs:\s*500/.test(config) &&
+        /retries\s*>=\s*3/.test(validator) &&
+        /timeoutMs\s*>=\s*500/.test(validator) &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-03-DISTRACTOR-NOTES-SUMMARY',
+    difficulty: 'complex',
+    description:
+      'M3 candidate search task with distractor notes that mention plausible but wrong owners.',
+    files: {
+      'notes/archive.md':
+        'Old plan: routing owned pricing, telemetry owned archive, release owned sample team.\n',
+      'notes/current.md':
+        'Current plan: adapter is owned by runtime, pricing is owned by measurement, fairness is owned by harness.\n',
+      'notes/readme.md':
+        'Use current.md as source of truth. Archive files are stale.\n',
+    },
+    prompt:
+      'Search the notes and create ownership-summary.txt using only the current source of truth. It must mention adapter/runtime, pricing/measurement, and fairness/harness. Create m3-done.txt containing exactly done.',
+    domain: 'code_search_summarize',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-03',
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const summary = readWorkspaceFile(workspaceDir, 'ownership-summary.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      if (summary === null || marker === null || marker.trim() !== 'done') {
+        return false;
+      }
+      const normalized = summary.toLowerCase();
+      return (
+        normalized.includes('adapter') &&
+        normalized.includes('runtime') &&
+        normalized.includes('pricing') &&
+        normalized.includes('measurement') &&
+        normalized.includes('fairness') &&
+        normalized.includes('harness') &&
+        !normalized.includes('archive')
+      );
+    },
+  },
+  {
+    id: 'M3-BM-04-SHELL-AGGREGATE-WITH-HEADER',
+    difficulty: 'complex',
+    description:
+      'M3 candidate shell task requiring correct aggregation while ignoring a header row.',
+    files: {
+      'events.csv':
+        'type,count\nsuccess,3\nfailure,1\nsuccess,4\nskipped,2\nfailure,2\n',
+    },
+    prompt:
+      'Use shell commands or a small script to summarize events.csv into event-summary.txt containing exactly success=7 failure=3 skipped=2 total=12. Ignore the header row. Create m3-done.txt containing exactly done.',
+    domain: 'shell_tool_chain',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-04',
+    },
+    escalationSignalClass: 'hard_loop',
+    oracle: (_stdout, workspaceDir) => {
+      const summary = readWorkspaceFile(workspaceDir, 'event-summary.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        summary !== null &&
+        marker !== null &&
+        summary.trim() === 'success=7 failure=3 skipped=2 total=12' &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-05-TRANSITIVE-RENAME',
+    difficulty: 'complex',
+    description:
+      'M3 candidate refactor where a helper rename must propagate through a barrel export and caller.',
+    files: {
+      'src/helpers.ts':
+        'export function formatLegacy(value) { return `[${value}]`; }\n',
+      'src/index.ts': 'export { formatLegacy } from "./helpers.js";\n',
+      'src/render.ts':
+        'import { formatLegacy } from "./index.js";\nexport const rendered = formatLegacy("pollux");\n',
+    },
+    prompt:
+      'Rename formatLegacy to formatStable across helpers.ts, index.ts, and render.ts. Preserve behavior and create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-05',
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: createMultiFileRefactorOracle({
+      fileChecks: [
+        {
+          fileName: 'src/helpers.ts',
+          required: [/formatStable/],
+          forbidden: [/formatLegacy/],
+        },
+        {
+          fileName: 'src/index.ts',
+          required: [/formatStable/],
+          forbidden: [/formatLegacy/],
+        },
+        {
+          fileName: 'src/render.ts',
+          required: [/formatStable/],
+          forbidden: [/formatLegacy/],
+        },
+      ],
+      markerFileName: 'm3-done.txt',
+      markerText: 'done',
+    }),
+  },
+  {
+    id: 'M3-BM-06-CONSTRAINT-READ-THEN-WRITE',
+    difficulty: 'moderate',
+    description:
+      'M3 candidate read-then-write task where the answer must respect a constraint file and ignore a tempting clue.',
+    files: {
+      'clues/a.txt': 'Candidate answer: silver maple.\n',
+      'clues/b.txt': 'Candidate answer: copper pine.\n',
+      'constraints.txt': 'Use the answer whose second word is pine.\n',
+    },
+    prompt:
+      'Read the clues and constraint, then create answer.txt containing exactly the selected answer. Create m3-done.txt containing exactly done.',
+    domain: 'read_then_write',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-06',
+    },
+    escalationSignalClass: 'none',
+    oracle: (_stdout, workspaceDir) => {
+      const answer = readWorkspaceFile(workspaceDir, 'answer.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        answer !== null &&
+        marker !== null &&
+        answer.trim() === 'copper pine' &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-07-NESTED-YAML-PRESERVE-LIST',
+    difficulty: 'complex',
+    description:
+      'M3 candidate transform requiring a nested YAML update while preserving ordered steps.',
+    files: {
+      'pipeline.yaml':
+        'pipeline:\n  name: pollux\n  enabled: false\n  steps:\n    - scan\n    - score\n    - report\n  retries: 1\n',
+      'policy.md':
+        'For M3, enable the pipeline and raise retries to 4. The step order is part of the contract.\n',
+    },
+    prompt:
+      'Update pipeline.yaml according to policy.md. Preserve the existing step order exactly and create m3-done.txt containing exactly done.',
+    domain: 'json_yaml_transform',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-07',
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const yaml = readWorkspaceFile(workspaceDir, 'pipeline.yaml');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        yaml !== null &&
+        marker !== null &&
+        /enabled:\s*true/.test(yaml) &&
+        /retries:\s*4/.test(yaml) &&
+        /steps:\s*\n\s*-\s*scan\s*\n\s*-\s*score\s*\n\s*-\s*report/.test(
+          yaml,
+        ) &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-08-TEST-INTENT-BUGFIX',
+    difficulty: 'complex',
+    description:
+      'M3 candidate bugfix where the implementation should change and the test should remain the oracle.',
+    files: {
+      'src/window.ts':
+        'export function withinWindow(value: number) {\n  return value > 10 && value < 20;\n}\n',
+      'tests/window.test.ts':
+        'import { withinWindow } from "../src/window.js";\n\nif (!withinWindow(10) || !withinWindow(20) || withinWindow(21)) {\n  throw new Error("inclusive window contract failed");\n}\n',
+      'README.md': 'The boundary values are intentionally inclusive.\n',
+    },
+    prompt:
+      'Fix the inclusive window bug in src/window.ts without weakening or editing the test contract. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-08',
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const implementation = readWorkspaceFile(workspaceDir, 'src/window.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/window.test.ts');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        implementation !== null &&
+        test !== null &&
+        marker !== null &&
+        /value\s*>=\s*10/.test(implementation) &&
+        /value\s*<=\s*20/.test(implementation) &&
+        /withinWindow\(10\)/.test(test) &&
+        /withinWindow\(20\)/.test(test) &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-09-SORTED-UNIQUE-REPORT',
+    difficulty: 'moderate',
+    description:
+      'M3 candidate shell task requiring stable sorting, deduplication, and exact formatting.',
+    files: {
+      'names.txt': 'delta\nalpha\nbeta\nalpha\ndelta\ngamma\n',
+    },
+    prompt:
+      'Create unique-names.txt with sorted unique names from names.txt, one per line, then create count.txt containing exactly unique=4 total=6. Create m3-done.txt containing exactly done.',
+    domain: 'shell_tool_chain',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-09',
+    },
+    escalationSignalClass: 'none',
+    oracle: (_stdout, workspaceDir) => {
+      const names = readWorkspaceFile(workspaceDir, 'unique-names.txt');
+      const count = readWorkspaceFile(workspaceDir, 'count.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        names !== null &&
+        count !== null &&
+        marker !== null &&
+        names.trim() === 'alpha\nbeta\ndelta\ngamma' &&
+        count.trim() === 'unique=4 total=6' &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-10-CONFLICTING-DOCS-DECISION',
+    difficulty: 'complex',
+    description:
+      'M3 candidate search task requiring conflict resolution between stale and current docs.',
+    files: {
+      'docs/2024-plan.md': 'Use legacy polling and write status=legacy.\n',
+      'docs/2026-plan.md':
+        'Use observer fusion and write status=observer-fusion.\n',
+      'docs/index.md': 'The 2026 plan supersedes all earlier plans.\n',
+    },
+    prompt:
+      'Read the docs and create decision.txt containing exactly status=observer-fusion. Create rationale.txt mentioning 2026 and supersedes. Create m3-done.txt containing exactly done.',
+    domain: 'code_search_summarize',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-10',
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const decision = readWorkspaceFile(workspaceDir, 'decision.txt');
+      const rationale = readWorkspaceFile(workspaceDir, 'rationale.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        decision !== null &&
+        rationale !== null &&
+        marker !== null &&
+        decision.trim() === 'status=observer-fusion' &&
+        rationale.toLowerCase().includes('2026') &&
+        rationale.toLowerCase().includes('supersedes') &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-11-PARTIAL-MIGRATION-GUARD',
+    difficulty: 'complex',
+    description:
+      'M3 candidate refactor where both implementation and registry references must migrate together.',
+    files: {
+      'src/adapters/legacy.ts': 'export const adapterName = "legacy";\n',
+      'src/registry.ts':
+        'export const adapters = ["legacy"];\nexport const defaultAdapter = "legacy";\n',
+      'docs/migration.md':
+        'Migrate legacy adapter naming to stable adapter naming everywhere in source files.\n',
+    },
+    prompt:
+      'Migrate the adapter name from legacy to stable across source files only. Do not edit docs/migration.md. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-11',
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const adapter = readWorkspaceFile(workspaceDir, 'src/adapters/legacy.ts');
+      const registry = readWorkspaceFile(workspaceDir, 'src/registry.ts');
+      const docs = readWorkspaceFile(workspaceDir, 'docs/migration.md');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        adapter !== null &&
+        registry !== null &&
+        docs !== null &&
+        marker !== null &&
+        adapter.includes('"stable"') &&
+        !adapter.includes('"legacy"') &&
+        registry.includes('"stable"') &&
+        !registry.includes('"legacy"') &&
+        docs.includes('legacy adapter naming') &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-12-TWO-FILE-CONSTRAINT-MERGE',
+    difficulty: 'moderate',
+    description:
+      'M3 candidate read/write task requiring a merge of separate allow and deny lists.',
+    files: {
+      'allow.txt': 'alpha\nbeta\ngamma\ndelta\n',
+      'deny.txt': 'beta\ndelta\n',
+      'format.txt':
+        'Write allowed active names as a comma-separated list in original order.\n',
+    },
+    prompt:
+      'Create active.txt from allow.txt minus deny.txt, preserving the original allow.txt order and using the requested comma-separated format. Create m3-done.txt containing exactly done.',
+    domain: 'read_then_write',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef:
+        'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-12',
+    },
+    escalationSignalClass: 'none',
+    oracle: (_stdout, workspaceDir) => {
+      const active = readWorkspaceFile(workspaceDir, 'active.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        active !== null &&
+        marker !== null &&
+        active.trim() === 'alpha,gamma' &&
+        marker.trim() === 'done'
+      );
+    },
+  },
+];
+
 export const REAL_BENCHMARK_SEED_CORPUS: RealBenchmarkTaskSpec[] = [
   ...CORE_REAL_BENCHMARK_TASK_DEFINITIONS,
   ...ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS,
+  ...M3_REAL_BENCHMARK_TASK_DEFINITIONS,
 ].map((task) => withSharedFixtures(task));
+
+export const M3_VALUE_CANDIDATE_TASK_IDS: readonly string[] = [
+  ...ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS,
+  ...M3_REAL_BENCHMARK_TASK_DEFINITIONS,
+].map((task) => task.id);
 
 export const PILOT_SENTINEL_TASK_IDS: readonly string[] = [
   'CAL-BM-01-SIMPLE',
@@ -712,6 +1152,22 @@ export const PILOT_SENTINEL_TASK_IDS: readonly string[] = [
   'PILOT-BM-05-STATUS-WRITE',
   'PILOT-BM-06-YAML-TRANSFORM',
 ] as const;
+
+export function getRealBenchmarkTasksByIds(
+  taskIds: readonly string[],
+): RealBenchmarkTaskSpec[] {
+  const tasks = REAL_BENCHMARK_SEED_CORPUS.filter((task) =>
+    taskIds.includes(task.id),
+  );
+  if (tasks.length !== taskIds.length) {
+    const foundIds = new Set(tasks.map((task) => task.id));
+    const missing = taskIds.filter((taskId) => !foundIds.has(taskId));
+    throw new Error(
+      `Real benchmark seed task not found: ${missing.join(', ')}`,
+    );
+  }
+  return tasks;
+}
 
 export function getRealBenchmarkSeedTask(
   taskId: string,

@@ -546,6 +546,127 @@ export interface RealBenchmarkAcceptanceSummary {
   failedThresholds: string[];
 }
 
+export type RealBenchmarkM3CalibrationLabel =
+  | 'easy'
+  | 'discriminative'
+  | 'impossible_or_noisy'
+  | 'flaky';
+
+export interface RealBenchmarkM3CalibrationThresholds {
+  maxFlashPassRateForDiscriminative: number;
+  minProPassRateForDiscriminative: number;
+  maxInvalidRateForStableTask: number;
+  minSelectedTaskCount: number;
+  maxSelectedTaskCount: number;
+}
+
+export interface RealBenchmarkM3ValueThresholds {
+  minFOverAAbsolute: number;
+  maxFCostPerTaskVsE: number;
+  maxFCostPerSuccessVsE: number;
+  maxInvalidRate: number;
+  minSelectedTaskCount: number;
+}
+
+export interface RealBenchmarkM3ConditionTaskStats {
+  conditionId: RealBenchmarkConditionId;
+  sampleCount: number;
+  validSamples: number;
+  invalidSamples: number;
+  passCount: number;
+  passRate: number | null;
+  invalidRate: number;
+  totalCostUsd: number | null;
+  meanWallClockMs: number;
+  totalTokens: number;
+}
+
+export interface RealBenchmarkM3TaskCalibrationSummary {
+  taskId: string;
+  domain: string;
+  difficulty: string;
+  label: RealBenchmarkM3CalibrationLabel;
+  rationale: string;
+  flash: RealBenchmarkM3ConditionTaskStats;
+  pro: RealBenchmarkM3ConditionTaskStats;
+}
+
+export interface RealBenchmarkM3CalibrationSummary {
+  generatedAt: string;
+  calibrationBatchId: string;
+  corpusSha: string;
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+  candidateTaskCount: number;
+  selectedTaskCount: number;
+  labelCounts: Record<RealBenchmarkM3CalibrationLabel, number>;
+  taskSummaries: RealBenchmarkM3TaskCalibrationSummary[];
+  selectedTaskIds: string[];
+  rejectedTaskIds: string[];
+  pass: boolean;
+  failedThresholds: string[];
+}
+
+export interface RealBenchmarkM3SelectedTaskSet {
+  generatedAt: string;
+  calibrationBatchId: string;
+  corpusSha: string;
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+  selectedTaskIds: string[];
+  rejectedTaskIds: string[];
+  taskSummaries: RealBenchmarkM3TaskCalibrationSummary[];
+}
+
+export interface RealBenchmarkM3ConditionValueSummary {
+  conditionId: RealBenchmarkConditionId;
+  sampleCount: number;
+  validSamples: number;
+  invalidSamples: number;
+  passCount: number;
+  passRate: number | null;
+  passRateWilson95: RealBenchmarkRateInterval;
+  totalCostUsd: number | null;
+  meanCostPerTaskUsd: number | null;
+  costPerSuccessUsd: number | null;
+  meanWallClockMs: number;
+  meanServiceLatencyMs: number;
+  totalTokens: number;
+  executorTokens: number;
+  advisorTokens: number;
+  advisorCallRate: number | null;
+  advisorTokenShare: number | null;
+  invalidRate: number;
+}
+
+export interface RealBenchmarkM3TaskValueSummary {
+  taskId: string;
+  passByCondition: Partial<Record<RealBenchmarkConditionId, number | null>>;
+  validByCondition: Partial<Record<RealBenchmarkConditionId, number>>;
+  invalidByCondition: Partial<Record<RealBenchmarkConditionId, number>>;
+}
+
+export interface RealBenchmarkM3ValueSummary {
+  generatedAt: string;
+  valueBatchId: string;
+  selectedTaskSetPath: string;
+  corpusSha: string;
+  thresholds: RealBenchmarkM3ValueThresholds;
+  selectedTaskIds: string[];
+  conditionValueSummaries: RealBenchmarkM3ConditionValueSummary[];
+  taskValueSummaries: RealBenchmarkM3TaskValueSummary[];
+  uplift: {
+    absoluteFOverA: number | null;
+    gapClosedByF: number | null;
+  };
+  economics: {
+    fCostPerTaskVsE: number | null;
+    fCostPerSuccessVsE: number | null;
+    fCheaperThanE: boolean;
+  };
+  advisorTokenShareF: number | null;
+  pass: boolean;
+  failedThresholds: string[];
+}
+
 export interface PolluxRealPilotOptions {
   manifest: RealBenchmarkCampaignManifest;
   tasks: RealBenchmarkTaskSpec[];

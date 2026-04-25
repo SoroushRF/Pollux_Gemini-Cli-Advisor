@@ -13,6 +13,7 @@ import type { BenchmarkSettingsOverrides } from './benchmark-harness.js';
 import type {
   RealBenchmarkCampaignManifest,
   RealBenchmarkBuildFreshness,
+  RealBenchmarkConditionId,
   RealBenchmarkConditionProfile,
   RealBenchmarkEntrypointPreference,
 } from './pollux-real-types.js';
@@ -103,6 +104,18 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   },
 ];
 
+export function getPolluxRealConditionsById(
+  ids: RealBenchmarkConditionId[],
+): RealBenchmarkConditionProfile[] {
+  return ids.map((id) => {
+    const condition = POLLUX_REAL_CONDITIONS.find((entry) => entry.id === id);
+    if (!condition) {
+      throw new Error(`Unknown Pollux real benchmark condition: ${id}`);
+    }
+    return condition;
+  });
+}
+
 export function buildRealBenchmarkSettings(
   condition: RealBenchmarkConditionProfile,
   telemetryPath: string,
@@ -162,6 +175,7 @@ export function buildRealBenchmarkSettings(
 export function buildDefaultCampaignManifest(
   campaignId: string,
   taskIds: string[],
+  conditionIds?: RealBenchmarkConditionId[],
 ): RealBenchmarkCampaignManifest {
   return {
     campaignId,
@@ -169,7 +183,9 @@ export function buildDefaultCampaignManifest(
     runVenue: 'local',
     authIsolationMode: 'single_account',
     repeatsPerCell: 3,
-    conditions: POLLUX_REAL_CONDITIONS,
+    conditions: conditionIds
+      ? getPolluxRealConditionsById(conditionIds)
+      : POLLUX_REAL_CONDITIONS,
     pricingSnapshotPath: POLLUX_REAL_DEFAULT_PRICING_TEMPLATE_PATH,
     preregistrationPath: POLLUX_REAL_DEFAULT_PREREGISTRATION_PATH,
     powerAnalysisPath: POLLUX_REAL_DEFAULT_POWER_ANALYSIS_PATH,

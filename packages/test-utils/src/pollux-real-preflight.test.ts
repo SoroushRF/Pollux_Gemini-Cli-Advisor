@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  M3_VALUE_CANDIDATE_TASK_IDS,
   PILOT_SENTINEL_TASK_IDS,
   REAL_BENCHMARK_SEED_CORPUS,
 } from '../../core/src/pollux/benchmark/realTasks.js';
@@ -23,14 +24,15 @@ describe('buildRealBenchmarkCorpusStats', () => {
   it('captures the seed-corpus methodology gaps honestly', () => {
     const stats = buildRealBenchmarkCorpusStats(REAL_BENCHMARK_SEED_CORPUS);
 
-    expect(stats.totalTasks).toBe(24);
+    expect(M3_VALUE_CANDIDATE_TASK_IDS).toHaveLength(30);
+    expect(stats.totalTasks).toBe(36);
     expect(stats.difficultyCounts).toEqual({
       simple: 8,
-      moderate: 8,
-      complex: 8,
+      moderate: 11,
+      complex: 17,
     });
     expect(stats.escalatingCount).toBe(8);
-    expect(stats.nonEscalatingCount).toBe(16);
+    expect(stats.nonEscalatingCount).toBe(28);
     expect(stats.tasksMissingPositiveFixtures).toEqual([]);
     expect(stats.tasksMissingNegativeFixtures).toEqual([]);
   });

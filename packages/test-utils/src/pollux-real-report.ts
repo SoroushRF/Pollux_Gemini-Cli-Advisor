@@ -21,6 +21,15 @@ import type {
   RealBenchmarkEscalationTimingBucket,
   RealBenchmarkEscalationTimingSummary,
   RealBenchmarkLaneConditionSummary,
+  RealBenchmarkM3CalibrationSummary,
+  RealBenchmarkM3CalibrationThresholds,
+  RealBenchmarkM3ConditionTaskStats,
+  RealBenchmarkM3ConditionValueSummary,
+  RealBenchmarkM3SelectedTaskSet,
+  RealBenchmarkM3TaskCalibrationSummary,
+  RealBenchmarkM3TaskValueSummary,
+  RealBenchmarkM3ValueSummary,
+  RealBenchmarkM3ValueThresholds,
   RealBenchmarkNumericStats,
   RealBenchmarkRateInterval,
   RealBenchmarkRepeatSummary,
@@ -1509,6 +1518,581 @@ export function renderRealBenchmarkCampaignReport(
     }
   }
 
+  return lines.join('\n');
+}
+
+function buildM3ConditionTaskStats(
+  taskId: string,
+  conditionId: RealBenchmarkConditionId,
+  runs: RealBenchmarkRunRecord[],
+): RealBenchmarkM3ConditionTaskStats {
+  const taskRuns = runs.filter(
+    (run) => run.taskId === taskId && run.conditionId === conditionId,
+  );
+  const validRuns = taskRuns.filter((run) => !run.invalidated);
+  const passCount = validRuns.filter((run) => run.oraclePass).length;
+
+  return {
+    conditionId,
+    sampleCount: taskRuns.length,
+    validSamples: validRuns.length,
+    invalidSamples: taskRuns.length - validRuns.length,
+    passCount,
+    passRate: divideOrNull(passCount, validRuns.length),
+    invalidRate:
+      divideOrNull(taskRuns.length - validRuns.length, taskRuns.length) ?? 0,
+    totalCostUsd: sumNullable(validRuns.map((run) => run.costUsd.total)),
+    meanWallClockMs: mean(validRuns.map((run) => run.wallClockMs)),
+    totalTokens: validRuns.reduce((sum, run) => sum + run.tokens.total, 0),
+  };
+}
+
+function getDifficultyRank(difficulty: string): number {
+  if (difficulty === 'complex') {
+    return 3;
+  }
+  if (difficulty === 'moderate') {
+    return 2;
+  }
+  return 1;
+}
+
+function buildM3CalibrationTaskSummary(params: {
+  taskId: string;
+  runs: RealBenchmarkRunRecord[];
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+}): RealBenchmarkM3TaskCalibrationSummary {
+  const task = getRealBenchmarkSeedTask(params.taskId);
+  const flash = buildM3ConditionTaskStats(params.taskId, 'A', params.runs);
+  const pro = buildM3ConditionTaskStats(params.taskId, 'E', params.runs);
+  const maxInvalidRate = Math.max(flash.invalidRate, pro.invalidRate);
+  const flashPassRate = flash.passRate ?? 0;
+  const proPassRate = pro.passRate ?? 0;
+
+  if (maxInvalidRate > params.thresholds.maxInvalidRateForStableTask) {
+    return {
+      taskId: params.taskId,
+      domain: task.domain,
+      difficulty: task.difficulty,
+      label: 'flaky',
+      rationale: `Invalid rate ${formatRate(maxInvalidRate)} exceeds stable-task limit ${formatRate(params.thresholds.maxInvalidRateForStableTask)}.`,
+      flash,
+      pro,
+    };
+  }
+
+  if (flashPassRate > params.thresholds.maxFlashPassRateForDiscriminative) {
+    return {
+      taskId: params.taskId,
+      domain: task.domain,
+      difficulty: task.difficulty,
+      label: 'easy',
+      rationale: `A pass rate ${formatRate(flashPassRate)} exceeds discriminative ceiling ${formatRate(params.thresholds.maxFlashPassRateForDiscriminative)}.`,
+      flash,
+      pro,
+    };
+  }
+
+  if (proPassRate < params.thresholds.minProPassRateForDiscriminative) {
+    return {
+      taskId: params.taskId,
+      domain: task.domain,
+      difficulty: task.difficulty,
+      label: 'impossible_or_noisy',
+      rationale: `E pass rate ${formatRate(proPassRate)} is below solvability floor ${formatRate(params.thresholds.minProPassRateForDiscriminative)}.`,
+      flash,
+      pro,
+    };
+  }
+
+  return {
+    taskId: params.taskId,
+    domain: task.domain,
+    difficulty: task.difficulty,
+    label: 'discriminative',
+    rationale: `A pass rate ${formatRate(flashPassRate)} <= ${formatRate(params.thresholds.maxFlashPassRateForDiscriminative)} and E pass rate ${formatRate(proPassRate)} >= ${formatRate(params.thresholds.minProPassRateForDiscriminative)}; invalid rate ${formatRate(maxInvalidRate)} <= ${formatRate(params.thresholds.maxInvalidRateForStableTask)}.`,
+    flash,
+    pro,
+  };
+}
+
+function selectM3DiscriminativeTasks(
+  taskSummaries: RealBenchmarkM3TaskCalibrationSummary[],
+  maxSelectedTaskCount: number,
+): string[] {
+  const candidates = taskSummaries
+    .filter((summary) => summary.label === 'discriminative')
+    .sort((left, right) => {
+      const leftInvalid = Math.max(
+        left.flash.invalidRate,
+        left.pro.invalidRate,
+      );
+      const rightInvalid = Math.max(
+        right.flash.invalidRate,
+        right.pro.invalidRate,
+      );
+      if (leftInvalid !== rightInvalid) {
+        return leftInvalid - rightInvalid;
+      }
+      const leftGap = (left.pro.passRate ?? 0) - (left.flash.passRate ?? 0);
+      const rightGap = (right.pro.passRate ?? 0) - (right.flash.passRate ?? 0);
+      if (leftGap !== rightGap) {
+        return rightGap - leftGap;
+      }
+      const difficultyDelta =
+        getDifficultyRank(right.difficulty) -
+        getDifficultyRank(left.difficulty);
+      if (difficultyDelta !== 0) {
+        return difficultyDelta;
+      }
+      return left.taskId.localeCompare(right.taskId);
+    });
+  const selected: RealBenchmarkM3TaskCalibrationSummary[] = [];
+  const usedDomains = new Set<string>();
+
+  for (const candidate of candidates) {
+    if (selected.length >= maxSelectedTaskCount) {
+      break;
+    }
+    if (!usedDomains.has(candidate.domain)) {
+      selected.push(candidate);
+      usedDomains.add(candidate.domain);
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (selected.length >= maxSelectedTaskCount) {
+      break;
+    }
+    if (!selected.includes(candidate)) {
+      selected.push(candidate);
+    }
+  }
+
+  return selected.map((summary) => summary.taskId);
+}
+
+export function buildRealBenchmarkM3CalibrationSummary(params: {
+  calibrationBatchId: string;
+  corpusSha: string;
+  taskIds: string[];
+  runs: RealBenchmarkRunRecord[];
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+}): RealBenchmarkM3CalibrationSummary {
+  const taskSummaries = params.taskIds.map((taskId) =>
+    buildM3CalibrationTaskSummary({
+      taskId,
+      runs: params.runs,
+      thresholds: params.thresholds,
+    }),
+  );
+  const selectedTaskIds = selectM3DiscriminativeTasks(
+    taskSummaries,
+    params.thresholds.maxSelectedTaskCount,
+  );
+  const rejectedTaskIds = params.taskIds.filter(
+    (taskId) => !selectedTaskIds.includes(taskId),
+  );
+  const labelCounts = {
+    easy: 0,
+    discriminative: 0,
+    impossible_or_noisy: 0,
+    flaky: 0,
+  };
+  for (const taskSummary of taskSummaries) {
+    labelCounts[taskSummary.label] += 1;
+  }
+
+  const failedThresholds: string[] = [];
+  if (selectedTaskIds.length < params.thresholds.minSelectedTaskCount) {
+    failedThresholds.push(
+      `selected tasks ${selectedTaskIds.length} < ${params.thresholds.minSelectedTaskCount}`,
+    );
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    calibrationBatchId: params.calibrationBatchId,
+    corpusSha: params.corpusSha,
+    thresholds: params.thresholds,
+    candidateTaskCount: params.taskIds.length,
+    selectedTaskCount: selectedTaskIds.length,
+    labelCounts,
+    taskSummaries,
+    selectedTaskIds,
+    rejectedTaskIds,
+    pass: failedThresholds.length === 0,
+    failedThresholds,
+  };
+}
+
+export function buildRealBenchmarkM3SelectedTaskSet(
+  summary: RealBenchmarkM3CalibrationSummary,
+): RealBenchmarkM3SelectedTaskSet {
+  return {
+    generatedAt: summary.generatedAt,
+    calibrationBatchId: summary.calibrationBatchId,
+    corpusSha: summary.corpusSha,
+    thresholds: summary.thresholds,
+    selectedTaskIds: summary.selectedTaskIds,
+    rejectedTaskIds: summary.rejectedTaskIds,
+    taskSummaries: summary.taskSummaries,
+  };
+}
+
+export function renderRealBenchmarkM3CalibrationReport(
+  summary: RealBenchmarkM3CalibrationSummary,
+): string {
+  const lines: string[] = [];
+  lines.push('# Pollux M3 Calibration Report');
+  lines.push('');
+  lines.push(`Generated: ${summary.generatedAt}`);
+  lines.push(`Batch: ${summary.calibrationBatchId}`);
+  lines.push(`Corpus SHA: \`${summary.corpusSha}\``);
+  lines.push('');
+  lines.push('## 1) Decision');
+  lines.push('');
+  lines.push(`- Pass: ${summary.pass ? 'yes' : 'no'}`);
+  lines.push(`- Candidate tasks: ${summary.candidateTaskCount}`);
+  lines.push(`- Selected tasks: ${summary.selectedTaskCount}`);
+  lines.push(
+    `- Labels: discriminative=${summary.labelCounts.discriminative}, easy=${summary.labelCounts.easy}, impossible_or_noisy=${summary.labelCounts.impossible_or_noisy}, flaky=${summary.labelCounts.flaky}`,
+  );
+  if (summary.failedThresholds.length > 0) {
+    lines.push('');
+    lines.push('Failed thresholds:');
+    for (const failure of summary.failedThresholds) {
+      lines.push(`- ${failure}`);
+    }
+  }
+  lines.push('');
+  lines.push('## 2) Thresholds');
+  lines.push('');
+  lines.push(
+    `- A pass-rate ceiling: ${formatRate(summary.thresholds.maxFlashPassRateForDiscriminative)}`,
+  );
+  lines.push(
+    `- E pass-rate floor: ${formatRate(summary.thresholds.minProPassRateForDiscriminative)}`,
+  );
+  lines.push(
+    `- Stable invalid-rate ceiling: ${formatRate(summary.thresholds.maxInvalidRateForStableTask)}`,
+  );
+  lines.push(
+    `- Selected task target: ${summary.thresholds.minSelectedTaskCount}-${summary.thresholds.maxSelectedTaskCount}`,
+  );
+  lines.push('');
+  lines.push('## 3) Task Calibration');
+  lines.push('');
+  lines.push(
+    '| Task | Domain | Difficulty | A pass | E pass | Invalid max | Label | Rationale |',
+  );
+  lines.push('| --- | --- | --- | ---: | ---: | ---: | --- | --- |');
+  for (const task of summary.taskSummaries) {
+    lines.push(
+      `| ${task.taskId} | ${task.domain} | ${task.difficulty} | ${formatRate(task.flash.passRate)} | ${formatRate(task.pro.passRate)} | ${formatRate(Math.max(task.flash.invalidRate, task.pro.invalidRate))} | ${task.label} | ${task.rationale} |`,
+    );
+  }
+  lines.push('');
+  lines.push('## 4) Selected Task Set');
+  lines.push('');
+  if (summary.selectedTaskIds.length === 0) {
+    lines.push('- None');
+  } else {
+    for (const taskId of summary.selectedTaskIds) {
+      lines.push(`- ${taskId}`);
+    }
+  }
+  lines.push('');
+  lines.push(
+    'Calibration selects a frozen value subset. It is not final product-value evidence until the value suite runs A, E, and F on this selected set.',
+  );
+  return lines.join('\n');
+}
+
+function buildM3ConditionValueSummary(
+  conditionId: RealBenchmarkConditionId,
+  runs: RealBenchmarkRunRecord[],
+): RealBenchmarkM3ConditionValueSummary {
+  const conditionRuns = runs.filter((run) => run.conditionId === conditionId);
+  const validRuns = conditionRuns.filter((run) => !run.invalidated);
+  const passCount = validRuns.filter((run) => run.oraclePass).length;
+  const totalCostUsd = sumNullable(validRuns.map((run) => run.costUsd.total));
+  const serviceLatencies = validRuns.flatMap((run) => run.serviceLatencyMs);
+  const totalTokens = validRuns.reduce((sum, run) => sum + run.tokens.total, 0);
+  const advisorTokens = validRuns.reduce(
+    (sum, run) => sum + run.tokens.advisor,
+    0,
+  );
+
+  return {
+    conditionId,
+    sampleCount: conditionRuns.length,
+    validSamples: validRuns.length,
+    invalidSamples: conditionRuns.length - validRuns.length,
+    passCount,
+    passRate: divideOrNull(passCount, validRuns.length),
+    passRateWilson95: buildWilsonInterval(passCount, validRuns.length),
+    totalCostUsd,
+    meanCostPerTaskUsd:
+      totalCostUsd === null
+        ? null
+        : divideOrNull(totalCostUsd, validRuns.length),
+    costPerSuccessUsd:
+      totalCostUsd === null ? null : divideOrNull(totalCostUsd, passCount),
+    meanWallClockMs: mean(validRuns.map((run) => run.wallClockMs)),
+    meanServiceLatencyMs: mean(serviceLatencies),
+    totalTokens,
+    executorTokens: validRuns.reduce(
+      (sum, run) => sum + run.tokens.executor,
+      0,
+    ),
+    advisorTokens,
+    advisorCallRate: divideOrNull(
+      validRuns.reduce((sum, run) => sum + run.observedAdvisorCalls, 0),
+      validRuns.length,
+    ),
+    advisorTokenShare: divideOrNull(advisorTokens, totalTokens),
+    invalidRate:
+      divideOrNull(
+        conditionRuns.length - validRuns.length,
+        conditionRuns.length,
+      ) ?? 0,
+  };
+}
+
+function buildM3TaskValueSummaries(
+  selectedTaskIds: string[],
+  runs: RealBenchmarkRunRecord[],
+): RealBenchmarkM3TaskValueSummary[] {
+  return selectedTaskIds.map((taskId) => {
+    const passByCondition: Partial<
+      Record<RealBenchmarkConditionId, number | null>
+    > = {};
+    const validByCondition: Partial<Record<RealBenchmarkConditionId, number>> =
+      {};
+    const invalidByCondition: Partial<
+      Record<RealBenchmarkConditionId, number>
+    > = {};
+    for (const conditionId of ['A', 'E', 'F'] as const) {
+      const conditionRuns = runs.filter(
+        (run) => run.taskId === taskId && run.conditionId === conditionId,
+      );
+      const validRuns = conditionRuns.filter((run) => !run.invalidated);
+      validByCondition[conditionId] = validRuns.length;
+      invalidByCondition[conditionId] = conditionRuns.length - validRuns.length;
+      passByCondition[conditionId] = divideOrNull(
+        validRuns.filter((run) => run.oraclePass).length,
+        validRuns.length,
+      );
+    }
+    return {
+      taskId,
+      passByCondition,
+      validByCondition,
+      invalidByCondition,
+    };
+  });
+}
+
+function findM3ConditionValueSummary(
+  summaries: RealBenchmarkM3ConditionValueSummary[],
+  conditionId: RealBenchmarkConditionId,
+): RealBenchmarkM3ConditionValueSummary | undefined {
+  return summaries.find((summary) => summary.conditionId === conditionId);
+}
+
+export function buildRealBenchmarkM3ValueSummary(params: {
+  valueBatchId: string;
+  selectedTaskSetPath: string;
+  selectedTaskSet: RealBenchmarkM3SelectedTaskSet;
+  corpusSha: string;
+  runs: RealBenchmarkRunRecord[];
+  thresholds: RealBenchmarkM3ValueThresholds;
+}): RealBenchmarkM3ValueSummary {
+  const conditionValueSummaries = (['A', 'E', 'F'] as const).map(
+    (conditionId) => buildM3ConditionValueSummary(conditionId, params.runs),
+  );
+  const taskValueSummaries = buildM3TaskValueSummaries(
+    params.selectedTaskSet.selectedTaskIds,
+    params.runs,
+  );
+  const a = findM3ConditionValueSummary(conditionValueSummaries, 'A');
+  const e = findM3ConditionValueSummary(conditionValueSummaries, 'E');
+  const f = findM3ConditionValueSummary(conditionValueSummaries, 'F');
+  const absoluteFOverA =
+    f?.passRate !== null &&
+    f?.passRate !== undefined &&
+    a?.passRate !== null &&
+    a?.passRate !== undefined
+      ? f.passRate - a.passRate
+      : null;
+  const eMinusA =
+    e?.passRate !== null &&
+    e?.passRate !== undefined &&
+    a?.passRate !== null &&
+    a?.passRate !== undefined
+      ? e.passRate - a.passRate
+      : null;
+  const gapClosedByF =
+    absoluteFOverA !== null && eMinusA !== null && eMinusA > 0
+      ? absoluteFOverA / eMinusA
+      : null;
+  const fCostPerTaskVsE =
+    f?.meanCostPerTaskUsd !== null &&
+    f?.meanCostPerTaskUsd !== undefined &&
+    e?.meanCostPerTaskUsd !== null &&
+    e?.meanCostPerTaskUsd !== undefined &&
+    e.meanCostPerTaskUsd > 0
+      ? f.meanCostPerTaskUsd / e.meanCostPerTaskUsd
+      : null;
+  const fCostPerSuccessVsE =
+    f?.costPerSuccessUsd !== null &&
+    f?.costPerSuccessUsd !== undefined &&
+    e?.costPerSuccessUsd !== null &&
+    e?.costPerSuccessUsd !== undefined &&
+    e.costPerSuccessUsd > 0
+      ? f.costPerSuccessUsd / e.costPerSuccessUsd
+      : null;
+
+  const failedThresholds: string[] = [];
+  if (
+    params.selectedTaskSet.selectedTaskIds.length <
+    params.thresholds.minSelectedTaskCount
+  ) {
+    failedThresholds.push(
+      `selected tasks ${params.selectedTaskSet.selectedTaskIds.length} < ${params.thresholds.minSelectedTaskCount}`,
+    );
+  }
+  if (
+    absoluteFOverA === null ||
+    absoluteFOverA < params.thresholds.minFOverAAbsolute
+  ) {
+    failedThresholds.push(
+      `F over A absolute uplift ${absoluteFOverA === null ? 'n/a' : absoluteFOverA.toFixed(3)} < ${params.thresholds.minFOverAAbsolute.toFixed(3)}`,
+    );
+  }
+  if (
+    fCostPerTaskVsE === null ||
+    fCostPerTaskVsE > params.thresholds.maxFCostPerTaskVsE
+  ) {
+    failedThresholds.push(
+      `F/E cost per task ${fCostPerTaskVsE === null ? 'n/a' : fCostPerTaskVsE.toFixed(3)} > ${params.thresholds.maxFCostPerTaskVsE.toFixed(3)}`,
+    );
+  }
+  if (
+    fCostPerSuccessVsE === null ||
+    fCostPerSuccessVsE > params.thresholds.maxFCostPerSuccessVsE
+  ) {
+    failedThresholds.push(
+      `F/E cost per success ${fCostPerSuccessVsE === null ? 'n/a' : fCostPerSuccessVsE.toFixed(3)} > ${params.thresholds.maxFCostPerSuccessVsE.toFixed(3)}`,
+    );
+  }
+  for (const condition of conditionValueSummaries) {
+    if (condition.invalidRate > params.thresholds.maxInvalidRate) {
+      failedThresholds.push(
+        `${condition.conditionId} invalid rate ${condition.invalidRate.toFixed(3)} > ${params.thresholds.maxInvalidRate.toFixed(3)}`,
+      );
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    valueBatchId: params.valueBatchId,
+    selectedTaskSetPath: params.selectedTaskSetPath,
+    corpusSha: params.corpusSha,
+    thresholds: params.thresholds,
+    selectedTaskIds: params.selectedTaskSet.selectedTaskIds,
+    conditionValueSummaries,
+    taskValueSummaries,
+    uplift: {
+      absoluteFOverA,
+      gapClosedByF,
+    },
+    economics: {
+      fCostPerTaskVsE,
+      fCostPerSuccessVsE,
+      fCheaperThanE:
+        fCostPerTaskVsE !== null &&
+        fCostPerSuccessVsE !== null &&
+        fCostPerTaskVsE <= params.thresholds.maxFCostPerTaskVsE &&
+        fCostPerSuccessVsE <= params.thresholds.maxFCostPerSuccessVsE,
+    },
+    advisorTokenShareF: f?.advisorTokenShare ?? null,
+    pass: failedThresholds.length === 0,
+    failedThresholds,
+  };
+}
+
+export function renderRealBenchmarkM3ValueReport(
+  summary: RealBenchmarkM3ValueSummary,
+): string {
+  const lines: string[] = [];
+  lines.push('# Pollux M3 Value Report');
+  lines.push('');
+  lines.push(`Generated: ${summary.generatedAt}`);
+  lines.push(`Value batch: ${summary.valueBatchId}`);
+  lines.push(`Selected task set: \`${summary.selectedTaskSetPath}\``);
+  lines.push(`Corpus SHA: \`${summary.corpusSha}\``);
+  lines.push('');
+  lines.push('## 1) Product-Value Decision');
+  lines.push('');
+  lines.push(`- Pass: ${summary.pass ? 'yes' : 'no'}`);
+  lines.push(`- Selected tasks: ${summary.selectedTaskIds.length}`);
+  lines.push(`- F over A: ${formatRate(summary.uplift.absoluteFOverA)}`);
+  lines.push(`- Gap closed by F: ${formatRate(summary.uplift.gapClosedByF)}`);
+  lines.push(
+    `- F/E cost per task: ${summary.economics.fCostPerTaskVsE === null ? 'n/a' : summary.economics.fCostPerTaskVsE.toFixed(3)}`,
+  );
+  lines.push(
+    `- F/E cost per success: ${summary.economics.fCostPerSuccessVsE === null ? 'n/a' : summary.economics.fCostPerSuccessVsE.toFixed(3)}`,
+  );
+  lines.push(
+    `- F advisor token share: ${formatRate(summary.advisorTokenShareF)}`,
+  );
+  if (summary.failedThresholds.length > 0) {
+    lines.push('');
+    lines.push('Failed thresholds:');
+    for (const failure of summary.failedThresholds) {
+      lines.push(`- ${failure}`);
+    }
+  }
+  lines.push('');
+  lines.push('## 2) Condition Economics');
+  lines.push('');
+  lines.push(
+    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Wall ms | Service ms |',
+  );
+  lines.push(
+    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  );
+  for (const condition of summary.conditionValueSummaries) {
+    lines.push(
+      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} |`,
+    );
+  }
+  lines.push('');
+  lines.push('## 3) Per-Task Outcomes');
+  lines.push('');
+  lines.push(
+    '| Task | A pass | E pass | F pass | A invalid | E invalid | F invalid |',
+  );
+  lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const task of summary.taskValueSummaries) {
+    lines.push(
+      `| ${task.taskId} | ${formatRate(task.passByCondition.A ?? null)} | ${formatRate(task.passByCondition.E ?? null)} | ${formatRate(task.passByCondition.F ?? null)} | ${task.invalidByCondition.A ?? 0} | ${task.invalidByCondition.E ?? 0} | ${task.invalidByCondition.F ?? 0} |`,
+    );
+  }
+  lines.push('');
+  lines.push('## 4) Interpretation');
+  lines.push('');
+  lines.push('- A is the cheap weak-executor baseline.');
+  lines.push('- E is the strong-model-only ceiling and cost reference.');
+  lines.push(
+    '- F is the Pollux product-value condition: weak executor plus stronger advisor.',
+  );
+  lines.push(
+    '- This report is M3 pilot evidence unless publishability requirements are separately satisfied.',
+  );
   return lines.join('\n');
 }
 

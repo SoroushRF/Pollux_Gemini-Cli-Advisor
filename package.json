@@ -60,6 +60,8 @@
     "benchmark:pollux:real:preflight": "tsx packages/test-utils/src/pollux-real-preflight.ts",
     "benchmark:pollux:real:pilot": "tsx packages/test-utils/src/pollux-real-pilot.ts",
     "benchmark:pollux:real:acceptance": "tsx packages/test-utils/src/pollux-real-acceptance.ts",
+    "benchmark:pollux:real:calibrate": "tsx packages/test-utils/src/pollux-real-calibration.ts",
+    "benchmark:pollux:real:value": "tsx packages/test-utils/src/pollux-real-value.ts",
     "lint": "cross-env NODE_OPTIONS=\"--max-old-space-size=8192\" eslint . --cache --max-warnings 0",
     "lint:fix": "eslint . --fix --ext .ts,.tsx && eslint integration-tests --fix && eslint scripts --fix && npm run format",
     "lint:ci": "npm run lint:all",
