@@ -40,7 +40,7 @@ The live real benchmark keeps the current A/E/F matrix.
 1. Pollux enabled
 2. executor `gemini-3-flash-preview`
 3. advisor `gemini-3.1-pro-preview`
-4. fallback advisor `gemini-3-flash-preview`
+4. fallback advisor `gemini-2.5-pro`
 5. current observer/fusion detector configuration
 
 ---

@@ -31,16 +31,31 @@ import type {
 } from './pollux-real-types.js';
 
 export const POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS: RealBenchmarkAcceptanceThresholds =
-  {
-    campaignCount: 5,
-    repeatsPerCampaign: 3,
-    expectedPositiveValidSampleCount: 30,
+  buildPolluxRealM2AcceptanceThresholds();
+
+export function buildPolluxRealM2AcceptanceThresholds(
+  params: {
+    campaignCount?: number;
+    repeatsPerCampaign?: number;
+    expectedPositiveCanaryTasksPerRepeat?: number;
+  } = {},
+): RealBenchmarkAcceptanceThresholds {
+  const campaignCount = params.campaignCount ?? 5;
+  const repeatsPerCampaign = params.repeatsPerCampaign ?? 3;
+  const expectedPositiveCanaryTasksPerRepeat =
+    params.expectedPositiveCanaryTasksPerRepeat ?? 2;
+  return {
+    campaignCount,
+    repeatsPerCampaign,
+    expectedPositiveValidSampleCount:
+      campaignCount * repeatsPerCampaign * expectedPositiveCanaryTasksPerRepeat,
     minConsultSuccessRate: 0.9,
     minConsultSuccessWilson95LowerBound: 0.75,
     maxParseErrorCount: 0,
     maxFalseNegativeCount: 0,
     maxBudgetExhaustedCount: 0,
   };
+}
 
 function parseArg(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
@@ -48,6 +63,40 @@ function parseArg(flag: string): string | undefined {
     return undefined;
   }
   return process.argv[index + 1];
+}
+
+function parsePositiveIntegerArg(...flags: string[]): number | undefined {
+  for (const flag of flags) {
+    const rawValue = parseArg(flag);
+    if (rawValue === undefined) {
+      continue;
+    }
+    const parsed = Number.parseInt(rawValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      throw new Error(`${flag} must be a positive integer.`);
+    }
+    return parsed;
+  }
+  return undefined;
+}
+
+function parseNonNegativeIntegerArg(...flags: string[]): number {
+  for (const flag of flags) {
+    const rawValue = parseArg(flag);
+    if (rawValue === undefined) {
+      continue;
+    }
+    const parsed = Number.parseInt(rawValue, 10);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error(`${flag} must be a non-negative integer.`);
+    }
+    return parsed;
+  }
+  return 0;
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function writeJson(filePath: string, value: unknown): void {
@@ -278,7 +327,7 @@ export function buildPolluxRealAcceptanceSummary(params: {
     pilotPair: {
       executorModel: conditionF?.executorModel ?? 'unknown',
       advisorModel: conditionF?.advisorModel ?? 'unknown',
-      advisorFallbackModel: conditionF?.executorModel ?? null,
+      advisorFallbackModel: conditionF?.advisorFallbackModel ?? null,
     },
     thresholds: params.thresholds,
     campaignCount: params.campaignSummaries.length,
@@ -380,6 +429,16 @@ export async function runPolluxRealAcceptance() {
     .map((value) => value.trim()) ?? [...PILOT_SENTINEL_TASK_IDS];
   const pricingSnapshotPath = parseArg('--pricing-snapshot');
   const binaryPath = parseArg('--binary-path');
+  const campaignCount =
+    parsePositiveIntegerArg('--campaigns', '--campaign-count') ??
+    POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS.campaignCount;
+  const repeatsPerCampaign =
+    parsePositiveIntegerArg('--repeats', '--repeats-per-campaign') ??
+    POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS.repeatsPerCampaign;
+  const campaignDelayMs = parseNonNegativeIntegerArg(
+    '--campaign-delay-ms',
+    '--delay-ms-between-campaigns',
+  );
   const entrypointPreference =
     parseArg('--entrypoint') === 'bundle' ||
     parseArg('--entrypoint') === 'dev_script' ||
@@ -391,14 +450,21 @@ export async function runPolluxRealAcceptance() {
     `${acceptanceId}-preflight`,
     taskIds,
   );
-  manifest.repeatsPerCell =
-    POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS.repeatsPerCampaign;
+  manifest.repeatsPerCell = repeatsPerCampaign;
   if (pricingSnapshotPath) {
     manifest.pricingSnapshotPath = pricingSnapshotPath;
   }
   const selectedTasks = REAL_BENCHMARK_SEED_CORPUS.filter((task) =>
     taskIds.includes(task.id),
   );
+  const expectedPositiveCanaryTasksPerRepeat = selectedTasks.filter(
+    (task) => task.benchmarkLane === 'canary' && task.escalates,
+  ).length;
+  const thresholds = buildPolluxRealM2AcceptanceThresholds({
+    campaignCount,
+    repeatsPerCampaign,
+    expectedPositiveCanaryTasksPerRepeat,
+  });
   const pricingSnapshot = loadPricingSnapshotFromPath(pricingSnapshotPath);
   const preflight = buildRealBenchmarkPreflightReport(
     manifest,
@@ -436,15 +502,11 @@ export async function runPolluxRealAcceptance() {
   fs.mkdirSync(path.join(acceptanceRoot, 'campaigns'), { recursive: true });
 
   const campaignSummaries: RealBenchmarkCampaignSummary[] = [];
-  for (
-    let index = 1;
-    index <= POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS.campaignCount;
-    index += 1
-  ) {
+  for (let index = 1; index <= thresholds.campaignCount; index += 1) {
     const campaignId = `${acceptanceId}-c${String(index).padStart(2, '0')}`;
     const result = await runPolluxRealCampaign({
       campaignId,
-      repeats: POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS.repeatsPerCampaign,
+      repeats: thresholds.repeatsPerCampaign,
       taskIds,
       pricingSnapshotPath,
       binaryPath,
@@ -453,12 +515,19 @@ export async function runPolluxRealAcceptance() {
       allowOverwrite: false,
     });
     campaignSummaries.push(result.summary);
+    if (campaignDelayMs > 0 && index < thresholds.campaignCount) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[Pollux acceptance] Waiting ${campaignDelayMs}ms before campaign ${String(index + 1).padStart(2, '0')}...`,
+      );
+      await sleep(campaignDelayMs);
+    }
   }
 
   const summary = buildPolluxRealAcceptanceSummary({
     acceptanceId,
     campaignSummaries,
-    thresholds: POLLUX_REAL_M2_ACCEPTANCE_THRESHOLDS,
+    thresholds,
   });
   writeJson(path.join(acceptanceRoot, 'aggregate-summary.json'), summary);
   fs.writeFileSync(

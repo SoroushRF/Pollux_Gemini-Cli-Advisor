@@ -78,6 +78,7 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     id: 'F',
     executorModel: 'gemini-3-flash-preview',
     advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: 'gemini-2.5-pro',
     polluxEnabled: true,
     authProfile: 'pollux-advisor',
     publishableEligible: true,
@@ -150,7 +151,7 @@ export function buildRealBenchmarkSettings(
         executorModel: condition.executorModel,
         advisorModel: condition.advisorModel,
         advisorFallbackModel: condition.polluxEnabled
-          ? condition.executorModel
+          ? (condition.advisorFallbackModel ?? condition.executorModel)
           : null,
         ...(detector ? { detector } : {}),
       },

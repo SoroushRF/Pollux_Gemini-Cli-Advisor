@@ -232,7 +232,7 @@ Current live conditions are:
 1. Pollux enabled
 2. executor model `gemini-3-flash-preview`
 3. advisor model `gemini-3.1-pro-preview`
-4. advisor fallback model `gemini-3-flash-preview`
+4. advisor fallback model `gemini-2.5-pro`
 5. observer/fusion detector enabled with current repo-era thresholds
 
 Definition location:

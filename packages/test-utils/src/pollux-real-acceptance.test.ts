@@ -5,7 +5,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { buildPolluxRealAcceptanceSummary } from './pollux-real-acceptance.js';
+import {
+  buildPolluxRealAcceptanceSummary,
+  buildPolluxRealM2AcceptanceThresholds,
+} from './pollux-real-acceptance.js';
 import type { RealBenchmarkCampaignSummary } from './pollux-real-types.js';
 
 function buildCampaignSummary(
@@ -25,6 +28,7 @@ function buildCampaignSummary(
           id: 'F',
           executorModel: 'gemini-3-flash-preview',
           advisorModel: 'gemini-3.1-pro-preview',
+          advisorFallbackModel: 'gemini-2.5-pro',
           polluxEnabled: true,
           settingsOverrides: {},
           authProfile: 'pollux',
@@ -209,5 +213,15 @@ describe('buildPolluxRealAcceptanceSummary', () => {
     expect(summary.failedThresholds.join('\n')).toContain(
       'false_negative count',
     );
+  });
+
+  it('scales expected-positive sample thresholds for shorter paced runs', () => {
+    expect(
+      buildPolluxRealM2AcceptanceThresholds({
+        campaignCount: 3,
+        repeatsPerCampaign: 2,
+        expectedPositiveCanaryTasksPerRepeat: 2,
+      }).expectedPositiveValidSampleCount,
+    ).toBe(12);
   });
 });

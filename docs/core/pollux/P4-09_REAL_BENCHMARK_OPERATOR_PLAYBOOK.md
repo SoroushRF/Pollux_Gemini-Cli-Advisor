@@ -221,7 +221,7 @@ For Milestone 2 acceptance, also stop if any of these are true:
 
 1. the run is not scoped to the current pilot pair:
    `executor=gemini-3-flash-preview`, `advisor=gemini-3.1-pro-preview`,
-   `fallback=gemini-3-flash-preview`
+   `fallback=gemini-2.5-pro`
 2. fewer than `5 campaigns x 3 repeats` are present
 3. valid expected-positive canaries are not exactly `30`
 4. canary consult success is below `0.90`
@@ -232,6 +232,11 @@ For Milestone 2 acceptance, also stop if any of these are true:
 9. any core-lane desired outcome fails in the same acceptance batch
 10. acceptance used a dirty worktree, dev-script entrypoint, mismatched dist, or
     no frozen pricing snapshot
+
+For quota-sensitive diagnostic reruns, the acceptance command may be paced with
+`--campaign-delay-ms <ms>` and may be shortened with `--campaigns <n>` /
+`--repeats <n>`. Treat the default `5 campaigns x 3 repeats` as the formal M2
+claim run unless a shorter run is explicitly labeled diagnostic.
 
 ---
 

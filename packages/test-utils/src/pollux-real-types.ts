@@ -120,6 +120,7 @@ export interface RealBenchmarkConditionProfile {
   id: RealBenchmarkConditionId;
   executorModel: string;
   advisorModel?: string;
+  advisorFallbackModel?: string | null;
   polluxEnabled: boolean;
   settingsOverrides: Record<string, unknown>;
   authProfile: string;

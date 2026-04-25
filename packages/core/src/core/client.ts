@@ -1117,28 +1117,40 @@ export class GeminiClient {
       const rawAdvisorResponse = getResponseText(advisorResponse) ?? '';
       const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
       if (!parsedResponse.ok) {
+        const classifiedRawFailure =
+          rawAdvisorResponse.trim().length > 0
+            ? this.classifyPolluxAdvisorFailure(new Error(rawAdvisorResponse))
+            : undefined;
         const failOpenKind =
-          parsedResponse.reason === 'empty_response'
-            ? 'empty_response'
-            : 'parse_error';
+          classifiedRawFailure && classifiedRawFailure !== 'parse_error'
+            ? classifiedRawFailure
+            : parsedResponse.reason === 'empty_response'
+              ? 'empty_response'
+              : 'parse_error';
+        const retryableForFallback =
+          params.attemptKind === 'primary' &&
+          (failOpenKind === 'timeout' ||
+            failOpenKind === 'capacity_exhausted' ||
+            failOpenKind === 'quota_exhausted');
         result = {
           attemptIndex: params.attemptIndex,
           attemptKind: params.attemptKind,
           model: params.advisorModelId,
-          parserOutcome: parsedResponse.parserOutcome,
-          outcome:
-            parsedResponse.reason === 'empty_response'
-              ? 'empty_response'
-              : 'parse_error',
+          parserOutcome:
+            classifiedRawFailure && classifiedRawFailure !== 'parse_error'
+              ? classifiedRawFailure
+              : parsedResponse.parserOutcome,
+          outcome: failOpenKind,
           consultationSucceeded: false,
           failOpenKind,
           rawResponse: rawAdvisorResponse,
           retryableForRepair:
             params.attemptKind === 'primary' &&
+            !retryableForFallback &&
             (parsedResponse.reason === 'empty_response' ||
               parsedResponse.reason === 'malformed_json' ||
               parsedResponse.reason === 'schema'),
-          retryableForFallback: false,
+          retryableForFallback,
         };
         return result;
       }
@@ -1237,6 +1249,16 @@ export class GeminiClient {
       return 'timeout';
     }
     if (
+      error instanceof TerminalQuotaError ||
+      errorName === 'TerminalQuotaError' ||
+      /\b(quota_exhausted|quota_exceeded)\b/i.test(message) ||
+      /quota exhausted|quota_exhausted|exhausted your capacity|quota exceeded|insufficient quota|quota limit|too many requests|\b429\b/i.test(
+        normalizedMessage,
+      )
+    ) {
+      return 'quota_exhausted';
+    }
+    if (
       error instanceof RetryableQuotaError ||
       errorName === 'RetryableQuotaError' ||
       /\b(model_capacity_exhausted|resource_exhausted|rate_limit_exceeded)\b/i.test(
@@ -1247,14 +1269,6 @@ export class GeminiClient {
       )
     ) {
       return 'capacity_exhausted';
-    }
-    if (
-      error instanceof TerminalQuotaError ||
-      errorName === 'TerminalQuotaError' ||
-      /\bquota_exceeded\b/i.test(message) ||
-      /quota exhausted|insufficient quota|quota limit/i.test(normalizedMessage)
-    ) {
-      return 'quota_exhausted';
     }
 
     const failureKind = classifyFailureKind(error);

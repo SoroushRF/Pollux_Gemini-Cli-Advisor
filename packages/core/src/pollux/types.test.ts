@@ -115,7 +115,7 @@ describe('pollux/types', () => {
       expect(cfg.enabled).toBe(false);
       expect(cfg.executorModel).toBe('gemini-2.5-flash');
       expect(cfg.advisorModel).toBe('gemini-3.1-pro-preview');
-      expect(cfg.advisorFallbackModel).toBe('gemini-3-flash-preview');
+      expect(cfg.advisorFallbackModel).toBe('gemini-2.5-pro');
       expect(cfg.maxAdvisorCallsPerTurn).toBe(2);
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
       expect(cfg.emitAdvisorDebug).toBe(false);

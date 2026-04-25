@@ -6902,6 +6902,42 @@ ${JSON.stringify(
       });
     });
 
+    it('classifies quota-looking advisor response text as quota_exhausted', async () => {
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: 'TerminalQuotaError: You have exhausted your capacity on this model. reason: QUOTA_EXHAUSTED code: 429',
+                },
+              ],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorSignal: new AbortController().signal,
+        executorModel: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        parserOutcome: 'quota_exhausted',
+        outcome: 'quota_exhausted',
+        failOpenKind: 'quota_exhausted',
+        retryableForRepair: false,
+        retryableForFallback: true,
+      });
+    });
+
     it('classifies wrapped abort-like advisor failures as timeout instead of parse_error', () => {
       const wrappedAbort = new Error(
         'Failed to generate content with model gemini-3.1-pro-preview: The user aborted a request.',

@@ -46,6 +46,7 @@ export interface BenchmarkCondition {
   id: string; // e.g. 'A', 'B', 'C', 'D', 'E'
   executorModel: string;
   advisorModel?: string; // Not present in baseline conditions
+  advisorFallbackModel?: string | null;
   /**
    * Optional observer-detector overrides for condition F (redesigned detector).
    * Typed locally to avoid importing deep core config surfaces into test-utils.
@@ -347,7 +348,7 @@ export class BenchmarkHarness {
           executorModel: condition.executorModel,
           advisorModel: condition.advisorModel,
           advisorFallbackModel: condition.advisorModel
-            ? condition.executorModel
+            ? (condition.advisorFallbackModel ?? condition.executorModel)
             : null,
           detector: condition.detector,
         },

@@ -192,7 +192,7 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   enabled: false,
   executorModel: 'gemini-2.5-flash',
   advisorModel: 'gemini-3.1-pro-preview',
-  advisorFallbackModel: 'gemini-3-flash-preview',
+  advisorFallbackModel: 'gemini-2.5-pro',
   maxAdvisorCallsPerTurn: 2,
   maxAdvisorCallsPerSession: 20,
   emitAdvisorDebug: false,
