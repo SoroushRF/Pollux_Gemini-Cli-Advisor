@@ -100,16 +100,23 @@ function normalizeOracleText(value: string): string {
     .trim();
 }
 
+function matchesExactText(
+  actualText: string | null,
+  expectedText: string,
+): boolean {
+  return (
+    actualText !== null &&
+    normalizeOracleText(actualText) === normalizeOracleText(expectedText)
+  );
+}
+
 function createExactFileOracle(
   fileName: string,
   expectedText: string,
 ): BenchmarkTask['oracle'] {
   return (_stdout, workspaceDir) => {
     const content = readWorkspaceFile(workspaceDir, fileName);
-    return (
-      content !== null &&
-      normalizeOracleText(content) === normalizeOracleText(expectedText)
-    );
+    return matchesExactText(content, expectedText);
   };
 }
 
@@ -1029,9 +1036,9 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         names !== null &&
         count !== null &&
         marker !== null &&
-        names.trim() === 'alpha\nbeta\ndelta\ngamma' &&
-        count.trim() === 'unique=4 total=6' &&
-        marker.trim() === 'done'
+        matchesExactText(names, 'alpha\nbeta\ndelta\ngamma') &&
+        matchesExactText(count, 'unique=4 total=6') &&
+        matchesExactText(marker, 'done')
       );
     },
   },
@@ -1092,21 +1099,30 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
     },
     escalationSignalClass: 'risk_gate',
     oracle: (_stdout, workspaceDir) => {
-      const adapter = readWorkspaceFile(workspaceDir, 'src/adapters/legacy.ts');
+      const legacyAdapter = readWorkspaceFile(
+        workspaceDir,
+        'src/adapters/legacy.ts',
+      );
+      const stableAdapter = readWorkspaceFile(
+        workspaceDir,
+        'src/adapters/stable.ts',
+      );
       const registry = readWorkspaceFile(workspaceDir, 'src/registry.ts');
       const docs = readWorkspaceFile(workspaceDir, 'docs/migration.md');
       const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      const migratedAdapter =
+        (legacyAdapter !== null ? legacyAdapter : stableAdapter) ?? null;
       return (
-        adapter !== null &&
+        migratedAdapter !== null &&
         registry !== null &&
         docs !== null &&
         marker !== null &&
-        adapter.includes('"stable"') &&
-        !adapter.includes('"legacy"') &&
+        migratedAdapter.includes('"stable"') &&
+        !migratedAdapter.includes('"legacy"') &&
         registry.includes('"stable"') &&
         !registry.includes('"legacy"') &&
         docs.includes('legacy adapter naming') &&
-        marker.trim() === 'done'
+        matchesExactText(marker, 'done')
       );
     },
   },

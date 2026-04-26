@@ -162,4 +162,71 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
+
+  it('accepts CRLF output for the sorted unique report task oracle', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-09-SORTED-UNIQUE-REPORT');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(workspaceDir, 'unique-names.txt'),
+        'alpha\r\nbeta\r\ndelta\r\ngamma\r\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'count.txt'),
+        'unique=4 total=6\r\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'm3-done.txt'),
+        'done\r\n',
+        'utf8',
+      );
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the partial migration guard task when the adapter file is renamed to stable.ts', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-11-PARTIAL-MIGRATION-GUARD');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      fs.mkdirSync(path.join(workspaceDir, 'src', 'adapters'), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(workspaceDir, 'docs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'adapters', 'stable.ts'),
+        'export const adapterName = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'registry.ts'),
+        'export const adapters = ["stable"];\nexport const defaultAdapter = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'docs', 'migration.md'),
+        'Migrate legacy adapter naming to stable adapter naming everywhere in source files.\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'm3-done.txt'),
+        'done\n',
+        'utf8',
+      );
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
 });
