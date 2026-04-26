@@ -619,6 +619,7 @@ export interface RealBenchmarkM3SelectedTaskSet {
 export type RealBenchmarkTemporaryFlashOnlyGroup =
   | 'temporary_easy_for_flash'
   | 'temporary_hard_candidate'
+  | 'temporary_ceiling_sensitive_candidate'
   | 'temporary_flash_flaky';
 
 export interface RealBenchmarkTemporaryFlashOnlyTaskSummary {

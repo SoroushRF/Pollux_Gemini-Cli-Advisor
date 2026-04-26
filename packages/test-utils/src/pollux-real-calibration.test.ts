@@ -15,6 +15,7 @@ import {
 } from './pollux-real-report.js';
 import type {
   RealBenchmarkConditionId,
+  RealBenchmarkInvalidationReason,
   RealBenchmarkM3CalibrationThresholds,
   RealBenchmarkRunRecord,
 } from './pollux-real-types.js';
@@ -33,7 +34,12 @@ function buildRun(params: {
   sampleIndex: number;
   oraclePass: boolean;
   invalidated?: boolean;
+  invalidationReason?: RealBenchmarkInvalidationReason;
+  modelResponseCount?: number;
 }): RealBenchmarkRunRecord {
+  const invalidationReason = params.invalidated
+    ? (params.invalidationReason ?? 'run_timeout')
+    : undefined;
   return {
     campaignId: 'm3-calibration-unit',
     sampleId: `${params.conditionId}-${params.taskId}-${params.sampleIndex}`,
@@ -78,11 +84,11 @@ function buildRun(params: {
     },
     oraclePass: params.oraclePass,
     invalidated: params.invalidated ?? false,
-    invalidationReason: params.invalidated ? 'run_timeout' : undefined,
+    invalidationReason,
     structuredErrorEvidence: null,
     exitCode: params.invalidated ? null : 0,
     timedOut: params.invalidated ?? false,
-    modelResponseCount: 1,
+    modelResponseCount: params.modelResponseCount ?? 1,
     expectedEscalation: false,
     predictedEscalation: false,
     confusionOutcome: params.invalidated ? 'excluded' : 'true_negative',
@@ -287,6 +293,42 @@ describe('buildRealBenchmarkTemporaryFlashOnlySummary', () => {
     ]);
   });
 
+  it('preserves ceiling-sensitive tasks instead of collapsing them into generic flake noise', () => {
+    const taskId = 'M3-BM-01-CROSS-FILE-EXPORT-FIX';
+    const summary = buildRealBenchmarkTemporaryFlashOnlySummary({
+      calibrationBatchId: 'batch',
+      corpusSha: 'corpus',
+      taskIds: [taskId],
+      runs: [
+        buildRun({
+          taskId,
+          conditionId: 'A',
+          sampleIndex: 1,
+          oraclePass: true,
+          invalidated: true,
+          invalidationReason: 'model_call_ceiling_exceeded',
+          modelResponseCount: 7,
+        }),
+        buildRun({
+          taskId,
+          conditionId: 'A',
+          sampleIndex: 2,
+          oraclePass: false,
+          invalidated: true,
+          invalidationReason: 'model_call_ceiling_exceeded',
+          modelResponseCount: 8,
+        }),
+      ],
+      thresholds,
+    });
+
+    expect(summary.taskSummaries[0].group).toBe(
+      'temporary_ceiling_sensitive_candidate',
+    );
+    expect(summary.selectedTaskIds).toEqual([taskId]);
+    expect(summary.groupCounts.temporary_ceiling_sensitive_candidate).toBe(1);
+  });
+
   it('emits temporary selected-task and markdown artifacts', () => {
     const summary = buildRealBenchmarkTemporaryFlashOnlySummary({
       calibrationBatchId: 'batch',
@@ -305,5 +347,6 @@ describe('buildRealBenchmarkTemporaryFlashOnlySummary', () => {
     ]);
     expect(markdown).toContain('Temporary Flash-Only Triage Report');
     expect(markdown).toContain('temporary_hard_candidate');
+    expect(markdown).toContain('Temporary Carry-Forward Set');
   });
 });

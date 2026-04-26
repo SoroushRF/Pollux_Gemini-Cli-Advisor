@@ -1819,7 +1819,31 @@ function buildTemporaryFlashOnlyTaskSummary(params: {
 }): RealBenchmarkTemporaryFlashOnlyTaskSummary {
   const task = getRealBenchmarkSeedTask(params.taskId);
   const flash = buildM3ConditionTaskStats(params.taskId, 'A', params.runs);
+  const flashRuns = params.runs.filter(
+    (run) => run.taskId === params.taskId && run.conditionId === 'A',
+  );
+  const invalidFlashRuns = flashRuns.filter((run) => run.invalidated);
+  const onlyCeilingInvalidations =
+    invalidFlashRuns.length > 0 &&
+    invalidFlashRuns.every(
+      (run) => run.invalidationReason === 'model_call_ceiling_exceeded',
+    );
+  const observedOraclePassUnderCeilingPressure = flashRuns.some(
+    (run) => run.oraclePass,
+  );
   if (flash.invalidRate > params.thresholds.maxInvalidRateForStableTask) {
+    if (onlyCeilingInvalidations && observedOraclePassUnderCeilingPressure) {
+      return {
+        taskId: params.taskId,
+        domain: task.domain,
+        difficulty: task.difficulty,
+        group: 'temporary_ceiling_sensitive_candidate',
+        rationale:
+          'Temporary Flash-only triage: invalid samples were ceiling-only and Flash still produced at least one oracle-passing run. Carry this task forward for E confirmation instead of treating it as generic flake noise.',
+        flash,
+      };
+    }
+
     return {
       taskId: params.taskId,
       domain: task.domain,
@@ -1859,8 +1883,17 @@ function selectTemporaryFlashOnlyTasks(
   maxSelectedTaskCount: number,
 ): string[] {
   return taskSummaries
-    .filter((summary) => summary.group === 'temporary_hard_candidate')
+    .filter(
+      (summary) =>
+        summary.group === 'temporary_hard_candidate' ||
+        summary.group === 'temporary_ceiling_sensitive_candidate',
+    )
     .sort((left, right) => {
+      const leftGroupRank = left.group === 'temporary_hard_candidate' ? 0 : 1;
+      const rightGroupRank = right.group === 'temporary_hard_candidate' ? 0 : 1;
+      if (leftGroupRank !== rightGroupRank) {
+        return leftGroupRank - rightGroupRank;
+      }
       if (left.flash.invalidRate !== right.flash.invalidRate) {
         return left.flash.invalidRate - right.flash.invalidRate;
       }
@@ -1905,6 +1938,7 @@ export function buildRealBenchmarkTemporaryFlashOnlySummary(params: {
   const groupCounts = {
     temporary_easy_for_flash: 0,
     temporary_hard_candidate: 0,
+    temporary_ceiling_sensitive_candidate: 0,
     temporary_flash_flaky: 0,
   };
   for (const taskSummary of taskSummaries) {
@@ -1964,9 +1998,11 @@ export function renderRealBenchmarkTemporaryFlashOnlyReport(
   lines.push('');
   lines.push('- This is temporary triage output.');
   lines.push(`- Candidate tasks: ${summary.candidateTaskCount}`);
-  lines.push(`- Temporary hard candidates: ${summary.selectedTaskCount}`);
   lines.push(
-    `- Groups: hard_candidate=${summary.groupCounts.temporary_hard_candidate}, easy_for_flash=${summary.groupCounts.temporary_easy_for_flash}, flash_flaky=${summary.groupCounts.temporary_flash_flaky}`,
+    `- Temporary carry-forward candidates: ${summary.selectedTaskCount}`,
+  );
+  lines.push(
+    `- Groups: hard_candidate=${summary.groupCounts.temporary_hard_candidate}, ceiling_sensitive_candidate=${summary.groupCounts.temporary_ceiling_sensitive_candidate}, easy_for_flash=${summary.groupCounts.temporary_easy_for_flash}, flash_flaky=${summary.groupCounts.temporary_flash_flaky}`,
   );
   lines.push(`- Provisional note: ${summary.provisionalReason}`);
   lines.push('');
@@ -1979,7 +2015,7 @@ export function renderRealBenchmarkTemporaryFlashOnlyReport(
     `- Stable invalid-rate ceiling: ${formatRate(summary.thresholds.maxInvalidRateForStableTask)}`,
   );
   lines.push(
-    `- Maximum temporary hard candidates to carry forward: ${summary.thresholds.maxSelectedTaskCount}`,
+    `- Maximum temporary carry-forward candidates: ${summary.thresholds.maxSelectedTaskCount}`,
   );
   lines.push('');
   lines.push('## 3) Temporary Flash-Only Task Groups');
@@ -1994,7 +2030,7 @@ export function renderRealBenchmarkTemporaryFlashOnlyReport(
     );
   }
   lines.push('');
-  lines.push('## 4) Temporary Hard-Candidate Set');
+  lines.push('## 4) Temporary Carry-Forward Set');
   lines.push('');
   if (summary.selectedTaskIds.length === 0) {
     lines.push('- None');
