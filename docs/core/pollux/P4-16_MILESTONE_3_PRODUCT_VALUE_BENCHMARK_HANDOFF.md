@@ -1,6 +1,6 @@
 # P4-16 Milestone 3: Product-Value Benchmark Handoff
 
-Version: 1.0 Date: 2026-04-25 Status: Handoff for the next benchmark milestone
+Version: 1.1 Date: 2026-04-26 Status: Handoff for the next benchmark milestone
 
 ## Purpose
 
@@ -329,10 +329,13 @@ The right way is:
 
 1. start with a larger candidate pool
 2. run Flash-only on the pool
-3. run Pro-only on the same pool
-4. keep only stable tasks where Flash is weak and Pro is stronger
-5. freeze that subset
-6. then run Pollux on that frozen subset
+3. remove only pre-registered tasks that are already easy for Flash or already
+   flaky under Flash
+4. run Pro-only on the surviving pool
+5. keep only stable tasks where Flash is weak and Pro is stronger
+6. freeze that subset
+7. then run a separate final `A` / `E` / `F` value campaign on that frozen
+   subset
 
 This is the single most important design choice for M3.
 
@@ -342,7 +345,9 @@ Why:
 2. it avoids overfitting to Pollux after seeing Pollux results
 3. it creates a defensible "discriminative subset" rather than a hand-picked
    miracle suite
-4. it makes failures interpretable: Flash failure, Pro rescue, Pollux partial
+4. it concentrates strong-model spend on tasks that still have headroom after
+   the weak baseline screen
+5. it makes failures interpretable: Flash failure, Pro rescue, Pollux partial
    rescue
 
 Recommended calibration labels per task:
@@ -376,6 +381,9 @@ Recommended artifact layout:
 ```text
 artifacts/pollux/value-runs/<batch-id>/
   candidates/
+  a-screen-summary.json
+  a-survivor-set.json
+  e-confirmation-summary.json
   calibration-summary.json
   calibration-report.md
   selected-task-set.json
@@ -480,11 +488,12 @@ Likely new files:
 
 Runner behavior:
 
-1. execute only conditions `A` and `E`
-2. run `n` repeats per candidate task
-3. compute pass/stability/cost summaries
-4. assign calibration labels
-5. emit frozen selected task list
+1. run a full `A` screen on the candidate pool
+2. exclude only pre-registered `easy` and `flaky` tasks from A-only evidence
+3. run a full `E` confirmation pass on the survivors
+4. compute pass/stability/cost summaries from `A` and `E`
+5. assign final calibration labels
+6. emit a frozen selected task list
 
 ### Workstream C: Value-suite runner
 
@@ -501,9 +510,11 @@ Likely new files:
 Runner behavior:
 
 1. consume a frozen selected-task manifest
-2. run `A`, `E`, `F`
-3. preserve existing fairness and telemetry rules
-4. compute value metrics, not just reliability metrics
+2. run a fresh `A`, `E`, `F` value campaign on that subset
+3. do not reuse calibration-stage `A` or `E` measurements as final value
+   estimates
+4. preserve existing fairness and telemetry rules
+5. compute value metrics, not just reliability metrics
 
 ### Workstream D: Reporting and docs
 
@@ -532,9 +543,10 @@ The first M3 evidence batch should stay modest and diagnostic.
 Recommended initial structure:
 
 1. candidate pool: `15-30` tasks
-2. calibration repeats: `2-3`
-3. selected value subset after calibration: `8-15` tasks
-4. value-suite repeats: `3`
+2. A-screen repeats: `2-3`
+3. E-confirmation repeats: `2-3`
+4. selected value subset after calibration: `8-15` tasks
+5. value-suite repeats: `3`
 
 Recommended first success criteria:
 

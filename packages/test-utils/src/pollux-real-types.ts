@@ -616,6 +616,57 @@ export interface RealBenchmarkM3SelectedTaskSet {
   taskSummaries: RealBenchmarkM3TaskCalibrationSummary[];
 }
 
+export type RealBenchmarkTemporaryFlashOnlyGroup =
+  | 'temporary_easy_for_flash'
+  | 'temporary_hard_candidate'
+  | 'temporary_flash_flaky';
+
+export interface RealBenchmarkTemporaryFlashOnlyTaskSummary {
+  taskId: string;
+  domain: string;
+  difficulty: string;
+  group: RealBenchmarkTemporaryFlashOnlyGroup;
+  rationale: string;
+  flash: RealBenchmarkM3ConditionTaskStats;
+}
+
+export interface RealBenchmarkTemporaryFlashOnlySelectedTaskSet {
+  generatedAt: string;
+  calibrationBatchId: string;
+  provisional: true;
+  provisionalReason: string;
+  corpusSha: string;
+  thresholds: Pick<
+    RealBenchmarkM3CalibrationThresholds,
+    | 'maxFlashPassRateForDiscriminative'
+    | 'maxInvalidRateForStableTask'
+    | 'maxSelectedTaskCount'
+  >;
+  selectedTaskIds: string[];
+  rejectedTaskIds: string[];
+  taskSummaries: RealBenchmarkTemporaryFlashOnlyTaskSummary[];
+}
+
+export interface RealBenchmarkTemporaryFlashOnlySummary {
+  generatedAt: string;
+  calibrationBatchId: string;
+  provisional: true;
+  provisionalReason: string;
+  corpusSha: string;
+  thresholds: Pick<
+    RealBenchmarkM3CalibrationThresholds,
+    | 'maxFlashPassRateForDiscriminative'
+    | 'maxInvalidRateForStableTask'
+    | 'maxSelectedTaskCount'
+  >;
+  candidateTaskCount: number;
+  selectedTaskCount: number;
+  groupCounts: Record<RealBenchmarkTemporaryFlashOnlyGroup, number>;
+  taskSummaries: RealBenchmarkTemporaryFlashOnlyTaskSummary[];
+  selectedTaskIds: string[];
+  rejectedTaskIds: string[];
+}
+
 export interface RealBenchmarkM3ConditionValueSummary {
   conditionId: RealBenchmarkConditionId;
   sampleCount: number;

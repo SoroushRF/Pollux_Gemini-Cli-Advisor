@@ -6,6 +6,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -13,6 +14,7 @@ import {
   REAL_BENCHMARK_SEED_CORPUS,
   SHARED_REAL_NEGATIVE_FIXTURE_PATHS,
   SHARED_REAL_POSITIVE_FIXTURE_PATH,
+  getRealBenchmarkSeedTask,
 } from './realTasks.js';
 import { REAL_BENCHMARK_REQUIRED_DOMAINS } from './realTypes.js';
 
@@ -139,6 +141,25 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
     ).toBe(true);
     for (const fixturePath of SHARED_REAL_NEGATIVE_FIXTURE_PATHS) {
       expect(fs.existsSync(resolveFixturePath(fixturePath))).toBe(true);
+    }
+  });
+
+  it('treats BOM and CRLF differences as equivalent for exact-file oracles', async () => {
+    const task = getRealBenchmarkSeedTask('PILOT-BM-08-SHELL-PIPE');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      fs.writeFileSync(
+        path.join(workspaceDir, 'sorted.txt'),
+        '\uFEFFalpha\r\nbeta\r\ngamma\r\n',
+        'utf8',
+      );
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
     }
   });
 });

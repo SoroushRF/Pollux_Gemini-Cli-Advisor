@@ -1,6 +1,6 @@
 # P4-17 Milestone 3: Calibration And Value Protocol
 
-Version: 1.0 Date: 2026-04-25 Status: Local M3 implementation contract
+Version: 1.1 Date: 2026-04-26 Status: Local M3 staged-calibration contract
 
 ## Purpose
 
@@ -46,19 +46,49 @@ M3 does not loosen those contracts. It adds a product-value layer above them.
 Defaults:
 
 1. candidate pool target: `30` local tasks
-2. calibration repeats: `3`
-3. selected value subset target: `8-15` tasks
-4. value repeats: `3`
-5. calibration conditions: `A`, `E`
-6. value conditions: `A`, `E`, `F`
+2. A-screen repeats: `3`
+3. E-confirmation repeats: `3`
+4. selected value subset target: `8-15` tasks
+5. value repeats: `3`
+6. A-screen condition: `A`
+7. E-confirmation condition: `E`
+8. value conditions: `A`, `E`, `F`
 
 The local M3 runner remains pilot or dress-rehearsal evidence unless the
 publishability requirements in `P4-05_REAL_BENCHMARK_METHODOLOGY.md` are
 satisfied separately.
 
+M3 now uses a staged calibration flow to conserve strong-model budget without
+letting Pollux influence task selection:
+
+1. run a full `A` screen on the entire candidate pool
+2. remove only pre-registered A-only exclusions
+3. run a full `E` confirmation pass on the survivors
+4. assign final calibration labels from `A` and `E` only
+5. freeze the selected task set
+6. run a separate `A` / `E` / `F` value campaign on that frozen set
+
+Calibration samples are selection evidence. They must not be reused as the final
+`A` or `E` value estimates after the subset is frozen.
+
+## A-Screen Survivor Rules
+
+The A-screen is a formal stage, not an informal triage.
+
+After the full `A` run on the candidate pool:
+
+1. exclude tasks as `easy` when Flash pass rate is above the discriminative
+   ceiling
+2. exclude tasks as `flaky` when Flash invalid rate is above the stable-task
+   ceiling
+3. carry every remaining task forward as an `A` survivor for `E` confirmation
+4. do not assign final `discriminative` or `impossible_or_noisy` labels from `A`
+   alone
+5. record every exclusion and survivor decision in artifact form
+
 ## Calibration Labels
 
-Each candidate task receives one label:
+After `E` confirmation, each A-survivor task receives one final label:
 
 1. `easy`
    - Flash passes too often, so there is not enough headroom for advisor value.
@@ -78,8 +108,8 @@ Initial thresholds:
 4. minimum selected value tasks: `8`
 5. maximum selected value tasks: `15`
 
-Calibration must select tasks from `A` and `E` results only. Pollux condition
-`F` must not be used to select the value subset.
+Calibration must select tasks from A-screen and E-confirmation results only.
+Pollux condition `F` must not be used to select the value subset.
 
 ## Value Criteria
 
@@ -110,11 +140,19 @@ Calibration:
 
 ```text
 artifacts/pollux/real-runs/<batch-id>/
-  calibration-campaign/
+  a-screen-campaign/
     manifest.json
     raw/
     summary.json
     report.md
+  a-screen-summary.json
+  a-survivor-set.json
+  e-confirmation-campaign/
+    manifest.json
+    raw/
+    summary.json
+    report.md
+  e-confirmation-summary.json
   calibration-summary.json
   calibration-report.md
   selected-task-set.json
@@ -134,31 +172,41 @@ artifacts/pollux/real-runs/<value-id>/
   value-report.md
 ```
 
-## Commands
+## Run Flow
 
-Calibration:
+Reference staged flow:
 
-```bash
-npm.cmd run benchmark:pollux:real:calibrate -- --batch-id m3-calibration-001 --repeats 3 --pricing-snapshot docs/core/pollux/P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_2026-04-24.json
-```
+1. A-screen: run the full candidate pool under condition `A`
+2. A-screen filter: remove only pre-registered `easy` and `flaky` tasks
+3. E-confirmation: run the full survivor pool under condition `E`
+4. calibration freeze: keep only final `discriminative` tasks
+5. value campaign: run `A`, `E`, and `F` on the frozen selected task set
 
-Value:
-
-```bash
-npm.cmd run benchmark:pollux:real:value -- --value-id m3-value-001 --selected-task-set artifacts/pollux/real-runs/m3-calibration-001/selected-task-set.json --repeats 3 --pricing-snapshot docs/core/pollux/P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_2026-04-24.json
-```
+Current helper names may lag this contract. Treat the staged flow above as the
+normative M3 benchmark logic.
 
 Use small smoke runs before full M3 runs, especially when operating under a
 single Gemini account quota window.
+
+Legacy A-only helper output remains provisional if it is used only to narrow a
+candidate pool without the formal staged-calibration artifacts above. Official
+M3 selection still requires:
+
+1. a full `A` screen across the full pool
+2. a recorded A-only survivor filter
+3. a full `E` confirmation pass across those survivors
+4. a frozen selected task set emitted before any `F` run
 
 ## Third-Party Benchmark Readiness
 
 Local M3 comes first. Later SWE-bench-style, Terminal-Bench-style, or other
 external benchmark adapters should preserve the same pattern:
 
-1. calibrate without Pollux using weak and strong baselines
-2. freeze the selected subset
-3. run `A`, `E`, and `F`
-4. report success, cost, latency, advisor share, and invalidations
+1. run the weak baseline across the candidate pool
+2. exclude only pre-registered weak-baseline rejects
+3. run the strong baseline across the survivors
+4. freeze the selected subset from baseline evidence only
+5. run a separate final `A`, `E`, and `F` value campaign on the frozen subset
+6. report success, cost, latency, advisor share, and invalidations
 
 External benchmark adapters must not change the product-value comparison.

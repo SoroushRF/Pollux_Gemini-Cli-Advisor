@@ -1,7 +1,7 @@
 # P4-10 Real Benchmark Measurement Spec
 
-Version: 1.2 Date: 2026-04-24 Status: Milestone 2 spec for pilot reliability,
-repeat-aware artifacts, and acceptance evidence
+Version: 1.3 Date: 2026-04-26 Status: Milestone 2 reliability spec plus M3
+staged-calibration measurement contract
 
 ---
 
@@ -64,6 +64,23 @@ One `task x condition` pair.
 A named collection of cells and repeats with one frozen manifest, one corpus
 lock, and one pricing snapshot.
 
+### A-screen campaign
+
+A calibration-stage campaign that runs only condition `A` across the full
+candidate pool in order to remove only pre-registered `easy` and `flaky` tasks.
+
+### E-confirmation campaign
+
+A calibration-stage campaign that runs only condition `E` across the A-screen
+survivor pool in order to assign final calibration labels and freeze the
+selected task set.
+
+### Value campaign
+
+A post-freeze evaluation campaign that runs `A`, `E`, and `F` on the frozen
+selected task set. Published `A` and `E` value estimates come from this
+campaign, not from calibration-stage samples.
+
 ### Valid sample
 
 A sample with:
@@ -119,6 +136,8 @@ Publishable campaigns additionally require:
 3. explicit exclusion-bucket disclosure for `fail_open` and `budget_exhausted`
    in confusion reporting
 4. methodology-level statistics from `P4-05_REAL_BENCHMARK_METHODOLOGY.md`
+5. for M3, a clean selection/evaluation split where calibration-stage `A` and
+   `E` samples are not reused as final value-suite `A` and `E` estimates
 
 Milestone 2 acceptance campaigns additionally require:
 
@@ -187,6 +206,26 @@ artifacts/pollux/real-runs/<acceptance-id>/
   campaigns/<campaign-id>/...
   aggregate-summary.json
   aggregate-report.md
+```
+
+M3 staged roots additionally require calibration/value separation:
+
+```text
+artifacts/pollux/real-runs/<batch-id>/
+  a-screen-campaign/...
+  a-screen-summary.json
+  a-survivor-set.json
+  e-confirmation-campaign/...
+  e-confirmation-summary.json
+  calibration-summary.json
+  calibration-report.md
+  selected-task-set.json
+
+artifacts/pollux/real-runs/<value-id>/
+  selected-task-set.json
+  value-campaign/...
+  value-summary.json
+  value-report.md
 ```
 
 Each raw sample must include:

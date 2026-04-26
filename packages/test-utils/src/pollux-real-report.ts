@@ -36,6 +36,9 @@ import type {
   RealBenchmarkRunRecord,
   RealBenchmarkRunDiagnosticSummary,
   RealBenchmarkStressSummary,
+  RealBenchmarkTemporaryFlashOnlySelectedTaskSet,
+  RealBenchmarkTemporaryFlashOnlySummary,
+  RealBenchmarkTemporaryFlashOnlyTaskSummary,
 } from './pollux-real-types.js';
 import type { RealBenchmarkLane } from '../../core/src/pollux/benchmark/realTypes.js';
 
@@ -1805,6 +1808,204 @@ export function renderRealBenchmarkM3CalibrationReport(
   lines.push('');
   lines.push(
     'Calibration selects a frozen value subset. It is not final product-value evidence until the value suite runs A, E, and F on this selected set.',
+  );
+  return lines.join('\n');
+}
+
+function buildTemporaryFlashOnlyTaskSummary(params: {
+  taskId: string;
+  runs: RealBenchmarkRunRecord[];
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+}): RealBenchmarkTemporaryFlashOnlyTaskSummary {
+  const task = getRealBenchmarkSeedTask(params.taskId);
+  const flash = buildM3ConditionTaskStats(params.taskId, 'A', params.runs);
+  if (flash.invalidRate > params.thresholds.maxInvalidRateForStableTask) {
+    return {
+      taskId: params.taskId,
+      domain: task.domain,
+      difficulty: task.difficulty,
+      group: 'temporary_flash_flaky',
+      rationale: `Temporary Flash-only triage: invalid rate ${formatRate(flash.invalidRate)} exceeds stable-task limit ${formatRate(params.thresholds.maxInvalidRateForStableTask)}.`,
+      flash,
+    };
+  }
+
+  if (
+    (flash.passRate ?? 0) > params.thresholds.maxFlashPassRateForDiscriminative
+  ) {
+    return {
+      taskId: params.taskId,
+      domain: task.domain,
+      difficulty: task.difficulty,
+      group: 'temporary_easy_for_flash',
+      rationale: `Temporary Flash-only triage: A pass rate ${formatRate(flash.passRate)} exceeds easy-task ceiling ${formatRate(params.thresholds.maxFlashPassRateForDiscriminative)}.`,
+      flash,
+    };
+  }
+
+  return {
+    taskId: params.taskId,
+    domain: task.domain,
+    difficulty: task.difficulty,
+    group: 'temporary_hard_candidate',
+    rationale:
+      'Temporary Flash-only triage: Flash did not clear the easy-task ceiling and stayed under the invalid-rate cap. This is a provisional hard-task candidate until E can confirm solvability.',
+    flash,
+  };
+}
+
+function selectTemporaryFlashOnlyTasks(
+  taskSummaries: RealBenchmarkTemporaryFlashOnlyTaskSummary[],
+  maxSelectedTaskCount: number,
+): string[] {
+  return taskSummaries
+    .filter((summary) => summary.group === 'temporary_hard_candidate')
+    .sort((left, right) => {
+      if (left.flash.invalidRate !== right.flash.invalidRate) {
+        return left.flash.invalidRate - right.flash.invalidRate;
+      }
+      const leftPassRate = left.flash.passRate ?? 0;
+      const rightPassRate = right.flash.passRate ?? 0;
+      if (leftPassRate !== rightPassRate) {
+        return leftPassRate - rightPassRate;
+      }
+      const difficultyDelta =
+        getDifficultyRank(right.difficulty) -
+        getDifficultyRank(left.difficulty);
+      if (difficultyDelta !== 0) {
+        return difficultyDelta;
+      }
+      return left.taskId.localeCompare(right.taskId);
+    })
+    .slice(0, maxSelectedTaskCount)
+    .map((summary) => summary.taskId);
+}
+
+export function buildRealBenchmarkTemporaryFlashOnlySummary(params: {
+  calibrationBatchId: string;
+  corpusSha: string;
+  taskIds: string[];
+  runs: RealBenchmarkRunRecord[];
+  thresholds: RealBenchmarkM3CalibrationThresholds;
+}): RealBenchmarkTemporaryFlashOnlySummary {
+  const taskSummaries = params.taskIds.map((taskId) =>
+    buildTemporaryFlashOnlyTaskSummary({
+      taskId,
+      runs: params.runs,
+      thresholds: params.thresholds,
+    }),
+  );
+  const selectedTaskIds = selectTemporaryFlashOnlyTasks(
+    taskSummaries,
+    params.thresholds.maxSelectedTaskCount,
+  );
+  const rejectedTaskIds = params.taskIds.filter(
+    (taskId) => !selectedTaskIds.includes(taskId),
+  );
+  const groupCounts = {
+    temporary_easy_for_flash: 0,
+    temporary_hard_candidate: 0,
+    temporary_flash_flaky: 0,
+  };
+  for (const taskSummary of taskSummaries) {
+    groupCounts[taskSummary.group] += 1;
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    calibrationBatchId: params.calibrationBatchId,
+    provisional: true,
+    provisionalReason:
+      'Temporary Flash-only triage while E is unavailable or quota-contaminated. Do not treat this as the final frozen M3 value subset.',
+    corpusSha: params.corpusSha,
+    thresholds: {
+      maxFlashPassRateForDiscriminative:
+        params.thresholds.maxFlashPassRateForDiscriminative,
+      maxInvalidRateForStableTask:
+        params.thresholds.maxInvalidRateForStableTask,
+      maxSelectedTaskCount: params.thresholds.maxSelectedTaskCount,
+    },
+    candidateTaskCount: params.taskIds.length,
+    selectedTaskCount: selectedTaskIds.length,
+    groupCounts,
+    taskSummaries,
+    selectedTaskIds,
+    rejectedTaskIds,
+  };
+}
+
+export function buildRealBenchmarkTemporaryFlashOnlySelectedTaskSet(
+  summary: RealBenchmarkTemporaryFlashOnlySummary,
+): RealBenchmarkTemporaryFlashOnlySelectedTaskSet {
+  return {
+    generatedAt: summary.generatedAt,
+    calibrationBatchId: summary.calibrationBatchId,
+    provisional: true,
+    provisionalReason: summary.provisionalReason,
+    corpusSha: summary.corpusSha,
+    thresholds: summary.thresholds,
+    selectedTaskIds: summary.selectedTaskIds,
+    rejectedTaskIds: summary.rejectedTaskIds,
+    taskSummaries: summary.taskSummaries,
+  };
+}
+
+export function renderRealBenchmarkTemporaryFlashOnlyReport(
+  summary: RealBenchmarkTemporaryFlashOnlySummary,
+): string {
+  const lines: string[] = [];
+  lines.push('# Pollux Temporary Flash-Only Triage Report');
+  lines.push('');
+  lines.push(`Generated: ${summary.generatedAt}`);
+  lines.push(`Batch: ${summary.calibrationBatchId}`);
+  lines.push(`Corpus SHA: \`${summary.corpusSha}\``);
+  lines.push('');
+  lines.push('## 1) Temporary Status');
+  lines.push('');
+  lines.push('- This is temporary triage output.');
+  lines.push(`- Candidate tasks: ${summary.candidateTaskCount}`);
+  lines.push(`- Temporary hard candidates: ${summary.selectedTaskCount}`);
+  lines.push(
+    `- Groups: hard_candidate=${summary.groupCounts.temporary_hard_candidate}, easy_for_flash=${summary.groupCounts.temporary_easy_for_flash}, flash_flaky=${summary.groupCounts.temporary_flash_flaky}`,
+  );
+  lines.push(`- Provisional note: ${summary.provisionalReason}`);
+  lines.push('');
+  lines.push('## 2) Temporary Thresholds');
+  lines.push('');
+  lines.push(
+    `- A pass-rate ceiling for easy tasks: ${formatRate(summary.thresholds.maxFlashPassRateForDiscriminative)}`,
+  );
+  lines.push(
+    `- Stable invalid-rate ceiling: ${formatRate(summary.thresholds.maxInvalidRateForStableTask)}`,
+  );
+  lines.push(
+    `- Maximum temporary hard candidates to carry forward: ${summary.thresholds.maxSelectedTaskCount}`,
+  );
+  lines.push('');
+  lines.push('## 3) Temporary Flash-Only Task Groups');
+  lines.push('');
+  lines.push(
+    '| Task | Domain | Difficulty | A pass | A invalid | Temporary group | Rationale |',
+  );
+  lines.push('| --- | --- | --- | ---: | ---: | --- | --- |');
+  for (const task of summary.taskSummaries) {
+    lines.push(
+      `| ${task.taskId} | ${task.domain} | ${task.difficulty} | ${formatRate(task.flash.passRate)} | ${formatRate(task.flash.invalidRate)} | ${task.group} | ${task.rationale} |`,
+    );
+  }
+  lines.push('');
+  lines.push('## 4) Temporary Hard-Candidate Set');
+  lines.push('');
+  if (summary.selectedTaskIds.length === 0) {
+    lines.push('- None');
+  } else {
+    for (const taskId of summary.selectedTaskIds) {
+      lines.push(`- ${taskId}`);
+    }
+  }
+  lines.push('');
+  lines.push(
+    'Temporary Flash-only triage is for narrowing the candidate pool while E is unavailable. Re-run full calibration with A and E before freezing the real M3 value subset.',
   );
   return lines.join('\n');
 }

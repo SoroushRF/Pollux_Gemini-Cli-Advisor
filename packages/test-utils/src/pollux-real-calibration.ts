@@ -17,7 +17,10 @@ import { runPolluxRealCampaign } from './pollux-real-pilot.js';
 import {
   buildRealBenchmarkM3CalibrationSummary,
   buildRealBenchmarkM3SelectedTaskSet,
+  buildRealBenchmarkTemporaryFlashOnlySelectedTaskSet,
+  buildRealBenchmarkTemporaryFlashOnlySummary,
   renderRealBenchmarkM3CalibrationReport,
+  renderRealBenchmarkTemporaryFlashOnlyReport,
 } from './pollux-real-report.js';
 import type {
   RealBenchmarkEntrypointPreference,
@@ -120,6 +123,7 @@ export async function runPolluxRealM3Calibration(params: {
   maxModelResponsesPerSample?: number;
   allowOverwrite?: boolean;
   thresholds?: RealBenchmarkM3CalibrationThresholds;
+  temporaryFlashOnly?: boolean;
 }) {
   const thresholds =
     params.thresholds ?? POLLUX_REAL_M3_DEFAULT_CALIBRATION_THRESHOLDS;
@@ -136,20 +140,59 @@ export async function runPolluxRealM3Calibration(params: {
   fs.mkdirSync(batchRoot, { recursive: true });
 
   const result = await runPolluxRealCampaign({
-    campaignId: `${params.batchId}-calibration`,
+    campaignId: params.temporaryFlashOnly
+      ? `${params.batchId}-temporary-flash-only`
+      : `${params.batchId}-calibration`,
     repeats: params.repeats,
     taskIds: params.taskIds,
-    conditionIds: ['A', 'E'],
+    conditionIds: params.temporaryFlashOnly ? ['A'] : ['A', 'E'],
     pricingSnapshotPath: params.pricingSnapshotPath,
     binaryPath: params.binaryPath,
     entrypointPreference: params.entrypointPreference,
     keepScratchDirectories: params.keepScratchDirectories,
     maxWallClockMs: params.maxWallClockMs,
     maxModelResponsesPerSample: params.maxModelResponsesPerSample,
-    artifactRoot: path.join(batchRoot, 'calibration-campaign'),
+    artifactRoot: path.join(
+      batchRoot,
+      params.temporaryFlashOnly
+        ? 'temporary-flash-only-campaign'
+        : 'calibration-campaign',
+    ),
     allowOverwrite: false,
   });
   const corpusSha = computeCorpusSha(selectedTasks);
+  if (params.temporaryFlashOnly) {
+    const temporarySummary = buildRealBenchmarkTemporaryFlashOnlySummary({
+      calibrationBatchId: params.batchId,
+      corpusSha,
+      taskIds: params.taskIds,
+      runs: result.runs,
+      thresholds,
+    });
+    const temporarySelectedTaskSet =
+      buildRealBenchmarkTemporaryFlashOnlySelectedTaskSet(temporarySummary);
+
+    writeJson(
+      path.join(batchRoot, 'temporary-flash-only-summary.json'),
+      temporarySummary,
+    );
+    fs.writeFileSync(
+      path.join(batchRoot, 'temporary-flash-only-report.md'),
+      renderRealBenchmarkTemporaryFlashOnlyReport(temporarySummary),
+    );
+    writeJson(
+      path.join(batchRoot, 'temporary-selected-task-set.json'),
+      temporarySelectedTaskSet,
+    );
+
+    return {
+      batchRoot,
+      summary: temporarySummary,
+      selectedTaskSet: temporarySelectedTaskSet,
+      campaign: result,
+    };
+  }
+
   const summary = buildRealBenchmarkM3CalibrationSummary({
     calibrationBatchId: params.batchId,
     corpusSha,
@@ -188,6 +231,7 @@ export async function runPolluxRealM3CalibrationCli() {
       POLLUX_REAL_M3_DEFAULT_CALIBRATION_THRESHOLDS.maxInvalidRateForStableTask,
     ),
   };
+  const temporaryFlashOnly = parseBooleanArg('--temporary-flash-only', false);
 
   await runPolluxRealM3Calibration({
     batchId,
@@ -201,6 +245,7 @@ export async function runPolluxRealM3CalibrationCli() {
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     thresholds,
+    temporaryFlashOnly,
   });
 }
 

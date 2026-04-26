@@ -1,6 +1,6 @@
 # P4-05 Real-Model Benchmark Methodology
 
-Version: 1.1 Generated: 2026-04-22 Status: Open contract (no real-model run
+Version: 1.2 Generated: 2026-04-26 Status: Open contract (no real-model run
 published) TG mapping: TG-1, TG-4 (acceptance criteria)
 
 > Canonical detector behavior references:
@@ -58,6 +58,11 @@ Before run start, enforce:
 - Per-sample wall-clock and model-response ceilings recorded in the campaign
   artifact so runaway verification loops become explicit invalidations rather
   than silent contamination.
+- If calibration is staged, A-screen exclusion rules must be pre-registered
+  before any E-confirmation run starts.
+- If calibration is staged, final `A` / `E` / `F` value estimates must come from
+  a post-freeze value campaign rather than reusing calibration-stage `A` or `E`
+  measurements.
 
 ## 4) Token accounting and reconciliation
 
@@ -104,6 +109,8 @@ Every published number must be reproducible from:
 - Fairness pin evidence
 - Prompt/system seed
 - API request IDs where available
+- Any A-screen survivor manifest, exclusion rationale, and frozen selected-task
+  manifest used to narrow the candidate pool
 
 If a reviewer cannot rerun a cell and match within CI bounds, reject the run.
 
@@ -122,6 +129,9 @@ true:
 8. Preflight build freshness is clean and dist/source git metadata agrees.
 9. Invalidations distinguish auth failures, rate/quota contamination,
    model-capacity exhaustion, timeouts, and model-call ceiling breaches.
+10. If M3 uses staged calibration, task selection is based on baseline evidence
+    only and the final `A` / `E` / `F` comparison comes from a separate
+    post-freeze value campaign.
 
 Until section 1-7 hold, no artifact in this repo should present executor vs
 advisor comparison as a real benchmark result.

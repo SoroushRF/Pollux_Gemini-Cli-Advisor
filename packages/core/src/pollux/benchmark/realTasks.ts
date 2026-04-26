@@ -93,13 +93,23 @@ function readWorkspaceFile(
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function normalizeOracleText(value: string): string {
+  return value
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+}
+
 function createExactFileOracle(
   fileName: string,
   expectedText: string,
 ): BenchmarkTask['oracle'] {
   return (_stdout, workspaceDir) => {
     const content = readWorkspaceFile(workspaceDir, fileName);
-    return content !== null && content.trim() === expectedText.trim();
+    return (
+      content !== null &&
+      normalizeOracleText(content) === normalizeOracleText(expectedText)
+    );
   };
 }
 

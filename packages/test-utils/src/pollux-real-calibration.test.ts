@@ -8,7 +8,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRealBenchmarkM3CalibrationSummary,
   buildRealBenchmarkM3SelectedTaskSet,
+  buildRealBenchmarkTemporaryFlashOnlySelectedTaskSet,
+  buildRealBenchmarkTemporaryFlashOnlySummary,
   renderRealBenchmarkM3CalibrationReport,
+  renderRealBenchmarkTemporaryFlashOnlyReport,
 } from './pollux-real-report.js';
 import type {
   RealBenchmarkConditionId,
@@ -237,5 +240,70 @@ describe('buildRealBenchmarkM3CalibrationSummary', () => {
     ]);
     expect(markdown).toContain('Pollux M3 Calibration Report');
     expect(markdown).toContain('Task Calibration');
+  });
+});
+
+describe('buildRealBenchmarkTemporaryFlashOnlySummary', () => {
+  it('groups tasks into temporary flash-only buckets', () => {
+    const summary = buildRealBenchmarkTemporaryFlashOnlySummary({
+      calibrationBatchId: 'batch',
+      corpusSha: 'corpus',
+      taskIds: [
+        'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+        'M3-BM-02-MISLEADING-DEFAULT-CONFIG',
+        'M3-BM-03-DISTRACTOR-NOTES-SUMMARY',
+      ],
+      runs: [
+        ...runsForRates('M3-BM-01-CROSS-FILE-EXPORT-FIX', [true, true], []),
+        ...runsForRates('M3-BM-02-MISLEADING-DEFAULT-CONFIG', [false], []),
+        buildRun({
+          taskId: 'M3-BM-03-DISTRACTOR-NOTES-SUMMARY',
+          conditionId: 'A',
+          sampleIndex: 1,
+          oraclePass: false,
+          invalidated: true,
+        }),
+      ],
+      thresholds,
+    });
+
+    expect(
+      summary.taskSummaries.find(
+        (task) => task.taskId === 'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+      )?.group,
+    ).toBe('temporary_easy_for_flash');
+    expect(
+      summary.taskSummaries.find(
+        (task) => task.taskId === 'M3-BM-02-MISLEADING-DEFAULT-CONFIG',
+      )?.group,
+    ).toBe('temporary_hard_candidate');
+    expect(
+      summary.taskSummaries.find(
+        (task) => task.taskId === 'M3-BM-03-DISTRACTOR-NOTES-SUMMARY',
+      )?.group,
+    ).toBe('temporary_flash_flaky');
+    expect(summary.selectedTaskIds).toEqual([
+      'M3-BM-02-MISLEADING-DEFAULT-CONFIG',
+    ]);
+  });
+
+  it('emits temporary selected-task and markdown artifacts', () => {
+    const summary = buildRealBenchmarkTemporaryFlashOnlySummary({
+      calibrationBatchId: 'batch',
+      corpusSha: 'corpus',
+      taskIds: ['M3-BM-05-TRANSITIVE-RENAME'],
+      runs: runsForRates('M3-BM-05-TRANSITIVE-RENAME', [false], []),
+      thresholds,
+    });
+    const selectedTaskSet =
+      buildRealBenchmarkTemporaryFlashOnlySelectedTaskSet(summary);
+    const markdown = renderRealBenchmarkTemporaryFlashOnlyReport(summary);
+
+    expect(selectedTaskSet.provisional).toBe(true);
+    expect(selectedTaskSet.selectedTaskIds).toEqual([
+      'M3-BM-05-TRANSITIVE-RENAME',
+    ]);
+    expect(markdown).toContain('Temporary Flash-Only Triage Report');
+    expect(markdown).toContain('temporary_hard_candidate');
   });
 });

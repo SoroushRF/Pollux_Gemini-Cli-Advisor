@@ -1,6 +1,7 @@
 # P4-09 Real Benchmark Operator Playbook
 
-Version: 1.1 Date: 2026-04-24 Status: Milestone 2 pilot reliability runner ready
+Version: 1.2 Date: 2026-04-26 Status: Milestone 2 reliability runner plus M3
+staged-calibration operator contract
 
 ---
 
@@ -57,6 +58,17 @@ Artifacts are written under:
 Acceptance artifacts are written under:
 
 `artifacts/pollux/real-runs/<acceptance-id>/`
+
+For Milestone 3 product-value work, the operator contract is now staged:
+
+1. run a full `A` screen on the candidate pool
+2. drop only pre-registered `easy` and `flaky` tasks
+3. run a full `E` confirmation pass on the survivors
+4. freeze the selected task set from `A` and `E` evidence only
+5. run a separate final `A` / `E` / `F` value campaign on the frozen subset
+
+Do not reuse calibration-stage `A` or `E` measurements as the final value-suite
+`A` or `E` estimates.
 
 ---
 
@@ -257,3 +269,10 @@ Only after those answers are boring and stable should we move to:
 3. power analysis
 4. dress rehearsal
 5. publishable campaign
+
+For Milestone 3 specifically, treat the selection/evaluation split as part of
+publishability:
+
+1. A-screen and E-confirmation are calibration evidence
+2. the frozen selected task set is the handoff boundary
+3. the final `A` / `E` / `F` value campaign is evaluation evidence
