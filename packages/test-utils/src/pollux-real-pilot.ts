@@ -48,6 +48,20 @@ function parseArg(flag: string): string | undefined {
   return process.argv[index + 1];
 }
 
+function parseConditionIdsArg(
+  flag: string,
+): RealBenchmarkConditionId[] | undefined {
+  const raw = parseArg(flag);
+  if (!raw) {
+    return undefined;
+  }
+  const conditionIds = raw
+    .split(',')
+    .map((value) => value.trim().toUpperCase())
+    .filter((value): value is RealBenchmarkConditionId => value.length > 0);
+  return conditionIds.length > 0 ? conditionIds : undefined;
+}
+
 function parsePositiveNumberArg(flag: string): number | undefined {
   const raw = parseArg(flag);
   if (!raw) {
@@ -164,7 +178,7 @@ export async function runPolluxRealCampaign(params: {
 
   console.log(`\nPollux benchmark campaign: ${params.campaignId}`);
   console.log(
-    `Workload: ${manifest.conditions.length} conditions x ${selectedTasks.length} tasks = ${manifest.conditions.length * selectedTasks.length} samples\n`,
+    `Workload: ${manifest.conditions.length} conditions x ${selectedTasks.length} tasks x ${params.repeats} repeats = ${manifest.conditions.length * selectedTasks.length * params.repeats} samples\n`,
   );
 
   const runs: RealBenchmarkRunRecord[] = [];
@@ -273,6 +287,7 @@ export async function runPolluxRealPilot() {
     maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
+    conditionIds: parseConditionIdsArg('--condition-ids'),
   });
 }
 
