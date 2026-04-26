@@ -25,6 +25,16 @@ function resolveFixturePath(relativePath: string): string {
   return path.resolve(REPO_ROOT, relativePath);
 }
 
+function writeWorkspaceFile(
+  workspaceDir: string,
+  relativePath: string,
+  contents: string,
+): void {
+  const filePath = path.join(workspaceDir, relativePath);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, contents, 'utf8');
+}
+
 describe('REAL_BENCHMARK_SEED_CORPUS', () => {
   it('keeps the pilot sentinel subset fixed to the smoke-task cohort', () => {
     expect(PILOT_SENTINEL_TASK_IDS).toEqual([
@@ -37,8 +47,8 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
     ]);
   });
 
-  it('provides the methodology-sized 24-task corpus', () => {
-    expect(REAL_BENCHMARK_SEED_CORPUS).toHaveLength(24);
+  it('provides the expanded 48-task corpus with the M3 hard-task pack', () => {
+    expect(REAL_BENCHMARK_SEED_CORPUS).toHaveLength(48);
 
     const counts = REAL_BENCHMARK_SEED_CORPUS.reduce<
       Record<'simple' | 'moderate' | 'complex', number>
@@ -55,9 +65,9 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
     );
 
     expect(counts).toEqual({
-      simple: 8,
-      moderate: 8,
-      complex: 8,
+      simple: 9,
+      moderate: 13,
+      complex: 26,
     });
   });
 
@@ -70,7 +80,7 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
     );
 
     expect(escalating).toHaveLength(8);
-    expect(nonEscalating).toHaveLength(16);
+    expect(nonEscalating).toHaveLength(40);
   });
 
   it('covers every required domain exactly once or more', () => {
@@ -225,6 +235,300 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
       );
 
       expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the partial migration guard task when the adapter is migrated in place', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-11-PARTIAL-MIGRATION-GUARD');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      fs.mkdirSync(path.join(workspaceDir, 'src', 'adapters'), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(workspaceDir, 'docs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'adapters', 'legacy.ts'),
+        'export const adapterName = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'registry.ts'),
+        'export const adapters = ["stable"];\nexport const defaultAdapter = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'docs', 'migration.md'),
+        'Migrate legacy adapter naming to stable adapter naming everywhere in source files.\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'm3-done.txt'),
+        'done\n',
+        'utf8',
+      );
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the partial migration guard task when both legacy.ts and stable.ts exist', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-11-PARTIAL-MIGRATION-GUARD');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      fs.mkdirSync(path.join(workspaceDir, 'src', 'adapters'), {
+        recursive: true,
+      });
+      fs.mkdirSync(path.join(workspaceDir, 'docs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'adapters', 'legacy.ts'),
+        'export const adapterName = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'adapters', 'stable.ts'),
+        'export const adapterName = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'src', 'registry.ts'),
+        'export const adapters = ["stable"];\nexport const defaultAdapter = "stable";\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'docs', 'migration.md'),
+        'Migrate legacy adapter naming to stable adapter naming everywhere in source files.\n',
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'm3-done.txt'),
+        'done\n',
+        'utf8',
+      );
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the distractor notes summary when it mentions stale archive context but keeps the right owners', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-03-DISTRACTOR-NOTES-SUMMARY');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'ownership-summary.txt',
+        'The archive notes are stale. Current ownership is adapter/runtime, pricing/measurement, and fairness/harness.\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the distractor notes summary when it repeats stale owner mappings', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-03-DISTRACTOR-NOTES-SUMMARY');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'ownership-summary.txt',
+        'The archive notes are stale, but they claim routing owned pricing while the current owners are adapter/runtime, pricing/measurement, and fairness/harness.\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the cascade contract repair task when all cross-file constraints are satisfied', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-13-CASCADE-CONTRACT-REPAIR');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/normalizer.ts',
+        'import { parseRecord } from "./parser.js";\n\nexport function normalizeRecord(raw: string) {\n  return parseRecord(raw);\n}\n',
+      );
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/renderer.ts',
+        'import { normalizeRecord } from "./normalizer.js";\n\nexport function renderUser(raw: string) {\n  const record = normalizeRecord(raw);\n  return `user=${record.id.toUpperCase()} status=${record.status.toLowerCase()}`;\n}\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', '\uFEFFdone\r\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the cascade contract repair task when the normalizer bypasses the parser and hardcodes output', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-13-CASCADE-CONTRACT-REPAIR');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/normalizer.ts',
+        'export function normalizeRecord(raw: string) {\n  const [id, status] = raw.split(":").slice(1);\n  return { id, status };\n}\n',
+      );
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/renderer.ts',
+        'import { normalizeRecord } from "./normalizer.js";\n\nexport function renderUser(raw: string) {\n  normalizeRecord(raw);\n  return "user=ADA status=active";\n}\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the priority matrix task when the stale lower-priority source wins', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-14-PRIORITY-MATRIX-CONFLICT');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/decision.ts',
+        'export const runtimeDecision = { region: "north", mode: "warmup", guard: "review" };\n',
+      );
+      writeWorkspaceFile(
+        workspaceDir,
+        'decision.txt',
+        'region=north mode=warmup guard=review\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects the state-machine task when a terminal state can restart', async () => {
+    const task = getRealBenchmarkSeedTask(
+      'M3-BM-15-STATE-MACHINE-INVARIANT-REPAIR',
+    );
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/flow.ts',
+        'const allowedTransitions: Record<string, string[]> = {\n  queued: ["running"],\n  running: ["done", "failed"],\n  failed: ["running"],\n  done: [],\n};\n\nexport function canTransition(from: string, to: string) {\n  return allowedTransitions[from]?.includes(to) ?? false;\n}\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the compatible adapter migration when internals move to stable-v2 and the facade remains', async () => {
+    const task = getRealBenchmarkSeedTask(
+      'M3-BM-16-COMPATIBLE-ADAPTER-MIGRATION',
+    );
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/adapters/v1.ts',
+        'import { createStablePayload } from "./v2.js";\n\nexport function buildPayload(input: string) {\n  return createStablePayload(input);\n}\n',
+      );
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/registry.ts',
+        'import { createStablePayload } from "./adapters/v2.js";\n\nexport const defaultAdapter = "stable-v2";\nexport const adapter = createStablePayload;\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(true);
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects guarded implementation repairs when protected docs are edited', async () => {
+    const task = getRealBenchmarkSeedTask('M3-BM-22-NEGATIVE-SPACE-PRESERVE');
+    const workspaceDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'pollux-real-tasks-'),
+    );
+
+    try {
+      for (const [relativePath, contents] of Object.entries(task.files)) {
+        writeWorkspaceFile(workspaceDir, relativePath, contents);
+      }
+      writeWorkspaceFile(
+        workspaceDir,
+        'src/tax.ts',
+        'export function totalWithTax(subtotal: number, discount: number, taxRate: number) {\n  return (subtotal - discount) * (1 + taxRate);\n}\n',
+      );
+      writeWorkspaceFile(
+        workspaceDir,
+        'docs/tax.md',
+        'Changed docs to match an implementation-only repair.\n',
+      );
+      writeWorkspaceFile(workspaceDir, 'm3-done.txt', 'done\n');
+
+      expect(await task.oracle('', workspaceDir)).toBe(false);
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
     }

@@ -25,6 +25,8 @@ const DOC_MEASUREMENT =
 const DOC_METHODOLOGY = 'docs/core/pollux/P4-05_REAL_BENCHMARK_METHODOLOGY.md';
 const DOC_PREREG =
   'docs/core/pollux/P4-11_REAL_BENCHMARK_PREREGISTRATION_TEMPLATE.md';
+const DOC_M3_HARD_TASK_FACTORY =
+  'docs/core/pollux/P4-18_MILESTONE_3_HARD_TASK_FACTORY_GUIDE.md';
 
 type RealTaskDefinition = Omit<
   RealBenchmarkTaskSpec,
@@ -64,6 +66,8 @@ function withMetadata(
     | 'resumePrompt'
   >,
 ): RealTaskDefinition {
+  // Real benchmark corpus entries intentionally reuse the base CAL task
+  // definitions from tasks.ts and layer real-run metadata on top here.
   return {
     ...getBenchmarkTask(id),
     ...metadata,
@@ -76,6 +80,8 @@ function withSharedFixtures(task: RealTaskDefinition): RealBenchmarkTaskSpec {
     benchmarkLane:
       task.benchmarkLane ??
       BENCHMARK_LANE_OVERRIDES[task.id] ??
+      // Structured self-report tasks are detector/semantics fixtures, so they
+      // default into the canary lane rather than the M3 value subset.
       (task.escalationSignalClass === 'self_report' ? 'canary' : 'core'),
     positiveFixturePaths: [SHARED_REAL_POSITIVE_FIXTURE_PATH],
     negativeFixturePaths: [...SHARED_REAL_NEGATIVE_FIXTURE_PATHS],
@@ -622,7 +628,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
   },
   {
     id: 'PILOT-BM-21-SEARCH-SUMMARY',
-    difficulty: 'complex',
+    difficulty: 'moderate',
     description:
       'Complex code search and summarize task that synthesizes multi-file signals into a concise report.',
     files: {
@@ -667,7 +673,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
   },
   {
     id: 'PILOT-BM-23-FILE-DOCS',
-    difficulty: 'complex',
+    difficulty: 'simple',
     description:
       'Complex file authoring task that writes a multi-line documentation summary file.',
     files: {},
@@ -682,7 +688,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
   },
   {
     id: 'PILOT-BM-24-JSON-YAML',
-    difficulty: 'complex',
+    difficulty: 'moderate',
     description:
       'Complex JSON to YAML transformation that flips one runtime flag while preserving the rest of the pipeline shape.',
     files: {
@@ -833,7 +839,11 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         normalized.includes('measurement') &&
         normalized.includes('fairness') &&
         normalized.includes('harness') &&
-        !normalized.includes('archive')
+        !(
+          (normalized.includes('routing') && normalized.includes('pricing')) ||
+          normalized.includes('telemetry owned archive') ||
+          normalized.includes('release owned sample team')
+        )
       );
     },
   },
@@ -1110,15 +1120,23 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       const registry = readWorkspaceFile(workspaceDir, 'src/registry.ts');
       const docs = readWorkspaceFile(workspaceDir, 'docs/migration.md');
       const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
-      const migratedAdapter =
-        (legacyAdapter !== null ? legacyAdapter : stableAdapter) ?? null;
+      const hasLegacyAdapter = legacyAdapter !== null;
+      const hasStableAdapter = stableAdapter !== null;
+      const inPlaceMigration =
+        hasLegacyAdapter &&
+        !hasStableAdapter &&
+        legacyAdapter.includes('"stable"') &&
+        !legacyAdapter.includes('"legacy"');
+      const renamedMigration =
+        !hasLegacyAdapter &&
+        hasStableAdapter &&
+        stableAdapter.includes('"stable"') &&
+        !stableAdapter.includes('"legacy"');
       return (
-        migratedAdapter !== null &&
+        (inPlaceMigration || renamedMigration) &&
         registry !== null &&
         docs !== null &&
         marker !== null &&
-        migratedAdapter.includes('"stable"') &&
-        !migratedAdapter.includes('"legacy"') &&
         registry.includes('"stable"') &&
         !registry.includes('"legacy"') &&
         docs.includes('legacy adapter naming') &&
@@ -1154,6 +1172,616 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         marker !== null &&
         active.trim() === 'alpha,gamma' &&
         marker.trim() === 'done'
+      );
+    },
+  },
+  {
+    id: 'M3-BM-13-CASCADE-CONTRACT-REPAIR',
+    difficulty: 'complex',
+    description:
+      'Brutal M3 task requiring a cascade repair across parser, normalizer, renderer, and protected tests.',
+    files: {
+      'src/parser.ts':
+        'export function parseRecord(raw: string) {\n  const [kind, id, status] = raw.split(":");\n  return { kind, id, status };\n}\n',
+      'src/normalizer.ts':
+        'import { parseLine } from "./parser.js";\n\nexport function normalizeRecord(raw: string) {\n  const [id, status] = raw.split(":").slice(1);\n  return { id, status };\n}\n',
+      'src/renderer.ts':
+        'import { normalizeRecord } from "./normalizer.js";\n\nexport function renderUser(raw: string) {\n  const record = normalizeRecord(raw);\n  return `user=${record.id} status=${record.status}`;\n}\n',
+      'tests/render.test.ts':
+        'import { renderUser } from "../src/renderer.js";\n\nif (renderUser("user:ada:ACTIVE") !== "user=ADA status=active") {\n  throw new Error("render contract mismatch");\n}\n',
+    },
+    prompt:
+      'Repair the cascade contract so parser.ts remains the canonical raw-record parser, normalizer.ts uses that parser, and renderer.ts preserves the existing render contract. Do not edit tests/render.test.ts. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-13`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const parser = readWorkspaceFile(workspaceDir, 'src/parser.ts');
+      const normalizer = readWorkspaceFile(workspaceDir, 'src/normalizer.ts');
+      const renderer = readWorkspaceFile(workspaceDir, 'src/renderer.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/render.test.ts');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      const combinedRepairSurface = `${normalizer ?? ''}\n${renderer ?? ''}`;
+      return (
+        parser !== null &&
+        normalizer !== null &&
+        renderer !== null &&
+        matchesExactText(
+          test,
+          'import { renderUser } from "../src/renderer.js";\n\nif (renderUser("user:ada:ACTIVE") !== "user=ADA status=active") {\n  throw new Error("render contract mismatch");\n}\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /export function parseRecord/.test(parser) &&
+        /\{\s*kind,\s*id,\s*status\s*\}/.test(parser) &&
+        /parseRecord/.test(normalizer) &&
+        !/raw\.split/.test(normalizer) &&
+        /normalizeRecord/.test(renderer) &&
+        /user=\$\{.+\} status=\$\{.+\}/.test(renderer) &&
+        /(toUpperCase\(\)|user=.+ADA)/.test(combinedRepairSurface) &&
+        /(toLowerCase\(\)|status=.+active)/.test(combinedRepairSurface) &&
+        !/return\s+"user=ADA status=active"/.test(combinedRepairSurface)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-14-PRIORITY-MATRIX-CONFLICT',
+    difficulty: 'complex',
+    description:
+      'Brutal M3 task requiring precedence-matrix reasoning across conflicting policy sources.',
+    files: {
+      'docs/runtime.md':
+        'Runtime mode for the north region is archive with guard relaxed.\n',
+      'plans/release.md':
+        'Release plan says the north region should use warmup mode with guard review.\n',
+      'config/environment.json':
+        '{\n  "region": "north",\n  "mode": "live",\n  "guard": "strict"\n}\n',
+      'rules/precedence.md':
+        'When docs, plans, and environment disagree, environment overrides plans and plans override docs.\n',
+      'src/decision.ts':
+        'export const runtimeDecision = { region: "north", mode: "warmup", guard: "review" };\n',
+    },
+    prompt:
+      'Resolve the runtime conflict using rules/precedence.md. Update src/decision.ts and create decision.txt with the final region, mode, and guard. Do not edit docs/runtime.md, plans/release.md, config/environment.json, or rules/precedence.md. Create m3-done.txt containing exactly done.',
+    domain: 'code_search_summarize',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-14`,
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const docs = readWorkspaceFile(workspaceDir, 'docs/runtime.md');
+      const plan = readWorkspaceFile(workspaceDir, 'plans/release.md');
+      const config = readWorkspaceFile(workspaceDir, 'config/environment.json');
+      const rules = readWorkspaceFile(workspaceDir, 'rules/precedence.md');
+      const decisionSource = readWorkspaceFile(workspaceDir, 'src/decision.ts');
+      const decision = readWorkspaceFile(workspaceDir, 'decision.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        matchesExactText(
+          docs,
+          'Runtime mode for the north region is archive with guard relaxed.\n',
+        ) &&
+        matchesExactText(
+          plan,
+          'Release plan says the north region should use warmup mode with guard review.\n',
+        ) &&
+        matchesExactText(
+          config,
+          '{\n  "region": "north",\n  "mode": "live",\n  "guard": "strict"\n}\n',
+        ) &&
+        matchesExactText(
+          rules,
+          'When docs, plans, and environment disagree, environment overrides plans and plans override docs.\n',
+        ) &&
+        decisionSource !== null &&
+        matchesExactText(decision, 'region=north mode=live guard=strict') &&
+        matchesExactText(marker, 'done') &&
+        /region:\s*"north"/.test(decisionSource) &&
+        /mode:\s*"live"/.test(decisionSource) &&
+        /guard:\s*"strict"/.test(decisionSource) &&
+        !/warmup|archive|review|relaxed/.test(decisionSource)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-15-STATE-MACHINE-INVARIANT-REPAIR',
+    difficulty: 'complex',
+    description:
+      'Brutal M3 task requiring state-machine invariant repair while preserving terminal-state constraints.',
+    files: {
+      'src/flow.ts':
+        'const allowedTransitions: Record<string, string[]> = {\n  queued: ["running", "done"],\n  running: ["done"],\n  failed: ["running"],\n  done: ["running"],\n};\n\nexport function canTransition(from: string, to: string) {\n  return allowedTransitions[from]?.includes(to) ?? false;\n}\n',
+      'tests/flow.test.ts':
+        'import { canTransition } from "../src/flow.js";\n\nif (!canTransition("queued", "running")) throw new Error("queued should start");\nif (!canTransition("running", "done")) throw new Error("running should finish");\nif (!canTransition("running", "failed")) throw new Error("running should fail");\nif (canTransition("queued", "done")) throw new Error("queued cannot skip running");\nif (canTransition("done", "running")) throw new Error("done is terminal");\nif (canTransition("failed", "running")) throw new Error("failed is terminal");\n',
+      'docs/states.md':
+        'Terminal states are done and failed. Queued work must enter running before it can finish.\n',
+    },
+    prompt:
+      'Repair src/flow.ts by encoding the allowed transition map correctly. Preserve terminal-state behavior and do not edit tests/flow.test.ts or docs/states.md. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-15`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const flow = readWorkspaceFile(workspaceDir, 'src/flow.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/flow.test.ts');
+      const docs = readWorkspaceFile(workspaceDir, 'docs/states.md');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        flow !== null &&
+        matchesExactText(
+          test,
+          'import { canTransition } from "../src/flow.js";\n\nif (!canTransition("queued", "running")) throw new Error("queued should start");\nif (!canTransition("running", "done")) throw new Error("running should finish");\nif (!canTransition("running", "failed")) throw new Error("running should fail");\nif (canTransition("queued", "done")) throw new Error("queued cannot skip running");\nif (canTransition("done", "running")) throw new Error("done is terminal");\nif (canTransition("failed", "running")) throw new Error("failed is terminal");\n',
+        ) &&
+        matchesExactText(
+          docs,
+          'Terminal states are done and failed. Queued work must enter running before it can finish.\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /queued:\s*\[\s*"running"\s*\]/.test(flow) &&
+        /running:\s*\[\s*"done"\s*,\s*"failed"\s*\]/.test(flow) &&
+        /failed:\s*\[\s*\]/.test(flow) &&
+        /done:\s*\[\s*\]/.test(flow) &&
+        /includes\(to\)/.test(flow)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-16-COMPATIBLE-ADAPTER-MIGRATION',
+    difficulty: 'complex',
+    description:
+      'Brutal M3 task requiring an internal adapter migration while preserving the legacy public facade.',
+    files: {
+      'src/adapters/v1.ts':
+        'export function buildPayload(input: string) {\n  return { version: "legacy-v1", value: input.trim() };\n}\n',
+      'src/adapters/v2.ts':
+        'export function createStablePayload(input: string) {\n  return { version: "stable-v2", value: input.trim().toUpperCase() };\n}\n',
+      'src/registry.ts':
+        'import { buildPayload } from "./adapters/v1.js";\n\nexport const defaultAdapter = "legacy-v1";\nexport const adapter = buildPayload;\n',
+      'src/client.ts':
+        'import { adapter } from "./registry.js";\n\nexport function send(value: string) {\n  return adapter(value);\n}\n',
+      'docs/migration.md':
+        'Move internal callers to stable-v2. Keep buildPayload available for external compatibility until the next major release.\n',
+    },
+    prompt:
+      'Migrate internal adapter usage to stable-v2 while keeping the legacy buildPayload facade available for external callers. Update source files only, do not edit docs/migration.md, and create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-16`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const v1 = readWorkspaceFile(workspaceDir, 'src/adapters/v1.ts');
+      const v2 = readWorkspaceFile(workspaceDir, 'src/adapters/v2.ts');
+      const registry = readWorkspaceFile(workspaceDir, 'src/registry.ts');
+      const client = readWorkspaceFile(workspaceDir, 'src/client.ts');
+      const docs = readWorkspaceFile(workspaceDir, 'docs/migration.md');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        v1 !== null &&
+        v2 !== null &&
+        registry !== null &&
+        client !== null &&
+        matchesExactText(
+          docs,
+          'Move internal callers to stable-v2. Keep buildPayload available for external compatibility until the next major release.\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /export function buildPayload/.test(v1) &&
+        /createStablePayload/.test(v1) &&
+        !/legacy-v1/.test(v1) &&
+        /export function createStablePayload/.test(v2) &&
+        /stable-v2/.test(v2) &&
+        /createStablePayload/.test(registry) &&
+        /defaultAdapter\s*=\s*"stable-v2"/.test(registry) &&
+        !/buildPayload/.test(registry) &&
+        /adapter/.test(client)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-17-TRANSITIVE-IMPORT-SOURCE-FIX',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring a transitive import repair while preserving the canonical implementation contract.',
+    files: {
+      'src/labels.ts':
+        'export function createStableLabel(value: string) {\n  return `stable:${value.toLowerCase()}`;\n}\n',
+      'src/index.ts': 'export { createLabel } from "./labels.js";\n',
+      'src/view.ts':
+        'import { createLabel } from "./index.js";\n\nexport const label = createLabel("POLLUX");\n',
+      'tests/view.test.ts':
+        'import { label } from "../src/view.js";\n\nif (label !== "stable:pollux") {\n  throw new Error("label contract mismatch");\n}\n',
+    },
+    prompt:
+      'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-17`,
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: createMultiFileRefactorOracle({
+      fileChecks: [
+        {
+          fileName: 'src/labels.ts',
+          required: [
+            /createStableLabel/,
+            /stable:\$\{value\.toLowerCase\(\)\}/,
+          ],
+          forbidden: [/createLabel/],
+        },
+        {
+          fileName: 'src/index.ts',
+          required: [/createStableLabel/],
+          forbidden: [/createLabel/],
+        },
+        {
+          fileName: 'src/view.ts',
+          required: [/createStableLabel/, /stable/i],
+          forbidden: [/createLabel/],
+        },
+        {
+          fileName: 'tests/view.test.ts',
+          required: [/stable:pollux/],
+        },
+      ],
+      markerFileName: 'm3-done.txt',
+      markerText: 'done',
+    }),
+  },
+  {
+    id: 'M3-BM-18-TEST-INTENT-PARSER-EDGE',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring parser edge-case repair from test intent without weakening the test.',
+    files: {
+      'src/csv.ts':
+        'export function parseCsvLine(line: string) {\n  return line.split(",");\n}\n',
+      'tests/csv.test.ts':
+        'import { parseCsvLine } from "../src/csv.js";\n\nconst parsed = parseCsvLine(\'alpha,"beta,gamma",,delta\');\nif (parsed.length !== 4) throw new Error("field count mismatch");\nif (parsed[1] !== "beta,gamma") throw new Error("quoted comma mismatch");\nif (parsed[2] !== "") throw new Error("empty field mismatch");\n',
+      'README.md':
+        'CSV parsing must preserve empty fields and keep commas inside quoted fields.\n',
+    },
+    prompt:
+      'Fix src/csv.ts so it satisfies the parser edge cases expressed by tests/csv.test.ts. Do not weaken or edit the test or README. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-18`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const parser = readWorkspaceFile(workspaceDir, 'src/csv.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/csv.test.ts');
+      const readme = readWorkspaceFile(workspaceDir, 'README.md');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        parser !== null &&
+        matchesExactText(
+          test,
+          'import { parseCsvLine } from "../src/csv.js";\n\nconst parsed = parseCsvLine(\'alpha,"beta,gamma",,delta\');\nif (parsed.length !== 4) throw new Error("field count mismatch");\nif (parsed[1] !== "beta,gamma") throw new Error("quoted comma mismatch");\nif (parsed[2] !== "") throw new Error("empty field mismatch");\n',
+        ) &&
+        matchesExactText(
+          readme,
+          'CSV parsing must preserve empty fields and keep commas inside quoted fields.\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /quote|inQuotes|quoted/i.test(parser) &&
+        !/line\.split\(","\)/.test(parser) &&
+        !/beta,gamma/.test(parser)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-19-POLICY-SOURCE-OF-TRUTH',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring a runtime policy update from config while preserving conflicting documentation.',
+    files: {
+      'config/policy.json':
+        '{\n  "mode": "strict",\n  "retentionDays": 30,\n  "rollout": "stable"\n}\n',
+      'docs/policy.md':
+        'Legacy docs still say mode is loose, retention is 7 days, and rollout is canary.\n',
+      'src/policy.ts':
+        'export const policy = { mode: "loose", retentionDays: 7, rollout: "canary" };\n',
+    },
+    prompt:
+      'Update src/policy.ts so runtime policy follows config/policy.json as the source of truth. Do not edit config/policy.json or docs/policy.md. Create m3-done.txt containing exactly done.',
+    domain: 'code_search_summarize',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-19`,
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const config = readWorkspaceFile(workspaceDir, 'config/policy.json');
+      const docs = readWorkspaceFile(workspaceDir, 'docs/policy.md');
+      const policy = readWorkspaceFile(workspaceDir, 'src/policy.ts');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        matchesExactText(
+          config,
+          '{\n  "mode": "strict",\n  "retentionDays": 30,\n  "rollout": "stable"\n}\n',
+        ) &&
+        matchesExactText(
+          docs,
+          'Legacy docs still say mode is loose, retention is 7 days, and rollout is canary.\n',
+        ) &&
+        policy !== null &&
+        matchesExactText(marker, 'done') &&
+        /mode:\s*"strict"/.test(policy) &&
+        /retentionDays:\s*30/.test(policy) &&
+        /rollout:\s*"stable"/.test(policy) &&
+        !/loose|canary/.test(policy)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-20-GUARDED-REGISTRY-RENAME',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring a guarded source rename across registry and consumers while preserving compatibility docs.',
+    files: {
+      'src/flags.ts':
+        'export function legacyGate(user: { beta: boolean }) {\n  return user.beta === true;\n}\n',
+      'src/registry.ts':
+        'import { legacyGate } from "./flags.js";\n\nexport const gates = { legacyGate };\n',
+      'src/app.ts':
+        'import { gates } from "./registry.js";\n\nexport const enabled = gates.legacyGate({ beta: true });\n',
+      'docs/compat.md':
+        'External integrations may still mention legacyGate until the public API migration is announced.\n',
+    },
+    prompt:
+      'Rename the source-level gate from legacyGate to stableGate across source files only. Preserve behavior and do not edit docs/compat.md. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-20`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: createMultiFileRefactorOracle({
+      fileChecks: [
+        {
+          fileName: 'src/flags.ts',
+          required: [/stableGate/, /user\.beta\s*===\s*true/],
+          forbidden: [/legacyGate/],
+        },
+        {
+          fileName: 'src/registry.ts',
+          required: [/stableGate/, /gates/],
+          forbidden: [/legacyGate/],
+        },
+        {
+          fileName: 'src/app.ts',
+          required: [/stableGate/],
+          forbidden: [/legacyGate/],
+        },
+        {
+          fileName: 'docs/compat.md',
+          required: [/legacyGate/, /public API migration/],
+        },
+      ],
+      markerFileName: 'm3-done.txt',
+      markerText: 'done',
+    }),
+  },
+  {
+    id: 'M3-BM-21-MULTI-OUTPUT-CONSISTENCY',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring the same derived decision to be reflected across source, registry, and summary artifacts.',
+    files: {
+      'data/candidates.json':
+        '[\n  { "key": "zephyr", "score": 91, "enabled": false, "channel": "stable" },\n  { "key": "atlas", "score": 88, "enabled": true, "channel": "stable" },\n  { "key": "ember", "score": 93, "enabled": true, "channel": "experimental" }\n]\n',
+      'rules/selection.md':
+        'Select the highest scoring candidate that is both enabled and on the stable channel.\n',
+      'src/launch.ts': 'export const launchKey = "zephyr";\n',
+      'registry.json': '{\n  "launchKey": "zephyr"\n}\n',
+    },
+    prompt:
+      'Apply the selection rule to data/candidates.json, then update src/launch.ts, registry.json, and launch-summary.txt so they all use the same selected key. Do not edit data/candidates.json or rules/selection.md. Create m3-done.txt containing exactly done.',
+    domain: 'read_then_write',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-21`,
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const candidates = readWorkspaceFile(
+        workspaceDir,
+        'data/candidates.json',
+      );
+      const rules = readWorkspaceFile(workspaceDir, 'rules/selection.md');
+      const source = readWorkspaceFile(workspaceDir, 'src/launch.ts');
+      const registry = readWorkspaceFile(workspaceDir, 'registry.json');
+      const summary = readWorkspaceFile(workspaceDir, 'launch-summary.txt');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        matchesExactText(
+          candidates,
+          '[\n  { "key": "zephyr", "score": 91, "enabled": false, "channel": "stable" },\n  { "key": "atlas", "score": 88, "enabled": true, "channel": "stable" },\n  { "key": "ember", "score": 93, "enabled": true, "channel": "experimental" }\n]\n',
+        ) &&
+        matchesExactText(
+          rules,
+          'Select the highest scoring candidate that is both enabled and on the stable channel.\n',
+        ) &&
+        source !== null &&
+        registry !== null &&
+        summary !== null &&
+        matchesExactText(marker, 'done') &&
+        /launchKey\s*=\s*"atlas"/.test(source) &&
+        /"launchKey"\s*:\s*"atlas"/.test(registry) &&
+        summary.toLowerCase().includes('atlas') &&
+        !/zephyr|ember/.test(source) &&
+        !/zephyr|ember/.test(registry)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-22-NEGATIVE-SPACE-PRESERVE',
+    difficulty: 'complex',
+    description:
+      'M3 hard task where the correct implementation repair requires avoiding attractive edits to docs and tests.',
+    files: {
+      'src/tax.ts':
+        'export function totalWithTax(subtotal: number, discount: number, taxRate: number) {\n  return subtotal + subtotal * taxRate - discount;\n}\n',
+      'tests/tax.test.ts':
+        'import { totalWithTax } from "../src/tax.js";\n\nif (totalWithTax(100, 20, 0.1) !== 88) {\n  throw new Error("discount must apply before tax");\n}\n',
+      'docs/tax.md':
+        'Apply discount before computing tax. Do not change the customer-facing formula.\n',
+    },
+    prompt:
+      'Fix the tax calculation in src/tax.ts only. The discount must apply before tax, and tests/tax.test.ts plus docs/tax.md are protected. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-22`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const tax = readWorkspaceFile(workspaceDir, 'src/tax.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/tax.test.ts');
+      const docs = readWorkspaceFile(workspaceDir, 'docs/tax.md');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        tax !== null &&
+        matchesExactText(
+          test,
+          'import { totalWithTax } from "../src/tax.js";\n\nif (totalWithTax(100, 20, 0.1) !== 88) {\n  throw new Error("discount must apply before tax");\n}\n',
+        ) &&
+        matchesExactText(
+          docs,
+          'Apply discount before computing tax. Do not change the customer-facing formula.\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /\(subtotal\s*-\s*discount\)\s*\*\s*\(\s*1\s*\+\s*taxRate\s*\)/.test(
+          tax,
+        ) &&
+        !/subtotal\s*\+\s*subtotal\s*\*\s*taxRate\s*-\s*discount/.test(tax)
+      );
+    },
+  },
+  {
+    id: 'M3-BM-23-DERIVED-CONFIG-MERGE',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring a derived config merge with precedence, denial, and order constraints.',
+    files: {
+      'config/defaults.json':
+        '{\n  "mode": "observe",\n  "features": ["alpha", "beta", "gamma"]\n}\n',
+      'config/override.json':
+        '{\n  "mode": "enforce",\n  "addFeatures": ["delta"],\n  "disableFeatures": ["beta"]\n}\n',
+      'config/denylist.txt': 'gamma\n',
+      'rules/merge.md':
+        'Use override.mode. Start with default features in order, remove disabled and denylisted features, then append added features that are not denied.\n',
+    },
+    prompt:
+      'Create effective-config.json by applying rules/merge.md to the config files. Preserve the input files and create m3-done.txt containing exactly done.',
+    domain: 'read_then_write',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-23`,
+    },
+    escalationSignalClass: 'fusion_composite',
+    oracle: (_stdout, workspaceDir) => {
+      const defaults = readWorkspaceFile(workspaceDir, 'config/defaults.json');
+      const override = readWorkspaceFile(workspaceDir, 'config/override.json');
+      const denylist = readWorkspaceFile(workspaceDir, 'config/denylist.txt');
+      const rules = readWorkspaceFile(workspaceDir, 'rules/merge.md');
+      const effective = readWorkspaceFile(
+        workspaceDir,
+        'effective-config.json',
+      );
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      if (
+        !matchesExactText(
+          defaults,
+          '{\n  "mode": "observe",\n  "features": ["alpha", "beta", "gamma"]\n}\n',
+        ) ||
+        !matchesExactText(
+          override,
+          '{\n  "mode": "enforce",\n  "addFeatures": ["delta"],\n  "disableFeatures": ["beta"]\n}\n',
+        ) ||
+        !matchesExactText(denylist, 'gamma\n') ||
+        !matchesExactText(
+          rules,
+          'Use override.mode. Start with default features in order, remove disabled and denylisted features, then append added features that are not denied.\n',
+        ) ||
+        !matchesExactText(marker, 'done') ||
+        effective === null
+      ) {
+        return false;
+      }
+
+      try {
+        const parsed: unknown = JSON.parse(effective);
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          !('mode' in parsed) ||
+          !('features' in parsed)
+        ) {
+          return false;
+        }
+        const { mode, features } = parsed;
+        return (
+          mode === 'enforce' &&
+          Array.isArray(features) &&
+          features.length === 2 &&
+          features[0] === 'alpha' &&
+          features[1] === 'delta'
+        );
+      } catch {
+        return false;
+      }
+    },
+  },
+  {
+    id: 'M3-BM-24-ALIAS-PRESERVING-RENAME',
+    difficulty: 'complex',
+    description:
+      'M3 hard task requiring a canonical symbol rename while preserving an external compatibility alias.',
+    files: {
+      'src/color.ts':
+        'export function formatShade(name: string) {\n  return `shade:${name.toLowerCase()}`;\n}\n',
+      'src/theme.ts':
+        'import { formatShade } from "./color.js";\n\nexport const primaryShade = formatShade("COBALT");\n',
+      'tests/color.test.ts':
+        'import { formatShade, renderShade } from "../src/color.js";\n\nif (renderShade("COBALT") !== "shade:cobalt") throw new Error("canonical shade mismatch");\nif (formatShade("COBALT") !== "shade:cobalt") throw new Error("compat alias mismatch");\n',
+    },
+    prompt:
+      'Rename the canonical shade formatter to renderShade and update internal source usage to that name, but keep formatShade exported as a compatibility alias. Do not edit tests/color.test.ts. Create m3-done.txt containing exactly done.',
+    domain: 'multi_file_refactor',
+    provenance: {
+      sourceType: 'writeup',
+      sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-24`,
+    },
+    escalationSignalClass: 'risk_gate',
+    oracle: (_stdout, workspaceDir) => {
+      const color = readWorkspaceFile(workspaceDir, 'src/color.ts');
+      const theme = readWorkspaceFile(workspaceDir, 'src/theme.ts');
+      const test = readWorkspaceFile(workspaceDir, 'tests/color.test.ts');
+      const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
+      return (
+        color !== null &&
+        theme !== null &&
+        matchesExactText(
+          test,
+          'import { formatShade, renderShade } from "../src/color.js";\n\nif (renderShade("COBALT") !== "shade:cobalt") throw new Error("canonical shade mismatch");\nif (formatShade("COBALT") !== "shade:cobalt") throw new Error("compat alias mismatch");\n',
+        ) &&
+        matchesExactText(marker, 'done') &&
+        /export function renderShade/.test(color) &&
+        /formatShade\s*=\s*renderShade/.test(color) &&
+        /shade:\$\{name\.toLowerCase\(\)\}/.test(color) &&
+        /renderShade/.test(theme) &&
+        !/formatShade/.test(theme)
       );
     },
   },

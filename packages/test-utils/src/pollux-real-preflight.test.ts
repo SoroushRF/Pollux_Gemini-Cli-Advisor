@@ -24,15 +24,15 @@ describe('buildRealBenchmarkCorpusStats', () => {
   it('captures the seed-corpus methodology gaps honestly', () => {
     const stats = buildRealBenchmarkCorpusStats(REAL_BENCHMARK_SEED_CORPUS);
 
-    expect(M3_VALUE_CANDIDATE_TASK_IDS).toHaveLength(30);
-    expect(stats.totalTasks).toBe(36);
+    expect(M3_VALUE_CANDIDATE_TASK_IDS).toHaveLength(42);
+    expect(stats.totalTasks).toBe(48);
     expect(stats.difficultyCounts).toEqual({
-      simple: 8,
-      moderate: 11,
-      complex: 17,
+      simple: 9,
+      moderate: 13,
+      complex: 26,
     });
     expect(stats.escalatingCount).toBe(8);
-    expect(stats.nonEscalatingCount).toBe(28);
+    expect(stats.nonEscalatingCount).toBe(40);
     expect(stats.tasksMissingPositiveFixtures).toEqual([]);
     expect(stats.tasksMissingNegativeFixtures).toEqual([]);
   });
