@@ -567,9 +567,9 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
   },
   {
     id: 'PILOT-BM-19-MULTI-REFACTOR',
-    difficulty: 'complex',
+    difficulty: 'moderate',
     description:
-      'Complex multi-file refactor that renames two helpers and updates the import surface across three files.',
+      'Moderate multi-file refactor that renames two helpers and updates the import surface across three files.',
     files: {
       'src/legacy-a.js': 'export function oldAlpha() { return "alpha"; }\n',
       'src/legacy-b.js':
@@ -630,7 +630,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
     id: 'PILOT-BM-21-SEARCH-SUMMARY',
     difficulty: 'moderate',
     description:
-      'Complex code search and summarize task that synthesizes multi-file signals into a concise report.',
+      'Moderate code search and summarize task that synthesizes multi-file signals into a concise report.',
     files: {
       'src/a.ts': 'export const route = "alpha";\n',
       'src/b.ts': 'export const status = "beta";\n',
@@ -675,7 +675,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
     id: 'PILOT-BM-23-FILE-DOCS',
     difficulty: 'simple',
     description:
-      'Complex file authoring task that writes a multi-line documentation summary file.',
+      'Simple file authoring task that writes an exact documentation summary marker.',
     files: {},
     prompt: 'Create docs-summary.txt containing exactly search complete.',
     domain: 'file_authoring',
@@ -690,7 +690,7 @@ const ADDITIONAL_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
     id: 'PILOT-BM-24-JSON-YAML',
     difficulty: 'moderate',
     description:
-      'Complex JSON to YAML transformation that flips one runtime flag while preserving the rest of the pipeline shape.',
+      'Moderate JSON to YAML transformation that flips one runtime flag while preserving the rest of the pipeline shape.',
     files: {
       'pipeline.json': JSON.stringify(
         {

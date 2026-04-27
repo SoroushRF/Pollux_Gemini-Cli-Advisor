@@ -66,9 +66,23 @@ describe('REAL_BENCHMARK_SEED_CORPUS', () => {
 
     expect(counts).toEqual({
       simple: 9,
-      moderate: 13,
-      complex: 26,
+      moderate: 14,
+      complex: 25,
     });
+  });
+
+  it('keeps difficulty labels and leading description wording aligned', () => {
+    const mismatchedTasks = REAL_BENCHMARK_SEED_CORPUS.filter((task) => {
+      const leadingDifficulty = /^(Simple|Moderate|Complex)\b/.exec(
+        task.description,
+      )?.[1];
+      return (
+        leadingDifficulty !== undefined &&
+        leadingDifficulty.toLowerCase() !== task.difficulty
+      );
+    });
+
+    expect(mismatchedTasks).toEqual([]);
   });
 
   it('keeps the escalation split on both sides of the minimum threshold', () => {

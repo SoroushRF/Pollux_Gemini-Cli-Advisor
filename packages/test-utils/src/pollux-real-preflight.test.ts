@@ -28,8 +28,8 @@ describe('buildRealBenchmarkCorpusStats', () => {
     expect(stats.totalTasks).toBe(48);
     expect(stats.difficultyCounts).toEqual({
       simple: 9,
-      moderate: 13,
-      complex: 26,
+      moderate: 14,
+      complex: 25,
     });
     expect(stats.escalatingCount).toBe(8);
     expect(stats.nonEscalatingCount).toBe(40);
