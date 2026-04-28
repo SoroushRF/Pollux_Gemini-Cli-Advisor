@@ -60,6 +60,18 @@ function buildCampaignSummary(
         executorTokens: 0,
         meanWallClockMs: 0,
         meanServiceLatencyMs: 0,
+        allSamples: {
+          totalTokens: 0,
+          advisorTokens: 0,
+          executorTokens: 0,
+          totalCostUsd: null,
+          advisorCalls: 0,
+          escalationAttempts: 0,
+          rawOraclePasses: 0,
+          ceilingInvalidations: 0,
+          meanModelResponses: 0,
+          meanWallClockMs: 0,
+        },
       },
     ],
     canaryConsultSummary: {
@@ -112,6 +124,11 @@ function buildCampaignSummary(
       invalidationReasonCounts: {},
       meanModelResponseCount: 0,
       meanTotalTokens: 0,
+    },
+    invalidationSummary: {
+      byCondition: {},
+      byLane: {},
+      byCell: {},
     },
     escalation: {
       includedSampleCount: 6,

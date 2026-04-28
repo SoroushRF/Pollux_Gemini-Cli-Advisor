@@ -5,7 +5,10 @@
  */
 
 import type { RealBenchmarkTaskSpec } from '../../core/src/pollux/benchmark/realTypes.js';
-import type { RealBenchmarkLane } from '../../core/src/pollux/benchmark/realTypes.js';
+import type {
+  RealBenchmarkEscalationSignalClass,
+  RealBenchmarkLane,
+} from '../../core/src/pollux/benchmark/realTypes.js';
 
 export type RealBenchmarkConditionId = 'A' | 'E' | 'F';
 export type RealBenchmarkCampaignMode =
@@ -163,6 +166,56 @@ export interface RealBenchmarkTelemetrySummary {
   };
   costUsd: RealBenchmarkCostBreakdown;
   utilityRoleCounts: Readonly<Record<string, number>>;
+  modelCallBreakdown: RealBenchmarkModelCallBreakdown;
+}
+
+export interface RealBenchmarkModelCallBreakdown {
+  totalApiResponses: number;
+  totalResponseIds: number;
+  byRole: Record<string, number>;
+  tokensByRole: Record<string, number>;
+  byModel: Record<string, number>;
+  tokensByModel: Record<string, number>;
+}
+
+export interface RealBenchmarkResponseCeilingEvidence {
+  maxModelResponsesPerSample: number;
+  countedModelResponses: number;
+  overflowBy: number;
+  invalidatedByCeiling: boolean;
+  ceilingScope: 'all_model_responses';
+}
+
+export interface RealBenchmarkPolluxTimingDiagnostics {
+  firstAdvisorCallEventIndex: number | null;
+  firstAdvisorCallModelResponseOrdinal: number | null;
+  executorResponsesBeforeFirstAdvisor: number | null;
+  executorResponsesAfterFirstAdvisor: number | null;
+  firstEscalationReasonCode: string | null;
+  firstEscalationTiming: RealBenchmarkEscalationTiming | null;
+  firstEscalationOutcome: string | null;
+  firstEscalationPauseBoundary: 'pre_tool' | 'post_event' | null;
+  firstEscalationSignalIds: string[];
+}
+
+export interface RealBenchmarkDetectorOpportunity {
+  signalClass: RealBenchmarkEscalationSignalClass;
+  expectedForM3: boolean;
+  observedReasonCodes: string[];
+  matchedExpectedSignalClass: boolean | null;
+}
+
+export interface RealBenchmarkAllSampleUsageSummary {
+  totalTokens: number;
+  advisorTokens: number;
+  executorTokens: number;
+  totalCostUsd: number | null;
+  advisorCalls: number;
+  escalationAttempts: number;
+  rawOraclePasses: number;
+  ceilingInvalidations: number;
+  meanModelResponses: number;
+  meanWallClockMs: number;
 }
 
 export interface RealBenchmarkEscalationEvent {
@@ -238,13 +291,18 @@ export interface RealBenchmarkRunRecord {
   exitCode: number | null;
   timedOut: boolean;
   modelResponseCount: number;
+  responseCeiling?: RealBenchmarkResponseCeilingEvidence;
+  modelCallBreakdown?: RealBenchmarkModelCallBreakdown;
   expectedEscalation: boolean;
   predictedEscalation: boolean;
   confusionOutcome: RealBenchmarkConfusionOutcome;
   desiredOutcomeSatisfied: boolean;
   desiredOutcomeReasonCode: RealBenchmarkDesiredOutcomeReasonCode;
   advisorConsultOutcome: RealBenchmarkAdvisorConsultOutcome;
+  actualAdvisorConsultOutcome?: RealBenchmarkAdvisorConsultOutcome;
   advisorFailureKind: string | null;
+  polluxTimingDiagnostics?: RealBenchmarkPolluxTimingDiagnostics;
+  detectorOpportunity?: RealBenchmarkDetectorOpportunity;
   entrypointKind: 'bundle' | 'binary' | 'dev_script';
   entrypointPath: string;
   buildFreshness: RealBenchmarkBuildFreshness;
@@ -326,6 +384,7 @@ export interface RealBenchmarkConditionSummary {
   totalCostUsd: number | null;
   meanWallClockMs: number;
   meanServiceLatencyMs: number;
+  allSamples: RealBenchmarkAllSampleUsageSummary;
 }
 
 export interface RealBenchmarkRateInterval {
@@ -387,6 +446,7 @@ export interface RealBenchmarkLaneConditionSummary {
   executorTokens: number;
   meanWallClockMs: number;
   meanServiceLatencyMs: number;
+  allSamples: RealBenchmarkAllSampleUsageSummary;
 }
 
 export interface RealBenchmarkCanaryConsultSummary {
@@ -429,6 +489,19 @@ export interface RealBenchmarkRunDiagnosticSummary {
   primaryTiming: RealBenchmarkEscalationTimingBucket;
   reasonCodes: string[];
   invalidationReason: RealBenchmarkInvalidationReason | null;
+  modelResponseCount: number;
+  responseCeiling: RealBenchmarkResponseCeilingEvidence | null;
+  totalTokens: number;
+  advisorTokens: number;
+  totalCostUsd: number | null;
+  advisorCalls: number;
+  escalationAttempts: number;
+  signalClass: RealBenchmarkEscalationSignalClass | null;
+  m3Opportunity: boolean | null;
+  firstAdvisorCallModelResponseOrdinal: number | null;
+  executorResponsesBeforeFirstAdvisor: number | null;
+  executorResponsesAfterFirstAdvisor: number | null;
+  actualAdvisorConsultOutcome: RealBenchmarkAdvisorConsultOutcome;
   toolErrorCount: number;
   stdoutStatusTagCount: number;
   malformedStatusTagCount: number;
@@ -467,6 +540,13 @@ export interface RealBenchmarkCellAggregateSummary {
   wallClockMs: RealBenchmarkNumericStats;
   totalTokens: RealBenchmarkNumericStats;
   advisorTokens: RealBenchmarkNumericStats;
+  allSamples: RealBenchmarkAllSampleUsageSummary;
+}
+
+export interface RealBenchmarkInvalidationSummary {
+  byCondition: Record<string, Record<string, number>>;
+  byLane: Record<string, Record<string, number>>;
+  byCell: Record<string, Record<string, number>>;
 }
 
 export interface RealBenchmarkCanaryReliabilitySummary {
@@ -502,6 +582,7 @@ export interface RealBenchmarkCampaignSummary {
   cellAggregateSummaries: RealBenchmarkCellAggregateSummary[];
   canaryReliabilitySummary: RealBenchmarkCanaryReliabilitySummary;
   stressSummary: RealBenchmarkStressSummary;
+  invalidationSummary: RealBenchmarkInvalidationSummary;
   escalation: RealBenchmarkEscalationConfusionSummary;
   escalationTiming: RealBenchmarkEscalationTimingSummary[];
   reasonCodeCounts: Record<string, number>;
@@ -687,6 +768,7 @@ export interface RealBenchmarkM3ConditionValueSummary {
   advisorCallRate: number | null;
   advisorTokenShare: number | null;
   invalidRate: number;
+  allSamples: RealBenchmarkAllSampleUsageSummary;
 }
 
 export interface RealBenchmarkM3TaskValueSummary {
@@ -729,4 +811,5 @@ export interface PolluxRealPilotOptions {
   keepScratchDirectories?: boolean;
   maxWallClockMs?: number;
   maxModelResponsesPerSample?: number;
+  fMaxModelResponsesPerSample?: number;
 }

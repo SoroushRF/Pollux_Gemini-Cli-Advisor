@@ -492,6 +492,124 @@ describe('buildRealBenchmarkCampaignSummary', () => {
       ]),
     );
   });
+
+  it('keeps valid-only metrics strict while surfacing all-sample F ceiling diagnostics', () => {
+    const runs: RealBenchmarkRunRecord[] = [
+      buildRun({
+        sampleId: 'f-ceiling-1',
+        taskId: 'M3-BM-20-GUARDED-REGISTRY-RENAME',
+        conditionId: 'F',
+        benchmarkLane: 'core',
+        taskEscalates: false,
+        expectedEscalation: false,
+        oraclePass: true,
+        invalidated: true,
+        invalidationReason: 'model_call_ceiling_exceeded',
+        desiredOutcomeSatisfied: false,
+        desiredOutcomeReasonCode: 'core.invalidated',
+        tokens: { total: 1000, advisor: 200, executor: 800 },
+        costUsd: {
+          total: 0.1234,
+          advisor: 0.05,
+          executor: 0.0734,
+          pricingSnapshotId: 'unit-pricing',
+        },
+        observedAdvisorCalls: 1,
+        modelResponseCount: 9,
+        responseCeiling: {
+          maxModelResponsesPerSample: 6,
+          countedModelResponses: 9,
+          overflowBy: 3,
+          invalidatedByCeiling: true,
+          ceilingScope: 'all_model_responses',
+        },
+        actualAdvisorConsultOutcome: 'consulted',
+        polluxTimingDiagnostics: {
+          firstAdvisorCallEventIndex: 14,
+          firstAdvisorCallModelResponseOrdinal: 8,
+          executorResponsesBeforeFirstAdvisor: 7,
+          executorResponsesAfterFirstAdvisor: 1,
+          firstEscalationReasonCode: 'pollux.escalation.risk_gate_block',
+          firstEscalationTiming: 'next_turn',
+          firstEscalationOutcome: 'consulted',
+          firstEscalationPauseBoundary: 'pre_tool',
+          firstEscalationSignalIds: ['risk_gate.command_block'],
+        },
+        detectorOpportunity: {
+          signalClass: 'risk_gate',
+          expectedForM3: true,
+          observedReasonCodes: ['pollux.escalation.risk_gate_block'],
+          matchedExpectedSignalClass: true,
+        },
+        escalationEvents: [
+          {
+            turnId: 'prompt:1',
+            reasonCode: 'pollux.escalation.risk_gate_block',
+            escalationTiming: 'next_turn',
+            outcome: 'consulted',
+            sameTurnDowngraded: false,
+            pauseBoundary: 'pre_tool',
+            contributingSignalIds: ['risk_gate.command_block'],
+            failureKind: null,
+            eventIndex: 14,
+          },
+        ],
+        escalationTiming: ['next_turn'],
+        reasonCodes: ['pollux.escalation.risk_gate_block'],
+        advisorConsultOutcome: 'not_expected',
+      }),
+    ];
+
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      runs,
+      [],
+    );
+
+    const condition = summary.conditionSummaries.find(
+      (entry) => entry.conditionId === 'F',
+    );
+    expect(condition).toMatchObject({
+      validSamples: 0,
+      totalTokens: 0,
+      advisorCalls: 0,
+      allSamples: {
+        totalTokens: 1000,
+        advisorTokens: 200,
+        totalCostUsd: 0.1234,
+        advisorCalls: 1,
+        escalationAttempts: 1,
+        rawOraclePasses: 1,
+        ceilingInvalidations: 1,
+        meanModelResponses: 9,
+      },
+    });
+    expect(summary.invalidationSummary.byCondition['F']).toEqual({
+      model_call_ceiling_exceeded: 1,
+    });
+    expect(summary.runDiagnostics[0]).toMatchObject({
+      sampleId: 'f-ceiling-1',
+      actualAdvisorConsultOutcome: 'consulted',
+      advisorConsultOutcome: 'consulted',
+      signalClass: 'risk_gate',
+      m3Opportunity: true,
+      firstAdvisorCallModelResponseOrdinal: 8,
+      executorResponsesBeforeFirstAdvisor: 7,
+      executorResponsesAfterFirstAdvisor: 1,
+    });
+
+    const markdown = renderRealBenchmarkCampaignReport(summary);
+    expect(markdown).toContain('All-sample condition diagnostics');
+    expect(markdown).toContain('model_call_ceiling_exceeded=1');
+    expect(markdown).toContain(
+      '| F | 1 | 1 | 1000 | 200 | $0.1234 | 1 | 1 | 9 |',
+    );
+    expect(markdown).toContain('| F | core | M3-BM-20-GUARDED-REGISTRY-RENAME');
+    expect(markdown).toContain(
+      '| 9 | 6 | 3 | 1000 | 200 | $0.1234 | 1 | 1 | risk_gate | yes | 8 | 7/1 | consulted |',
+    );
+  });
 });
 
 describe('renderRealBenchmarkCampaignReport', () => {

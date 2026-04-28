@@ -173,6 +173,13 @@ The foundation runner can invalidate a sample for reasons including:
 
 These reasons are artifact evidence, not cleanup hints.
 
+`model_call_ceiling_exceeded` means the benchmark response-count ceiling was
+breached. It is not a Gemini quota or capacity error. The ceiling counts all
+model responses observed in the sample, including executor responses, Pollux
+advisor responses, and any other utility-model responses captured by telemetry.
+Raw samples record `responseCeiling.ceilingScope = all_model_responses` to make
+this explicit.
+
 Classifier order matters. Structured capacity/quota evidence such as
 `MODEL_CAPACITY_EXHAUSTED`, `RESOURCE_EXHAUSTED`, or HTTP `429` must be
 recognized before generic OAuth/auth stack text. A capacity outage is not an
@@ -255,6 +262,16 @@ Each raw sample must include:
 23. status-tag and tool-error diagnostics
 24. advisor-attempt records with `attemptIndex`, `attemptKind`, `model`,
     `parserOutcome`, `outcome`, and `failureKind`
+25. `responseCeiling` with max responses, counted responses, overflow amount,
+    invalidation state, and ceiling scope
+26. `modelCallBreakdown` with API-response counts and token totals by telemetry
+    role and model
+27. `polluxTimingDiagnostics` showing when the first advisor response occurred
+    relative to executor responses and the first escalation event
+28. `actualAdvisorConsultOutcome`, which is event-first and can be `consulted`
+    even when M2 canary `expectedEscalation` is false
+29. `detectorOpportunity` for M3 F runs, including signal class, observed reason
+    codes, and whether the observed reason matched the expected signal family
 
 Summary artifacts must include:
 
@@ -269,9 +286,18 @@ Summary artifacts must include:
 8. `cellAggregateSummaries` with `n`, mean, median, stddev, and binary-rate
    intervals
 9. `canaryReliabilitySummary` with recovery-path counts and failure-kind totals
+10. `invalidationSummary` by condition, lane, and cell
+11. valid-only condition/lane/cell metrics plus adjacent `allSamples`
+    diagnostics that include invalidated runs, raw oracle passes, advisor calls,
+    token/cost totals, ceiling invalidations, and mean response counts
 
 All pooled rates and means are computed over valid samples only, with valid and
 invalid counts disclosed alongside them.
+
+F-only exploratory diagnostics may use `--f-max-model-responses <n>` to raise
+the response ceiling for condition F while leaving A/E at the global ceiling.
+Treat this as diagnostic evidence unless the final preregistered protocol
+explicitly allows the higher F ceiling.
 
 ---
 

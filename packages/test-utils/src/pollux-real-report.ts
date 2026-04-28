@@ -40,7 +40,10 @@ import type {
   RealBenchmarkTemporaryFlashOnlySummary,
   RealBenchmarkTemporaryFlashOnlyTaskSummary,
 } from './pollux-real-types.js';
-import type { RealBenchmarkLane } from '../../core/src/pollux/benchmark/realTypes.js';
+import type {
+  RealBenchmarkEscalationSignalClass,
+  RealBenchmarkLane,
+} from '../../core/src/pollux/benchmark/realTypes.js';
 
 function mean(values: number[]): number {
   if (values.length === 0) {
@@ -122,6 +125,26 @@ function divideOrNull(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
+function buildAllSampleUsageSummary(runs: RealBenchmarkRunRecord[]) {
+  return {
+    totalTokens: runs.reduce((sum, run) => sum + run.tokens.total, 0),
+    advisorTokens: runs.reduce((sum, run) => sum + run.tokens.advisor, 0),
+    executorTokens: runs.reduce((sum, run) => sum + run.tokens.executor, 0),
+    totalCostUsd: sumNullable(runs.map((run) => run.costUsd.total)),
+    advisorCalls: runs.reduce((sum, run) => sum + run.observedAdvisorCalls, 0),
+    escalationAttempts: runs.reduce(
+      (sum, run) => sum + getObservedEscalationAttempts(run),
+      0,
+    ),
+    rawOraclePasses: runs.filter((run) => run.oraclePass).length,
+    ceilingInvalidations: runs.filter(
+      (run) => run.invalidationReason === 'model_call_ceiling_exceeded',
+    ).length,
+    meanModelResponses: mean(runs.map((run) => run.modelResponseCount)),
+    meanWallClockMs: mean(runs.map((run) => run.wallClockMs)),
+  };
+}
+
 function getEscalationEvents(run: RealBenchmarkRunRecord) {
   return run.escalationEvents ?? [];
 }
@@ -191,6 +214,60 @@ function getNearMissStatusTagCount(run: RealBenchmarkRunRecord): number {
   return typeof run.nearMissStatusTagCount === 'number'
     ? run.nearMissStatusTagCount
     : 0;
+}
+
+function getActualAdvisorConsultOutcome(
+  run: RealBenchmarkRunRecord,
+): RealBenchmarkAdvisorConsultOutcome {
+  if (run.actualAdvisorConsultOutcome) {
+    return run.actualAdvisorConsultOutcome;
+  }
+  for (const event of getEscalationEvents(run)) {
+    if (
+      event.outcome === 'consulted' ||
+      event.outcome === 'fail_open' ||
+      event.outcome === 'budget_exhausted' ||
+      event.outcome === 'policy_denied'
+    ) {
+      return event.outcome;
+    }
+  }
+  return run.advisorConsultOutcome ?? 'not_attempted';
+}
+
+function getSignalClass(
+  run: RealBenchmarkRunRecord,
+): RealBenchmarkEscalationSignalClass | null {
+  if (run.detectorOpportunity?.signalClass) {
+    return run.detectorOpportunity.signalClass;
+  }
+  try {
+    return getRealBenchmarkSeedTask(run.taskId).escalationSignalClass;
+  } catch {
+    return null;
+  }
+}
+
+function getM3Opportunity(run: RealBenchmarkRunRecord): boolean | null {
+  if (run.detectorOpportunity) {
+    return run.detectorOpportunity.expectedForM3;
+  }
+  const signalClass = getSignalClass(run);
+  if (signalClass === null) {
+    return null;
+  }
+  return (
+    run.conditionId === 'F' &&
+    signalClass !== 'none' &&
+    (signalClass === 'risk_gate' ||
+      signalClass === 'hard_loop' ||
+      signalClass === 'fusion_composite' ||
+      signalClass === 'self_report')
+  );
+}
+
+function formatNullableNumber(value: number | null | undefined): string {
+  return typeof value === 'number' ? formatNumber(value) : 'n/a';
 }
 
 function getBenchmarkLane(run: RealBenchmarkRunRecord): RealBenchmarkLane {
@@ -508,6 +585,7 @@ function buildConditionSummary(
     totalCostUsd: sumNullable(validRuns.map((run) => run.costUsd.total)),
     meanWallClockMs: mean(validRuns.map((run) => run.wallClockMs)),
     meanServiceLatencyMs: mean(serviceLatencies),
+    allSamples: buildAllSampleUsageSummary(runs),
   };
 }
 
@@ -564,6 +642,7 @@ function buildLaneConditionSummaries(params: {
         ),
         meanWallClockMs: mean(validRuns.map((run) => run.wallClockMs)),
         meanServiceLatencyMs: mean(serviceLatencies),
+        allSamples: buildAllSampleUsageSummary(laneRuns),
       });
     }
   }
@@ -664,6 +743,42 @@ function buildStressSummary(params: {
     ),
     meanTotalTokens: mean(stressRuns.map((run) => run.tokens.total)),
   };
+}
+
+function incrementInvalidationCount(
+  target: Record<string, Record<string, number>>,
+  group: string,
+  reason: string,
+): void {
+  target[group] = target[group] ?? {};
+  target[group][reason] = (target[group][reason] ?? 0) + 1;
+}
+
+function buildInvalidationSummary(runs: RealBenchmarkRunRecord[]) {
+  const byCondition: Record<string, Record<string, number>> = {};
+  const byLane: Record<string, Record<string, number>> = {};
+  const byCell: Record<string, Record<string, number>> = {};
+  for (const run of runs) {
+    if (!run.invalidationReason) {
+      continue;
+    }
+    incrementInvalidationCount(
+      byCondition,
+      run.conditionId,
+      run.invalidationReason,
+    );
+    incrementInvalidationCount(
+      byLane,
+      getBenchmarkLane(run),
+      run.invalidationReason,
+    );
+    incrementInvalidationCount(
+      byCell,
+      `${run.conditionId}/${run.taskId}`,
+      run.invalidationReason,
+    );
+  }
+  return { byCondition, byLane, byCell };
 }
 
 function buildRepeatSummaries(params: {
@@ -777,6 +892,7 @@ function buildCellAggregateSummaries(
         advisorTokens: buildNumericStats(
           validRuns.map((run) => run.tokens.advisor),
         ),
+        allSamples: buildAllSampleUsageSummary(cellRuns),
       };
     })
     .sort(
@@ -1039,6 +1155,25 @@ function buildRunDiagnostics(
         primaryTiming: getPrimaryTiming(run),
         reasonCodes: run.reasonCodes ?? [],
         invalidationReason: run.invalidationReason ?? null,
+        modelResponseCount: run.modelResponseCount,
+        responseCeiling: run.responseCeiling ?? null,
+        totalTokens: run.tokens.total,
+        advisorTokens: run.tokens.advisor,
+        totalCostUsd: run.costUsd.total,
+        advisorCalls: run.observedAdvisorCalls,
+        escalationAttempts: getObservedEscalationAttempts(run),
+        signalClass: getSignalClass(run),
+        m3Opportunity: getM3Opportunity(run),
+        firstAdvisorCallModelResponseOrdinal:
+          run.polluxTimingDiagnostics?.firstAdvisorCallModelResponseOrdinal ??
+          null,
+        executorResponsesBeforeFirstAdvisor:
+          run.polluxTimingDiagnostics?.executorResponsesBeforeFirstAdvisor ??
+          null,
+        executorResponsesAfterFirstAdvisor:
+          run.polluxTimingDiagnostics?.executorResponsesAfterFirstAdvisor ??
+          null,
+        actualAdvisorConsultOutcome: getActualAdvisorConsultOutcome(run),
         toolErrorCount: getToolErrorCount(run),
         stdoutStatusTagCount: getStdoutStatusTagCount(run),
         malformedStatusTagCount: getMalformedStatusTagCount(run),
@@ -1200,6 +1335,7 @@ export function buildRealBenchmarkCampaignSummary(
     polluxEnabledByCondition,
   });
   const stressSummary = buildStressSummary({ runs });
+  const invalidationSummary = buildInvalidationSummary(runs);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -1220,6 +1356,7 @@ export function buildRealBenchmarkCampaignSummary(
     cellAggregateSummaries,
     canaryReliabilitySummary,
     stressSummary,
+    invalidationSummary,
     escalation: {
       includedSampleCount: includedRuns.length,
       predictedPositive: confusion.predictedPositive,
@@ -1265,6 +1402,28 @@ function formatRate(value: number | null): string {
     return 'n/a';
   }
   return `${(value * 100).toFixed(1)}%`;
+}
+
+function formatBoolean(value: boolean | null | undefined): string {
+  if (value === null || value === undefined) {
+    return 'n/a';
+  }
+  return value ? 'yes' : 'no';
+}
+
+function formatAdvisorSplit(
+  before: number | null,
+  after: number | null,
+): string {
+  return before === null || after === null ? 'n/a' : `${before}/${after}`;
+}
+
+function formatReasonEntries(entries: Record<string, number>): string {
+  const pairs = Object.entries(entries);
+  if (pairs.length === 0) {
+    return 'none';
+  }
+  return pairs.map(([reason, count]) => `${reason}=${count}`).join(', ');
 }
 
 function formatWilsonInterval(interval: RealBenchmarkRateInterval): string {
@@ -1332,6 +1491,99 @@ function appendLaneSection(
     );
   }
   lines.push('');
+  lines.push('All-sample lane diagnostics include invalidated samples.');
+  lines.push('');
+  lines.push(
+    '| Condition | Raw oracle passes | Ceiling invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
+  );
+  lines.push(
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  );
+  for (const entry of laneRows) {
+    const all = entry.allSamples;
+    lines.push(
+      `| ${entry.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
+    );
+  }
+  lines.push('');
+}
+
+function appendInvalidationSummarySection(
+  lines: string[],
+  summary: RealBenchmarkCampaignSummary,
+): void {
+  const conditionEntries = Object.entries(
+    summary.invalidationSummary.byCondition,
+  );
+  const cellEntries = Object.entries(summary.invalidationSummary.byCell);
+  if (conditionEntries.length === 0 && cellEntries.length === 0) {
+    return;
+  }
+
+  lines.push('### Invalidation summary');
+  lines.push('');
+  lines.push(
+    '`model_call_ceiling_exceeded` is the benchmark response-count ceiling, not provider quota; it counts all model responses in the sample.',
+  );
+  lines.push('');
+  if (conditionEntries.length > 0) {
+    lines.push('| Condition | Reasons |');
+    lines.push('| --- | --- |');
+    for (const [conditionId, reasons] of conditionEntries) {
+      lines.push(`| ${conditionId} | ${formatReasonEntries(reasons)} |`);
+    }
+    lines.push('');
+  }
+
+  const ceilingCells = cellEntries
+    .map(([cell, reasons]) => ({
+      cell,
+      count: reasons['model_call_ceiling_exceeded'] ?? 0,
+    }))
+    .filter((entry) => entry.count > 0);
+  if (ceilingCells.length > 0) {
+    lines.push('| Cell | Ceiling invalidations |');
+    lines.push('| --- | ---: |');
+    for (const entry of ceilingCells) {
+      lines.push(`| ${entry.cell} | ${entry.count} |`);
+    }
+    lines.push('');
+  }
+}
+
+function appendFDiagnosticCeilingNote(
+  lines: string[],
+  summary: RealBenchmarkCampaignSummary,
+): void {
+  const fCeilings = new Set<number>();
+  const nonFCeilings = new Set<number>();
+  for (const run of summary.runDiagnostics) {
+    const ceiling = run.responseCeiling?.maxModelResponsesPerSample;
+    if (ceiling === undefined) {
+      continue;
+    }
+    if (run.conditionId === 'F') {
+      fCeilings.add(ceiling);
+    } else {
+      nonFCeilings.add(ceiling);
+    }
+  }
+  if (fCeilings.size !== 1) {
+    return;
+  }
+  const [fCeiling] = [...fCeilings];
+  const nonFCeiling = nonFCeilings.size === 1 ? [...nonFCeilings][0] : null;
+  if ((nonFCeiling === null && fCeiling === 6) || fCeiling === nonFCeiling) {
+    return;
+  }
+  const aeCeilingText =
+    nonFCeiling === null
+      ? 'A/E use the global/default ceiling'
+      : `A/E observed ceiling = ${nonFCeiling}`;
+  lines.push(
+    `- F diagnostic ceiling override active: F max responses = ${fCeiling}; ${aeCeilingText}.`,
+  );
+  lines.push('');
 }
 
 export function renderRealBenchmarkCampaignReport(
@@ -1368,6 +1620,11 @@ export function renderRealBenchmarkCampaignReport(
   lines.push('## 2) Condition summaries');
   lines.push('');
   lines.push(
+    'Condition summary fields are valid-only unless shown under All-sample diagnostics.',
+  );
+  lines.push('');
+  appendFDiagnosticCeilingNote(lines, summary);
+  lines.push(
     '| Condition | Samples | Valid | Invalid | Accuracy | Advisor calls | Escalation attempts | Total tokens | Advisor tokens | Executor tokens | Estimated cost | Mean wall ms | Mean service ms |',
   );
   lines.push(
@@ -1379,6 +1636,22 @@ export function renderRealBenchmarkCampaignReport(
     );
   }
   lines.push('');
+  lines.push('### All-sample condition diagnostics');
+  lines.push('');
+  lines.push(
+    '| Condition | Raw oracle passes | Ceiling invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
+  );
+  lines.push(
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  );
+  for (const condition of summary.conditionSummaries) {
+    const all = condition.allSamples;
+    lines.push(
+      `| ${condition.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
+    );
+  }
+  lines.push('');
+  appendInvalidationSummarySection(lines, summary);
   appendLaneSection(lines, summary, 'core', '## 3) Core lane');
   appendLaneSection(lines, summary, 'stress', '## 4) Stress lane');
   if (Object.keys(summary.stressSummary.invalidationReasonCounts).length > 0) {
@@ -1437,14 +1710,14 @@ export function renderRealBenchmarkCampaignReport(
     lines.push('## 8) Cell aggregates');
     lines.push('');
     lines.push(
-      '| Cell | Lane | Repeats | Valid | Invalid | Desired outcome | Consult success | Fail-open | Parse error | Wall ms (mean/median/stddev) | Total tokens (mean/median/stddev) | Advisor tokens (mean/median/stddev) |',
+      '| Cell | Lane | Repeats | Valid | Invalid | Desired outcome | Consult success | Fail-open | Parse error | Wall ms (mean/median/stddev) | Total tokens (mean/median/stddev) | Advisor tokens (mean/median/stddev) | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All mean responses |',
     );
     lines.push(
-      '| --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- |',
+      '| --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |',
     );
     for (const cell of summary.cellAggregateSummaries) {
       lines.push(
-        `| ${cell.conditionId}/${cell.taskId} | ${cell.lane} | ${cell.repeatCount} | ${cell.validSampleCount} | ${cell.invalidSampleCount} | ${formatWilsonInterval(cell.desiredOutcomeWilson95)} | ${formatWilsonInterval(cell.consultSuccessWilson95)} | ${cell.failOpenCount} | ${cell.parseErrorCount} | ${formatNumber(cell.wallClockMs.mean)}/${formatNumber(cell.wallClockMs.median)}/${formatNumber(cell.wallClockMs.stddev)} | ${formatNumber(cell.totalTokens.mean)}/${formatNumber(cell.totalTokens.median)}/${formatNumber(cell.totalTokens.stddev)} | ${formatNumber(cell.advisorTokens.mean)}/${formatNumber(cell.advisorTokens.median)}/${formatNumber(cell.advisorTokens.stddev)} |`,
+        `| ${cell.conditionId}/${cell.taskId} | ${cell.lane} | ${cell.repeatCount} | ${cell.validSampleCount} | ${cell.invalidSampleCount} | ${formatWilsonInterval(cell.desiredOutcomeWilson95)} | ${formatWilsonInterval(cell.consultSuccessWilson95)} | ${cell.failOpenCount} | ${cell.parseErrorCount} | ${formatNumber(cell.wallClockMs.mean)}/${formatNumber(cell.wallClockMs.median)}/${formatNumber(cell.wallClockMs.stddev)} | ${formatNumber(cell.totalTokens.mean)}/${formatNumber(cell.totalTokens.median)}/${formatNumber(cell.totalTokens.stddev)} | ${formatNumber(cell.advisorTokens.mean)}/${formatNumber(cell.advisorTokens.median)}/${formatNumber(cell.advisorTokens.stddev)} | ${cell.allSamples.rawOraclePasses} | ${cell.allSamples.ceilingInvalidations} | ${cell.allSamples.totalTokens} | ${cell.allSamples.advisorTokens} | ${formatNumber(cell.allSamples.meanModelResponses)} |`,
       );
     }
     lines.push('');
@@ -1480,14 +1753,15 @@ export function renderRealBenchmarkCampaignReport(
     lines.push('- No run diagnostics were captured.');
   } else {
     lines.push(
-      '| Condition | Lane | Task | Sample | Valid | Oracle | Desired outcome | Desired reason | Expected escalation | Predicted escalation | Consult outcome | Advisor failure | Confusion | Timing | Reasons | Invalidation | Tool errors | Status tags | Malformed/near-miss tags |',
+      '| Condition | Lane | Task | Sample | Valid | Oracle | Responses | Ceiling | Over | Tokens | Advisor tokens | Cost | Advisor calls | Esc attempts | Signal class | M3 opportunity | First advisor at | Before/after advisor | Actual consult | Desired outcome | Desired reason | Expected escalation | Predicted escalation | Consult outcome | Advisor failure | Confusion | Timing | Reasons | Invalidation | Tool errors | Status tags | Malformed/near-miss tags |',
     );
     lines.push(
-      '| --- | --- | --- | --- | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |',
+      '| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- | --- | ---: | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |',
     );
     for (const run of summary.runDiagnostics) {
+      const ceiling = run.responseCeiling;
       lines.push(
-        `| ${run.conditionId} | ${run.benchmarkLane} | ${run.taskId} | ${run.sampleId} | ${run.valid ? 'yes' : 'no'} | ${run.oraclePass ? 'pass' : 'fail'} | ${run.desiredOutcomeSatisfied ? 'yes' : 'no'} | ${run.desiredOutcomeReasonCode} | ${run.expectedEscalation ? 'yes' : 'no'} | ${run.predictedEscalation ? 'yes' : 'no'} | ${run.advisorConsultOutcome} | ${run.advisorFailureKind ?? 'none'} | ${run.confusionOutcome} | ${run.primaryTiming} | ${run.reasonCodes.length > 0 ? run.reasonCodes.join(', ') : 'none'} | ${run.invalidationReason ?? 'none'} | ${run.toolErrorCount} | ${run.stdoutStatusTagCount} | ${run.malformedStatusTagCount}/${run.nearMissStatusTagCount} |`,
+        `| ${run.conditionId} | ${run.benchmarkLane} | ${run.taskId} | ${run.sampleId} | ${run.valid ? 'yes' : 'no'} | ${run.oraclePass ? 'pass' : 'fail'} | ${run.modelResponseCount} | ${ceiling?.maxModelResponsesPerSample ?? 'n/a'} | ${ceiling?.overflowBy ?? 'n/a'} | ${run.totalTokens} | ${run.advisorTokens} | ${formatNullableCurrency(run.totalCostUsd)} | ${run.advisorCalls} | ${run.escalationAttempts} | ${run.signalClass ?? 'n/a'} | ${formatBoolean(run.m3Opportunity)} | ${formatNullableNumber(run.firstAdvisorCallModelResponseOrdinal)} | ${formatAdvisorSplit(run.executorResponsesBeforeFirstAdvisor, run.executorResponsesAfterFirstAdvisor)} | ${run.actualAdvisorConsultOutcome} | ${run.desiredOutcomeSatisfied ? 'yes' : 'no'} | ${run.desiredOutcomeReasonCode} | ${run.expectedEscalation ? 'yes' : 'no'} | ${run.predictedEscalation ? 'yes' : 'no'} | ${run.advisorConsultOutcome} | ${run.advisorFailureKind ?? 'none'} | ${run.confusionOutcome} | ${run.primaryTiming} | ${run.reasonCodes.length > 0 ? run.reasonCodes.join(', ') : 'none'} | ${run.invalidationReason ?? 'none'} | ${run.toolErrorCount} | ${run.stdoutStatusTagCount} | ${run.malformedStatusTagCount}/${run.nearMissStatusTagCount} |`,
       );
     }
   }
@@ -2094,6 +2368,7 @@ function buildM3ConditionValueSummary(
         conditionRuns.length - validRuns.length,
         conditionRuns.length,
       ) ?? 0,
+    allSamples: buildAllSampleUsageSummary(conditionRuns),
   };
 }
 
@@ -2297,14 +2572,19 @@ export function renderRealBenchmarkM3ValueReport(
   lines.push('## 2) Condition Economics');
   lines.push('');
   lines.push(
-    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Wall ms | Service ms |',
+    'Condition economics are valid-only; All-sample columns include invalidated runs for diagnostics.',
+  );
+  lines.push('');
+  lines.push(
+    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Wall ms | Service ms | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All cost | All mean responses |',
   );
   lines.push(
-    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   );
   for (const condition of summary.conditionValueSummaries) {
+    const all = condition.allSamples;
     lines.push(
-      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} |`,
+      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
     );
   }
   lines.push('');

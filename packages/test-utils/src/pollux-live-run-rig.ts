@@ -31,7 +31,10 @@ import type {
   RealBenchmarkDesiredOutcomeReasonCode,
   RealBenchmarkEscalationEvent,
   RealBenchmarkInvalidationReason,
+  RealBenchmarkModelCallBreakdown,
+  RealBenchmarkPolluxTimingDiagnostics,
   RealBenchmarkPricingSnapshot,
+  RealBenchmarkResponseCeilingEvidence,
   RealBenchmarkRunRecord,
   RealBenchmarkStructuredErrorEvidence,
   RealBenchmarkTelemetrySummary,
@@ -204,10 +207,6 @@ function computeAdvisorConsultOutcome(params: {
   expectedEscalation: boolean;
   escalationEvents: readonly RealBenchmarkEscalationEvent[];
 }): RealBenchmarkAdvisorConsultOutcome {
-  if (!params.expectedEscalation) {
-    return 'not_expected';
-  }
-
   for (const event of params.escalationEvents) {
     if (
       event.outcome === 'consulted' ||
@@ -219,6 +218,26 @@ function computeAdvisorConsultOutcome(params: {
     }
   }
 
+  if (!params.expectedEscalation) {
+    return 'not_expected';
+  }
+
+  return 'not_attempted';
+}
+
+function computeActualAdvisorConsultOutcome(
+  escalationEvents: readonly RealBenchmarkEscalationEvent[],
+): RealBenchmarkAdvisorConsultOutcome {
+  for (const event of escalationEvents) {
+    if (
+      event.outcome === 'consulted' ||
+      event.outcome === 'fail_open' ||
+      event.outcome === 'budget_exhausted' ||
+      event.outcome === 'policy_denied'
+    ) {
+      return event.outcome;
+    }
+  }
   return 'not_attempted';
 }
 
@@ -331,6 +350,15 @@ function ensureDir(dirPath: string): void {
 
 function positiveNumberOrFallback(value: number, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function incrementRecord(
+  record: Record<string, number>,
+  key: string | undefined,
+  amount = 1,
+): void {
+  const normalized = key && key.length > 0 ? key : 'unknown';
+  record[normalized] = (record[normalized] ?? 0) + amount;
 }
 
 function writeJson(filePath: string, value: unknown): void {
@@ -593,6 +621,14 @@ export function summarizeRealBenchmarkTelemetry(
   const responseIds = new Set<string>();
   const serviceLatencyMs: number[] = [];
   const utilityRoleCounts = new Map<string, number>();
+  const modelCallBreakdown: RealBenchmarkModelCallBreakdown = {
+    totalApiResponses: 0,
+    totalResponseIds: 0,
+    byRole: {},
+    tokensByRole: {},
+    byModel: {},
+    tokensByModel: {},
+  };
 
   let totalTokens = 0;
   let advisorTokens = 0;
@@ -630,6 +666,11 @@ export function summarizeRealBenchmarkTelemetry(
       totalTokens += total;
       serviceLatencyMs.push(durationMs);
       utilityRoleCounts.set(role, (utilityRoleCounts.get(role) ?? 0) + 1);
+      modelCallBreakdown.totalApiResponses += 1;
+      incrementRecord(modelCallBreakdown.byRole, role);
+      incrementRecord(modelCallBreakdown.tokensByRole, role, total);
+      incrementRecord(modelCallBreakdown.byModel, model);
+      incrementRecord(modelCallBreakdown.tokensByModel, model, total);
 
       if (role === ADVISOR_TELEMETRY_ROLE) {
         advisorCalls += 1;
@@ -682,6 +723,126 @@ export function summarizeRealBenchmarkTelemetry(
       pricingSnapshotId: pricingSnapshot?.id ?? null,
     },
     utilityRoleCounts: Object.fromEntries(utilityRoleCounts),
+    modelCallBreakdown: {
+      ...modelCallBreakdown,
+      totalResponseIds: responseIds.size,
+    },
+  };
+}
+
+function buildResponseCeilingEvidence(
+  maxModelResponsesPerSample: number,
+  countedModelResponses: number,
+): RealBenchmarkResponseCeilingEvidence {
+  const overflowBy = Math.max(
+    0,
+    countedModelResponses - maxModelResponsesPerSample,
+  );
+  return {
+    maxModelResponsesPerSample,
+    countedModelResponses,
+    overflowBy,
+    invalidatedByCeiling: overflowBy > 0,
+    ceilingScope: 'all_model_responses',
+  };
+}
+
+function buildPolluxTimingDiagnostics(params: {
+  events: ParsedTelemetryLog[];
+  escalationEvents: readonly RealBenchmarkEscalationEvent[];
+}): RealBenchmarkPolluxTimingDiagnostics {
+  const firstEscalation = params.escalationEvents[0];
+  let responseOrdinal = 0;
+  let executorBefore = 0;
+  let executorAfter = 0;
+  let firstAdvisorEventIndex: number | null = null;
+  let firstAdvisorOrdinal: number | null = null;
+
+  for (const [eventIndex, event] of params.events.entries()) {
+    const attributes = event.attributes;
+    const eventName = getStringAttribute(attributes, 'event.name');
+    if (eventName !== 'gemini_cli.api_response') {
+      continue;
+    }
+
+    responseOrdinal += 1;
+    const role = getStringAttribute(attributes, 'role') ?? 'main';
+    if (role === ADVISOR_TELEMETRY_ROLE && firstAdvisorOrdinal === null) {
+      firstAdvisorEventIndex = eventIndex;
+      firstAdvisorOrdinal = responseOrdinal;
+      continue;
+    }
+    if (role === 'main') {
+      if (firstAdvisorOrdinal === null) {
+        executorBefore += 1;
+      } else {
+        executorAfter += 1;
+      }
+    }
+  }
+
+  return {
+    firstAdvisorCallEventIndex: firstAdvisorEventIndex,
+    firstAdvisorCallModelResponseOrdinal: firstAdvisorOrdinal,
+    executorResponsesBeforeFirstAdvisor:
+      firstAdvisorOrdinal === null ? null : executorBefore,
+    executorResponsesAfterFirstAdvisor:
+      firstAdvisorOrdinal === null ? null : executorAfter,
+    firstEscalationReasonCode: firstEscalation?.reasonCode ?? null,
+    firstEscalationTiming: firstEscalation?.escalationTiming ?? null,
+    firstEscalationOutcome: firstEscalation?.outcome ?? null,
+    firstEscalationPauseBoundary: firstEscalation?.pauseBoundary ?? null,
+    firstEscalationSignalIds: firstEscalation?.contributingSignalIds ?? [],
+  };
+}
+
+function signalClassMatchesReason(
+  signalClass: RealBenchmarkTaskSpec['escalationSignalClass'],
+  reasonCode: string,
+): boolean | null {
+  if (signalClass === 'none') {
+    return null;
+  }
+  if (signalClass === 'risk_gate') {
+    return reasonCode === 'pollux.escalation.risk_gate_block';
+  }
+  if (signalClass === 'hard_loop') {
+    return reasonCode === 'pollux.escalation.hard_loop';
+  }
+  if (signalClass === 'fusion_composite') {
+    return reasonCode.startsWith('pollux.escalation.fusion_');
+  }
+  if (signalClass === 'self_report') {
+    return reasonCode === 'pollux.escalation.self_report_stuck';
+  }
+  return null;
+}
+
+function buildDetectorOpportunity(
+  task: RealBenchmarkTaskSpec,
+  condition: RealBenchmarkConditionProfile,
+  reasonCodes: readonly string[],
+): RealBenchmarkRunRecord['detectorOpportunity'] {
+  const signalClass = task.escalationSignalClass;
+  const expectedForM3 =
+    condition.id === 'F' &&
+    signalClass !== 'none' &&
+    (signalClass === 'risk_gate' ||
+      signalClass === 'hard_loop' ||
+      signalClass === 'fusion_composite' ||
+      signalClass === 'self_report');
+  let matchedExpectedSignalClass: boolean | null = null;
+  if (expectedForM3) {
+    matchedExpectedSignalClass = reasonCodes.some(
+      (reasonCode) =>
+        signalClassMatchesReason(signalClass, reasonCode) === true,
+    );
+  }
+  return {
+    signalClass,
+    expectedForM3,
+    observedReasonCodes: [...reasonCodes],
+    matchedExpectedSignalClass,
   };
 }
 
@@ -793,6 +954,7 @@ export class PolluxLiveRunRig {
   private readonly keepScratchDirectories: boolean;
   private readonly maxWallClockMs: number;
   private readonly maxModelResponsesPerSample: number;
+  private readonly fMaxModelResponsesPerSample?: number;
 
   constructor(options: PolluxRealPilotOptions & { repoRoot: string }) {
     this.repoRoot = options.repoRoot;
@@ -812,6 +974,22 @@ export class PolluxLiveRunRig {
         Number(process.env['POLLUX_REAL_MAX_MODEL_RESPONSES'] ?? 6),
       6,
     );
+    this.fMaxModelResponsesPerSample =
+      typeof options.fMaxModelResponsesPerSample === 'number'
+        ? positiveNumberOrFallback(
+            options.fMaxModelResponsesPerSample,
+            this.maxModelResponsesPerSample,
+          )
+        : undefined;
+  }
+
+  private getMaxModelResponsesForCondition(
+    condition: RealBenchmarkConditionProfile,
+  ): number {
+    return condition.id === 'F' &&
+      this.fMaxModelResponsesPerSample !== undefined
+      ? this.fMaxModelResponsesPerSample
+      : this.maxModelResponsesPerSample;
   }
 
   async runSample(
@@ -875,6 +1053,16 @@ export class PolluxLiveRunRig {
       telemetryEvents,
       this.pricingSnapshot,
     );
+    const maxModelResponsesForRun =
+      this.getMaxModelResponsesForCondition(condition);
+    const responseCeiling = buildResponseCeilingEvidence(
+      maxModelResponsesForRun,
+      telemetry.responseIds.length,
+    );
+    const polluxTimingDiagnostics = buildPolluxTimingDiagnostics({
+      events: telemetryEvents,
+      escalationEvents: telemetry.escalationEvents,
+    });
     const stdoutStatusTagCount = countStatusTagsInText(result.stdout);
     const nearMissStatusTagCount = countStatusNearMissesInText(result.stdout);
     const malformedStatusTagCount = nearMissStatusTagCount;
@@ -899,6 +1087,7 @@ export class PolluxLiveRunRig {
       result.timedOut,
       telemetryEvents,
       telemetry,
+      maxModelResponsesForRun,
       fairnessPins,
       structuredErrorEvidence,
       result.stderr,
@@ -912,6 +1101,9 @@ export class PolluxLiveRunRig {
       expectedEscalation,
       escalationEvents: telemetry.escalationEvents,
     });
+    const actualAdvisorConsultOutcome = computeActualAdvisorConsultOutcome(
+      telemetry.escalationEvents,
+    );
     const advisorFailureKind = computeAdvisorFailureKind(
       telemetry.escalationEvents,
     );
@@ -981,6 +1173,8 @@ export class PolluxLiveRunRig {
       exitCode: result.exitCode,
       timedOut: result.timedOut,
       modelResponseCount: telemetry.responseIds.length,
+      responseCeiling,
+      modelCallBreakdown: telemetry.modelCallBreakdown,
       expectedEscalation,
       predictedEscalation,
       confusionOutcome: computeConfusionOutcome({
@@ -992,7 +1186,16 @@ export class PolluxLiveRunRig {
       desiredOutcomeSatisfied: desiredOutcome.satisfied,
       desiredOutcomeReasonCode: desiredOutcome.reasonCode,
       advisorConsultOutcome,
+      actualAdvisorConsultOutcome,
       advisorFailureKind,
+      polluxTimingDiagnostics,
+      detectorOpportunity: buildDetectorOpportunity(
+        task,
+        condition,
+        telemetry.escalationEvents
+          .map((event) => event.reasonCode)
+          .filter((reasonCode): reasonCode is string => reasonCode !== null),
+      ),
       entrypointKind: entrypoint.kind,
       entrypointPath: entrypoint.path,
       buildFreshness,
@@ -1044,6 +1247,7 @@ export class PolluxLiveRunRig {
     timedOut: boolean,
     telemetryEvents: ParsedTelemetryLog[],
     telemetry: RealBenchmarkTelemetrySummary,
+    maxModelResponsesPerSample: number,
     fairnessPins: RealBenchmarkRunRecord['fairnessPins'],
     structuredErrorEvidence: RealBenchmarkStructuredErrorEvidence | null,
     stderr: string,
@@ -1056,7 +1260,7 @@ export class PolluxLiveRunRig {
       return classifyInvalidationFromEvidence(structuredErrorEvidence, stderr);
     }
 
-    if (telemetry.responseIds.length > this.maxModelResponsesPerSample) {
+    if (telemetry.responseIds.length > maxModelResponsesPerSample) {
       return 'model_call_ceiling_exceeded';
     }
 

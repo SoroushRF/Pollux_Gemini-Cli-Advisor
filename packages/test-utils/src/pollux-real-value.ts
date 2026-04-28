@@ -117,6 +117,7 @@ export async function runPolluxRealM3Value(params: {
   keepScratchDirectories?: boolean;
   maxWallClockMs?: number;
   maxModelResponsesPerSample?: number;
+  fMaxModelResponsesPerSample?: number;
   allowOverwrite?: boolean;
   thresholds?: RealBenchmarkM3ValueThresholds;
 }) {
@@ -149,6 +150,7 @@ export async function runPolluxRealM3Value(params: {
     keepScratchDirectories: params.keepScratchDirectories,
     maxWallClockMs: params.maxWallClockMs,
     maxModelResponsesPerSample: params.maxModelResponsesPerSample,
+    fMaxModelResponsesPerSample: params.fMaxModelResponsesPerSample,
     artifactRoot: path.join(valueRoot, 'value-campaign'),
     allowOverwrite: false,
   });
@@ -205,6 +207,9 @@ export async function runPolluxRealM3ValueCli() {
     keepScratchDirectories: parseBooleanArg('--keep-scratch-directories', true),
     maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
+    fMaxModelResponsesPerSample: parsePositiveNumberArg(
+      '--f-max-model-responses',
+    ),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     thresholds,
   });

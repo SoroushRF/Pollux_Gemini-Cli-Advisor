@@ -190,6 +190,26 @@ describe('summarizeRealBenchmarkTelemetry', () => {
       advisor: 80,
       executor: 300,
     });
+    expect(summary.modelCallBreakdown).toEqual({
+      totalApiResponses: 2,
+      totalResponseIds: 1,
+      byRole: {
+        main: 1,
+        utility_advisor: 1,
+      },
+      tokensByRole: {
+        main: 300,
+        utility_advisor: 80,
+      },
+      byModel: {
+        'gemini-2.5-flash': 1,
+        'gemini-3-pro-preview': 1,
+      },
+      tokensByModel: {
+        'gemini-2.5-flash': 300,
+        'gemini-3-pro-preview': 80,
+      },
+    });
     expect(summary.escalationEvents).toHaveLength(1);
     expect(summary.escalationEvents[0]).toMatchObject({
       turnId: 'prompt-1:1',

@@ -41,6 +41,17 @@ For targeted debugging, constrain runaway samples explicitly:
 npm run benchmark:pollux:real:pilot -- --campaign-id pilot-debug-001 --repeats 1 --task-ids CAL-BM-04-ESCALATING,PILOT-BM-05-STATUS-WRITE,PILOT-BM-06-YAML-TRANSFORM --max-wall-clock-ms 600000 --max-model-responses 6
 ```
 
+For F-only diagnostic reruns where Pollux may need more response budget than the
+strict A/E calibration ceiling, raise only the F ceiling:
+
+```powershell
+npm run benchmark:pollux:real:pilot -- --campaign-id m3-f-diagnostic-ceiling18 --condition-ids F --repeats 3 --entrypoint bundle --f-max-model-responses 18
+```
+
+Treat `--f-max-model-responses` output as diagnostic evidence unless the final
+protocol explicitly allows the raised F ceiling. A/E remain governed by
+`--max-model-responses` or the default ceiling.
+
 Optional:
 
 ```powershell
@@ -138,6 +149,12 @@ The pilot runner:
 14. for Pollux-enabled runs, records one benchmark-visible advisor-attempt event
     per real advisor model call
 
+The model-response ceiling is a benchmark response budget, not provider quota.
+It counts all model responses observed in the sample, including Flash executor
+responses, Pro advisor responses, and other telemetry-visible utility calls. For
+F-only diagnostics, `--f-max-model-responses <n>` overrides the ceiling only for
+condition F.
+
 ---
 
 ## 6) Expected artifact bundle
@@ -183,11 +200,33 @@ Then inspect raw samples for:
 10. `entrypointKind`, `entrypointPath`, and `buildFreshness`
 11. `structuredErrorEvidence`
 12. `stdoutPath`, `stderrPath`, `telemetryPath`
+13. `responseCeiling`
+14. `modelCallBreakdown`
+15. `polluxTimingDiagnostics`
+16. `actualAdvisorConsultOutcome`
+17. `detectorOpportunity`
 
 In `report.md`, always inspect the per-sample diagnostics table before trusting
 the aggregate rates. A `missing_event` timing row is the expected place for
 valid false negatives: it means Pollux should have escalated for the task and
 condition, but no consult-related telemetry appeared.
+
+Condition, lane, and cell summary fields are valid-only unless they appear under
+All-sample diagnostics. The All-sample fields are the place to explain spend and
+behavior when every F sample invalidates: raw oracle passes, advisor activity,
+total tokens/cost, ceiling invalidations, response counts, and whether the first
+advisor response arrived early enough to matter.
+
+When a sample reports `model_call_ceiling_exceeded`, inspect:
+
+1. `responseCeiling.countedModelResponses`, `maxModelResponsesPerSample`, and
+   `overflowBy`
+2. `modelCallBreakdown.byRole` and `tokensByRole` to see executor versus advisor
+   contribution
+3. `polluxTimingDiagnostics.firstAdvisorCallModelResponseOrdinal` and
+   `executorResponsesBeforeFirstAdvisor`
+4. the per-sample report columns `Responses`, `Ceiling`, `Over`,
+   `First advisor at`, and `Before/after advisor`
 
 For repeat-aware campaigns, read the artifacts in two passes:
 

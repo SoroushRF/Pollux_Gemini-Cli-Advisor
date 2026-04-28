@@ -98,6 +98,7 @@ export async function runPolluxRealCampaign(params: {
   keepScratchDirectories?: boolean;
   maxWallClockMs?: number;
   maxModelResponsesPerSample?: number;
+  fMaxModelResponsesPerSample?: number;
   artifactRoot?: string;
   allowOverwrite?: boolean;
   conditionIds?: RealBenchmarkConditionId[];
@@ -173,6 +174,7 @@ export async function runPolluxRealCampaign(params: {
     keepScratchDirectories: params.keepScratchDirectories ?? true,
     maxWallClockMs: params.maxWallClockMs,
     maxModelResponsesPerSample: params.maxModelResponsesPerSample,
+    fMaxModelResponsesPerSample: params.fMaxModelResponsesPerSample,
     repoRoot: POLLUX_REAL_REPO_ROOT,
   });
 
@@ -286,6 +288,9 @@ export async function runPolluxRealPilot() {
     keepScratchDirectories: parseBooleanArg('--keep-scratch-directories', true),
     maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
+    fMaxModelResponsesPerSample: parsePositiveNumberArg(
+      '--f-max-model-responses',
+    ),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     conditionIds: parseConditionIdsArg('--condition-ids'),
   });
