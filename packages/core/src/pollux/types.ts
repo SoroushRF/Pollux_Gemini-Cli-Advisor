@@ -180,6 +180,8 @@ export interface PolluxExperimentalConfig {
   readonly maxAdvisorCallsShortTask: number;
   readonly maxAdvisorCallsLongTask: number;
   readonly longTaskHeuristic: PolluxLongTaskHeuristicConfig;
+  readonly advisorShamEnabled: boolean;
+  readonly advisorShamGuidance: string;
   readonly emitAdvisorDebug: boolean;
   /**
    * Max time to wait for an advisor model response before fail-open (ms).
@@ -235,6 +237,9 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
     minPromptChars: 1200,
     anchoredMutation: true,
   },
+  advisorShamEnabled: false,
+  advisorShamGuidance:
+    '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
   emitAdvisorDebug: false,
   advisorRequestTimeoutMs: 120_000,
   detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
@@ -422,6 +427,12 @@ export function mergePolluxExperimentalConfig(
         partial?.longTaskHeuristic?.anchoredMutation ??
         d.longTaskHeuristic.anchoredMutation,
     },
+    advisorShamEnabled: partial?.advisorShamEnabled ?? d.advisorShamEnabled,
+    advisorShamGuidance:
+      typeof partial?.advisorShamGuidance === 'string' &&
+      partial.advisorShamGuidance.trim().length > 0
+        ? partial.advisorShamGuidance
+        : d.advisorShamGuidance,
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
     advisorRequestTimeoutMs: Math.max(
       POLLUX_MIN_ADVISOR_TIMEOUT_MS,

@@ -68,6 +68,19 @@ describe('pollux/types', () => {
       ).toBeNull();
     });
 
+    it('supports explicit sham advisor controls', () => {
+      const merged = mergePolluxExperimentalConfig({
+        advisorShamEnabled: true,
+        advisorShamGuidance: '1. Recheck the fixture.',
+      });
+      expect(merged.advisorShamEnabled).toBe(true);
+      expect(merged.advisorShamGuidance).toBe('1. Recheck the fixture.');
+      expect(
+        mergePolluxExperimentalConfig({ advisorShamGuidance: '' })
+          .advisorShamGuidance,
+      ).toBe(DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorShamGuidance);
+    });
+
     it('merges nested detector subtree with defaults', () => {
       const merged = mergePolluxExperimentalConfig({
         detector: {
@@ -118,6 +131,10 @@ describe('pollux/types', () => {
       expect(cfg.advisorFallbackModel).toBe('gemini-2.5-pro');
       expect(cfg.maxAdvisorCallsPerTurn).toBe(2);
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
+      expect(cfg.advisorShamEnabled).toBe(false);
+      expect(cfg.advisorShamGuidance).toContain(
+        'Verify with the existing oracle',
+      );
       expect(cfg.emitAdvisorDebug).toBe(false);
       expect(cfg.advisorRequestTimeoutMs).toBe(120_000);
       expect(cfg.detector).toEqual(DEFAULT_POLLUX_DETECTOR_CONFIG);

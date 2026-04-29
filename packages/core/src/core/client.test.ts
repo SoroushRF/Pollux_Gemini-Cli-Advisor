@@ -4204,6 +4204,50 @@ describe('Gemini Client (client.ts)', () => {
       );
     });
 
+    it('uses fixed sham guidance without an advisor API request', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        advisorShamEnabled: true,
+        advisorShamGuidance:
+          '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent');
+      const attemptTelemetrySpy = vi.spyOn(
+        telemetryLoggers,
+        'logPolluxAdvisorAttempt',
+      );
+
+      seedPolluxCompositeIntent(client);
+      await client.runPolluxAdvisorConsultation(
+        [{ text: POLLUX_ESCALATION_INPUT }],
+        new AbortController().signal,
+        'pollux-sham-advisor-control',
+        PolluxRuntimeSurface.ACP,
+      );
+
+      expect(mockPolicyCheck).toHaveBeenCalled();
+      expect(advisorSpy).not.toHaveBeenCalled();
+      expect(attemptTelemetrySpy).toHaveBeenCalledWith(
+        mockConfig,
+        expect.objectContaining({
+          model: 'sham:gemini-3.1-pro-preview',
+          outcome: 'consulted',
+          parser_outcome: 'direct',
+        }),
+      );
+      const historyText = client
+        .getHistory()
+        .flatMap((entry) => entry.parts ?? [])
+        .map((part) => ('text' in part ? part.text : ''))
+        .join('\n');
+      expect(historyText).toContain('Verify with the existing oracle');
+    });
+
     it('yields UserCancelled when processTurn throws AbortError', async () => {
       const abortError = new Error('Aborted');
       abortError.name = 'AbortError';

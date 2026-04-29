@@ -81,6 +81,13 @@ const HYBRID_ADVISOR_SETTINGS: Record<string, unknown> = {
   },
 };
 
+const SHAM_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...HYBRID_ADVISOR_SETTINGS,
+  advisorShamEnabled: true,
+  advisorShamGuidance:
+    '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
+};
+
 export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'A',
@@ -126,6 +133,24 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     publishableEligible: true,
     settingsOverrides: HYBRID_ADVISOR_SETTINGS,
   },
+  {
+    id: 'FS',
+    executorModel: 'gemini-3-flash-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'sham-advisor',
+    publishableEligible: false,
+    settingsOverrides: SHAM_ADVISOR_SETTINGS,
+  },
+];
+
+const POLLUX_REAL_CORE_CONDITION_IDS: RealBenchmarkConditionId[] = [
+  'A',
+  'E',
+  'F',
+  'L',
+  'LF',
 ];
 
 export function getPolluxRealConditionsById(
@@ -146,6 +171,9 @@ export function buildRealBenchmarkSettings(
 ): Record<string, unknown> & BenchmarkSettingsOverrides {
   const advisorTriggerMode = condition.settingsOverrides['advisorTriggerMode'];
   const advisorBudgetMode = condition.settingsOverrides['advisorBudgetMode'];
+  const advisorShamEnabled = condition.settingsOverrides['advisorShamEnabled'];
+  const advisorShamGuidance =
+    condition.settingsOverrides['advisorShamGuidance'];
   const maxAdvisorCallsShortTask =
     condition.settingsOverrides['maxAdvisorCallsShortTask'];
   const maxAdvisorCallsLongTask =
@@ -216,6 +244,14 @@ export function buildRealBenchmarkSettings(
           typeof maxAdvisorCallsLongTask === 'number'
             ? maxAdvisorCallsLongTask
             : undefined,
+        advisorShamEnabled:
+          typeof advisorShamEnabled === 'boolean'
+            ? advisorShamEnabled
+            : undefined,
+        advisorShamGuidance:
+          typeof advisorShamGuidance === 'string'
+            ? advisorShamGuidance
+            : undefined,
         ...(detector ? { detector } : {}),
       },
     },
@@ -235,7 +271,7 @@ export function buildDefaultCampaignManifest(
     repeatsPerCell: 3,
     conditions: conditionIds
       ? getPolluxRealConditionsById(conditionIds)
-      : POLLUX_REAL_CONDITIONS,
+      : getPolluxRealConditionsById(POLLUX_REAL_CORE_CONDITION_IDS),
     pricingSnapshotPath: POLLUX_REAL_DEFAULT_PRICING_TEMPLATE_PATH,
     preregistrationPath: POLLUX_REAL_DEFAULT_PREREGISTRATION_PATH,
     powerAnalysisPath: POLLUX_REAL_DEFAULT_POWER_ANALYSIS_PATH,

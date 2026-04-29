@@ -1368,6 +1368,28 @@ export class GeminiClient {
 
     let result: PolluxAdvisorAttemptResult | undefined;
     try {
+      const experimental = this.config.getPolluxExperimentalConfig();
+      if (experimental.advisorShamEnabled) {
+        const rawResponse = JSON.stringify({
+          guidance: experimental.advisorShamGuidance,
+          confidence: 5,
+        });
+        result = {
+          attemptIndex: params.attemptIndex,
+          attemptKind: params.attemptKind,
+          model: `sham:${params.advisorModelId}`,
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse,
+          guidance: experimental.advisorShamGuidance,
+          structuredConfidence: 5,
+          retryableForRepair: false,
+          retryableForFallback: false,
+        };
+        return result;
+      }
+
       const advisorResponse = await this.generateContent(
         {
           model: params.advisorModelId,

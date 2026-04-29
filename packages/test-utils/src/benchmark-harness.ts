@@ -193,6 +193,8 @@ export interface BenchmarkSettingsOverrides {
       advisorBudgetMode?: 'fixed' | 'adaptive';
       maxAdvisorCallsShortTask?: number;
       maxAdvisorCallsLongTask?: number;
+      advisorShamEnabled?: boolean;
+      advisorShamGuidance?: string;
       longTaskHeuristic?: {
         minToolCalls?: number;
         minPromptChars?: number;

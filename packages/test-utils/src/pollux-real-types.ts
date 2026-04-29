@@ -10,7 +10,7 @@ import type {
   RealBenchmarkLane,
 } from '../../core/src/pollux/benchmark/realTypes.js';
 
-export type RealBenchmarkConditionId = 'A' | 'E' | 'F' | 'L' | 'LF';
+export type RealBenchmarkConditionId = 'A' | 'E' | 'F' | 'L' | 'LF' | 'FS';
 export type RealBenchmarkCampaignMode =
   | 'pilot'
   | 'dress_rehearsal'

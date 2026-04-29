@@ -10,7 +10,11 @@ import {
   PILOT_SENTINEL_TASK_IDS,
   REAL_BENCHMARK_SEED_CORPUS,
 } from '../../core/src/pollux/benchmark/realTasks.js';
-import { buildDefaultCampaignManifest } from './pollux-real-config.js';
+import {
+  buildDefaultCampaignManifest,
+  buildRealBenchmarkSettings,
+  getPolluxRealConditionsById,
+} from './pollux-real-config.js';
 import {
   buildRealBenchmarkCorpusStats,
   buildRealBenchmarkPreflightReport,
@@ -245,5 +249,28 @@ describe('summarizeRealBenchmarkTelemetry', () => {
         injectionTiming: 'same_turn_next_continuation',
       }),
     ]);
+  });
+});
+
+describe('Pollux real benchmark sham controls', () => {
+  it('exposes FS as a non-publishable sham advisor control lane', () => {
+    const [condition] = getPolluxRealConditionsById(['FS']);
+    expect(condition).toMatchObject({
+      id: 'FS',
+      executorModel: 'gemini-3-flash-preview',
+      advisorModel: 'gemini-3.1-pro-preview',
+      advisorFallbackModel: null,
+      polluxEnabled: true,
+      publishableEligible: false,
+    });
+
+    const settings = buildRealBenchmarkSettings(condition, 'telemetry.jsonl');
+    expect(settings.experimental.pollux).toMatchObject({
+      enabled: true,
+      advisorTriggerMode: 'hybrid',
+      advisorShamEnabled: true,
+      advisorShamGuidance:
+        '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
+    });
   });
 });
