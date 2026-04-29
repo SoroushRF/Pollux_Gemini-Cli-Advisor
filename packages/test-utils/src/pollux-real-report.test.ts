@@ -312,6 +312,108 @@ describe('buildRealBenchmarkCampaignSummary', () => {
     });
   });
 
+  it('blocks silent F runs that miss M3 detector opportunities', () => {
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      [
+        buildRun({
+          sampleId: 'm3-silent',
+          conditionId: 'F',
+          benchmarkLane: 'core',
+          taskEscalates: false,
+          expectedEscalation: false,
+          observedAdvisorCalls: 0,
+          observedEscalationAttempts: 0,
+          polluxEscalationTelemetryCount: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          predictedEscalation: false,
+          confusionOutcome: 'true_negative',
+          advisorConsultOutcome: 'not_expected',
+          actualAdvisorConsultOutcome: 'not_attempted',
+          tokens: { total: 100, advisor: 0, executor: 100 },
+          detectorOpportunity: {
+            signalClass: 'risk_gate',
+            expectedForM3: true,
+            observedReasonCodes: [],
+            matchedExpectedSignalClass: false,
+          },
+        }),
+      ],
+      [],
+    );
+
+    expect(summary.escalation.trueNegative).toBe(1);
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'M3 detector opportunities',
+    );
+    expect(summary.publishabilityBlockers.join('\n')).toContain('m3-silent');
+  });
+
+  it('blocks generic safety advisor evidence that does not match M3 detector evidence', () => {
+    const summary = buildRealBenchmarkCampaignSummary(
+      manifest,
+      'corpus',
+      [
+        buildRun({
+          sampleId: 'm3-generic-risk-only',
+          conditionId: 'F',
+          benchmarkLane: 'core',
+          taskEscalates: false,
+          expectedEscalation: false,
+          observedAdvisorCalls: 1,
+          observedEscalationAttempts: 1,
+          polluxEscalationTelemetryCount: 1,
+          predictedEscalation: true,
+          confusionOutcome: 'false_positive',
+          advisorConsultOutcome: 'not_expected',
+          actualAdvisorConsultOutcome: 'consulted',
+          tokens: { total: 150, advisor: 40, executor: 110 },
+          escalationEvents: [
+            {
+              turnId: 'prompt:1',
+              reasonCode: 'pollux.escalation.risk_gate_block',
+              escalationTiming: 'same_turn',
+              outcome: 'consulted',
+              sameTurnDowngraded: false,
+              pauseBoundary: 'pre_tool',
+              contributingSignalIds: ['risk.pre_tool_high'],
+              contributingSignalAttributions: [
+                'generic_shell:built_in:rm\\s+-rf(?:\\s|$)',
+              ],
+              failureKind: null,
+              eventIndex: 1,
+            },
+          ],
+          escalationTiming: ['same_turn'],
+          reasonCodes: ['pollux.escalation.risk_gate_block'],
+          detectorOpportunity: {
+            signalClass: 'risk_gate',
+            expectedSignalClasses: ['risk_gate', 'fusion_composite'],
+            expectedForM3: true,
+            observedReasonCodes: ['pollux.escalation.risk_gate_block'],
+            observedSignalIds: ['risk.pre_tool_high'],
+            observedSignalAttributions: [
+              'generic_shell:built_in:rm\\s+-rf(?:\\s|$)',
+            ],
+            matchedExpectedSignalClass: false,
+            matchedExpectedSignalEvidence: null,
+          },
+        }),
+      ],
+      [],
+    );
+
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'no M3-aligned escalation evidence',
+    );
+    expect(summary.publishabilityBlockers.join('\n')).toContain(
+      'm3-generic-risk-only',
+    );
+  });
+
   it('adds blockers for malformed status near-misses and tool errors', () => {
     const summary = buildRealBenchmarkCampaignSummary(
       manifest,

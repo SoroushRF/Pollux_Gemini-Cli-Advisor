@@ -8,20 +8,27 @@ import { GeminiEventType } from '../../../core/turn.js';
 import { describe, expect, it } from 'vitest';
 import type { SensorInput, ToolEventRecord } from './base.js';
 import {
+  LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
+  TOOL_ANCHOR_GUIDED_MUTATION_SIGNAL_ID,
+  TOOL_ANCHOR_TEST_FAILURE_SIGNAL_ID,
+  TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID,
   TOOL_EXIT_REGRESSION_SIGNAL_ID,
   TOOL_FAILURE_CASCADE_SIGNAL_ID,
   TOOL_IDENTICAL_REPEAT_SIGNAL_ID,
+  TOOL_LOCAL_PATCH_RETRY_SIGNAL_ID,
   TOOL_PATTERN_SENSOR_ID,
   TOOL_SEARCH_WITHOUT_DECIDE_SIGNAL_ID,
   TOOL_TOKEN_BURN_SIGNAL_ID,
   ToolPatternSensor,
 } from './toolPattern.js';
+import { parsePromptConstraintSummary } from '../promptConstraints.js';
 
 function requestEvent(
   name: string,
   argsHash: string,
   readOnly: boolean,
   mutation: boolean,
+  args: Record<string, unknown> = { file_path: `${argsHash}.ts` },
 ): ToolEventRecord {
   return {
     tsMs: Date.now(),
@@ -30,6 +37,13 @@ function requestEvent(
     readOnly,
     mutation,
     phase: 'request',
+    request: {
+      callId: `${argsHash}-call`,
+      name,
+      args,
+      isClientInitiated: false,
+      prompt_id: 'prompt-1',
+    },
   };
 }
 
@@ -254,11 +268,294 @@ describe('pollux/observer/sensors/toolPattern', () => {
     expect(out.some((s) => s.id === TOOL_TOKEN_BURN_SIGNAL_ID)).toBe(false);
   });
 
+  it('emits tool.local_patch_retry for repeated anchored mutation churn', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'call-7',
+            name: 'replace',
+            args: {
+              file_path: 'src/index.ts',
+              old_string: 'createLabel',
+              new_string: 'createStableLabel',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-labels', true, false, {
+            file_path: 'src/labels.ts',
+          }),
+          requestEvent('read_file', 'read-view', true, false, {
+            file_path: 'src/view.ts',
+          }),
+          requestEvent('replace', 'mut-1', false, true, {
+            file_path: 'src/index.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+          requestEvent('replace', 'mut-2', false, true, {
+            file_path: 'src/index.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+        ],
+      }),
+    );
+    expect(out.some((s) => s.id === TOOL_LOCAL_PATCH_RETRY_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
+  it('emits tool.cross_surface_drift after multi-surface reads collapse into a single mutation surface', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'call-8',
+            name: 'replace',
+            args: {
+              file_path: 'src/view.ts',
+              old_string: 'createLabel',
+              new_string: 'createStableLabel',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-labels', true, false, {
+            file_path: 'src/labels.ts',
+          }),
+          requestEvent('read_file', 'read-view', true, false, {
+            file_path: 'src/view.ts',
+          }),
+          requestEvent('read_file', 'read-test', true, false, {
+            file_path: 'tests/view.test.ts',
+          }),
+          requestEvent('replace', 'mut-view-1', false, true, {
+            file_path: 'src/view.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+          requestEvent('replace', 'mut-view-2', false, true, {
+            file_path: 'src/view.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+        ],
+      }),
+    );
+    expect(out.some((s) => s.id === TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
+  it('emits M3 anchor pressure plus cross-surface drift for public-index source repair', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'call-m3-17',
+            name: 'replace',
+            args: {
+              file_path: 'src/view.ts',
+              old_string: 'createLabel',
+              new_string: 'createStableLabel',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts. Create m3-done.txt containing exactly done.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-index', true, false, {
+            file_path: 'src/index.ts',
+          }),
+          requestEvent('read_file', 'read-labels', true, false, {
+            file_path: 'src/labels.ts',
+          }),
+          requestEvent('read_file', 'read-test', true, false, {
+            file_path: 'tests/view.test.ts',
+          }),
+          requestEvent('replace', 'mut-index', false, true, {
+            file_path: 'src/index.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+          requestEvent('replace', 'mut-view', false, true, {
+            file_path: 'src/view.ts',
+            old_string: 'createLabel',
+            new_string: 'createStableLabel',
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      out.some((s) => s.id === LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID),
+    ).toBe(true);
+    expect(out.some((s) => s.id === TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
+  it('emits guided mutation for protected test/readme source repair', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'call-m3-18',
+            name: 'write_file',
+            args: {
+              file_path: 'src/csv.ts',
+              content:
+                'export function parseCsvLine(line: string) { return []; }',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Fix src/csv.ts so it satisfies the parser edge cases expressed by tests/csv.test.ts. Do not weaken or edit the test or README. Create m3-done.txt containing exactly done.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-src', true, false, {
+            file_path: 'src/csv.ts',
+          }),
+          requestEvent('read_file', 'read-test', true, false, {
+            file_path: 'tests/csv.test.ts',
+          }),
+          requestEvent('read_file', 'read-readme', true, false, {
+            file_path: 'README.md',
+          }),
+          requestEvent('write_file', 'mut-src', false, true, {
+            file_path: 'src/csv.ts',
+            content:
+              'export function parseCsvLine(line: string) { return []; }',
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      out.some((s) => s.id === LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID),
+    ).toBe(true);
+    expect(
+      out.some((s) => s.id === TOOL_ANCHOR_GUIDED_MUTATION_SIGNAL_ID),
+    ).toBe(true);
+  });
+
+  it('emits anchor test failure after protected anchors are inspected', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallResponse,
+          value: {
+            callId: 'test-call',
+            responseParts: [{ text: 'Exit Code: 1' }],
+            resultDisplay: undefined,
+            error: undefined,
+            errorType: undefined,
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Fix src/tax.ts only. The discount must apply before tax, and tests/tax.test.ts plus docs/tax.md are protected. Create m3-done.txt containing exactly done.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-src', true, false, {
+            file_path: 'src/tax.ts',
+          }),
+          requestEvent('read_file', 'read-test', true, false, {
+            file_path: 'tests/tax.test.ts',
+          }),
+          requestEvent('read_file', 'read-docs', true, false, {
+            file_path: 'docs/tax.md',
+          }),
+          responseEvent('run_shell_command', 1),
+        ],
+      }),
+    );
+
+    expect(out.some((s) => s.id === TOOL_ANCHOR_TEST_FAILURE_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
+  it('emits alias-preservation fusion signals after source search and source mutation', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'mut-theme',
+            name: 'replace',
+            args: {
+              file_path: 'src/theme.ts',
+              old_string: 'formatShade',
+              new_string: 'renderShade',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Rename formatShade to renderShade across src/color.ts and src/theme.ts while preserving the old alias for compatibility. Do not edit tests/color.test.ts.',
+        ),
+        toolEventWindow: [
+          requestEvent('grep_search', 'search-src', true, false, {
+            pattern: 'formatShade',
+            dir_path: 'src',
+          }),
+          requestEvent('replace', 'mut-color', false, true, {
+            file_path: 'src/color.ts',
+            old_string: 'formatShade',
+            new_string: 'renderShade',
+          }),
+          requestEvent('replace', 'mut-theme', false, true, {
+            file_path: 'src/theme.ts',
+            old_string: 'formatShade',
+            new_string: 'renderShade',
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      out.some((s) => s.id === LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID),
+    ).toBe(true);
+    expect(
+      out.some((s) => s.id === TOOL_ANCHOR_GUIDED_MUTATION_SIGNAL_ID),
+    ).toBe(true);
+    expect(out.some((s) => s.id === TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
   it('fail-open: malformed input returns empty or valid signal array', () => {
     const sensor = new ToolPatternSensor();
     const out = sensor.observe(
       makeInput({
-         
         event: { type: GeminiEventType.ToolCallResponse, value: null } as never,
       }),
     );

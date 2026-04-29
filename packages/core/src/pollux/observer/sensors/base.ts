@@ -33,6 +33,18 @@ export interface ToolEventRecord {
   readonly schemaError?: boolean;
 }
 
+export interface PromptConstraintSummary {
+  readonly mutationProtectedPaths: readonly string[];
+  readonly behaviorAnchorPaths: readonly string[];
+  readonly sourceOfTruthPaths: readonly string[];
+  readonly referencedPaths: readonly string[];
+  readonly hasProtectedTestsOrDocs: boolean;
+  readonly hasPublicInterfaceConstraint: boolean;
+  readonly hasBehaviorPreservationConstraint: boolean;
+  readonly hasCrossFileRepairConstraint: boolean;
+  readonly hasCompatibilityAliasConstraint: boolean;
+}
+
 /**
  * Canonical sensor input contract from Phase D §D.2.
  * Additional optional fields are observer-owned, derived context used by
@@ -44,6 +56,7 @@ export interface SensorInput {
   readonly toolEventWindow: readonly ToolEventRecord[];
   readonly thoughtWindow: readonly ThoughtSummary[];
   readonly userPromptText?: string;
+  readonly promptConstraintSummary?: PromptConstraintSummary;
   readonly currentTurnTokenCount?: number;
   readonly sessionMedianSuccessfulTurnTokens?: number;
   readonly sessionMedianDistinctSubjectsPerMinute?: number;

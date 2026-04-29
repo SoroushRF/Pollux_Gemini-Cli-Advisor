@@ -41,6 +41,12 @@ You may emit a structured status tag during reasoning, with this shape:
 - Use it when you notice yourself repeating, backtracking, or unsure how to proceed.
 - The tag is stripped before the user sees your output.
 - Concrete answers only; 'nothing' or 'n/a' in stuck_on is treated as not stuck.
+
+You may request stronger advisor guidance with:
+  <pollux:advisor_request reason="<concrete uncertainty>" timing="now|next"/>
+- Use it after orientation and before substantive edits when a stronger plan would likely prevent mistakes.
+- Use it when stuck, after repeated failed tool attempts, or before finalizing a long/risky task.
+- Do not emit this for simple single-step tasks.
 `.trim();
 
 /**

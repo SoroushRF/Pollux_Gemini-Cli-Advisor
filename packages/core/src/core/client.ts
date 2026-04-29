@@ -87,8 +87,10 @@ import { PolicyDecision } from '../policy/types.js';
 import {
   ADVISOR_CONSULTATION_TOOL_NAME,
   POLLUX_ESCALATION_TIMING,
+  PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
   POLLUX_TURN_DIGEST_MAX_CHARS,
+  type PolluxEscalationTiming,
   type PolluxTurnContext,
 } from '../pollux/types.js';
 import {
@@ -181,6 +183,17 @@ function summarizeRequestForDetector(request: PartListUnion): {
   };
 }
 
+function isFunctionResponseOnlyRequest(request: PartListUnion): boolean {
+  const partsList: unknown[] = Array.isArray(request) ? request : [request];
+  return (
+    partsList.length > 0 &&
+    partsList.every(
+      (raw) =>
+        raw !== null && typeof raw === 'object' && 'functionResponse' in raw,
+    )
+  );
+}
+
 type PolluxIntentConsultationOutcome =
   | 'consulted'
   | 'budget_exhausted'
@@ -210,6 +223,7 @@ type PolluxAdvisorAttemptParserOutcome =
   | 'direct'
   | 'recovered_fence'
   | 'recovered_substring'
+  | 'plain_text_fallback'
   | 'parse_error'
   | 'malformed_json'
   | 'schema'
@@ -233,6 +247,19 @@ interface PolluxAdvisorAttemptResult {
   readonly retryableForFallback: boolean;
 }
 
+type PolluxAdvisorConsultationResult =
+  | {
+      readonly outcome: 'consulted';
+      readonly guidance: string;
+      readonly structuredConfidence?: number;
+      readonly model: string;
+      readonly attemptKind: PolluxAdvisorAttemptKind;
+    }
+  | {
+      readonly outcome: 'policy_denied' | 'fail_open';
+      readonly failureKind?: AdvisorPathFailureKind;
+    };
+
 /**
  * Phase F §F.1.4: build a `NextTurnIntent` from a same-turn intent that was
  * blocked by an explicit guardrail (single-shot, kill switch, or budget).
@@ -248,6 +275,7 @@ function buildPolluxDowngradedNextTurnIntent(
     reasonCode: sameTurn.reasonCode,
     netScore: sameTurn.netScore,
     contributingSignalIds: sameTurn.contributingSignalIds,
+    contributingSignalAttributions: sameTurn.contributingSignalAttributions,
     queuedAtMs,
   };
 }
@@ -297,12 +325,23 @@ export class GeminiClient {
    * for future cross-boundary same-turn promotions).
    */
   private polluxPendingSameTurnIntent: SameTurnIntent | undefined;
+  private polluxPendingAdvisorGuidance:
+    | {
+        readonly guidance: string;
+        readonly reasonCode?: string;
+        readonly escalationTiming?: PolluxEscalationTiming;
+        readonly confidence?: number;
+      }
+    | undefined;
   /**
    * Phase F §F.1.4 single-shot guardrail (I11): flips to `true` once a same-
    * turn consult has completed (or was attempted) in the current turn, so
    * subsequent same-turn-eligible intents must downgrade to next-turn.
    */
   private polluxSameTurnFiredThisTurn = false;
+  private polluxActiveObserver: LiveExecutorObserver | undefined;
+  private polluxActiveObserverPromptId: string | undefined;
+  private polluxActiveUserPromptText = '';
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -823,6 +862,7 @@ export class GeminiClient {
     runtimeSurface: PolluxRuntimeSurface,
     experimental: PolluxTurnContext['experimental'],
     pendingToolContextOverride?: string,
+    userContentDigestOverride?: string,
   ): PolluxTurnContext {
     const requestSummary = summarizeRequestForDetector(request);
     return {
@@ -832,10 +872,35 @@ export class GeminiClient {
       experimental,
       advisorCallsThisTurn: this.polluxAdvisorCallsThisTurn,
       advisorCallsThisSession: this.polluxAdvisorCallsThisSession,
-      userContentDigest: requestSummary.userContentDigest,
+      userContentDigest:
+        userContentDigestOverride ?? requestSummary.userContentDigest,
       pendingToolContext:
         pendingToolContextOverride ?? requestSummary.pendingToolContext,
     };
+  }
+
+  private getPolluxObserverForProcessTurn(params: {
+    readonly request: PartListUnion;
+    readonly promptId: string;
+    readonly isFunctionResponseContinuation: boolean;
+  }): LiveExecutorObserver {
+    if (
+      params.isFunctionResponseContinuation &&
+      this.polluxActiveObserver &&
+      this.polluxActiveObserverPromptId === params.promptId
+    ) {
+      return this.polluxActiveObserver;
+    }
+
+    const observer = createLiveExecutorObserver(
+      this.config.getPolluxExperimentalConfig(),
+      this.loopDetector,
+    );
+    this.polluxActiveObserver = observer;
+    this.polluxActiveObserverPromptId = params.promptId;
+    this.polluxActiveUserPromptText = partListUnionToString(params.request);
+    observer.beginTurn(this.polluxActiveUserPromptText);
+    return observer;
   }
 
   private recordPolluxEscalationTelemetry(params: {
@@ -846,6 +911,7 @@ export class GeminiClient {
     sameTurnDowngraded?: boolean;
     pauseBoundary?: 'pre_tool' | 'post_event';
     contributingSignalIds?: readonly string[];
+    contributingSignalAttributions?: readonly string[];
     failureKind?: string;
   }): void {
     logPolluxEscalation(
@@ -858,6 +924,7 @@ export class GeminiClient {
         sameTurnDowngraded: params.sameTurnDowngraded,
         pauseBoundary: params.pauseBoundary,
         contributingSignalIds: params.contributingSignalIds,
+        contributingSignalAttributions: params.contributingSignalAttributions,
         failureKind: params.failureKind,
       }),
     );
@@ -899,9 +966,10 @@ export class GeminiClient {
       escalationTiming?: 'same_turn' | 'next_turn';
       pauseBoundary?: 'pre_tool' | 'post_event';
       contributingSignalIds?: readonly string[];
+      contributingSignalAttributions?: readonly string[];
       sameTurnDowngraded?: boolean;
     },
-  ): Promise<'consulted' | 'policy_denied' | 'fail_open'> {
+  ): Promise<PolluxAdvisorConsultationResult> {
     const experimental = turnContext.experimental;
 
     const policyResult = await this.config.getPolicyEngine().check(
@@ -927,9 +995,11 @@ export class GeminiClient {
           sameTurnDowngraded: escalationMeta.sameTurnDowngraded,
           pauseBoundary: escalationMeta.pauseBoundary,
           contributingSignalIds: escalationMeta.contributingSignalIds,
+          contributingSignalAttributions:
+            escalationMeta.contributingSignalAttributions,
         });
       }
-      return 'policy_denied';
+      return { outcome: 'policy_denied' };
     }
 
     const advisorInput = {
@@ -944,6 +1014,14 @@ export class GeminiClient {
     const advisorSignal = AbortSignal.any([signal, timeoutSignal]);
     let failOpenKind: AdvisorPathFailureKind | undefined;
     let consultationSucceeded = false;
+    let winningGuidance:
+      | {
+          readonly guidance: string;
+          readonly structuredConfidence?: number;
+          readonly model: string;
+          readonly attemptKind: PolluxAdvisorAttemptKind;
+        }
+      | undefined;
 
     const advisorModel = resolvePolluxModel(experimental.advisorModel, {
       registry: this.polluxModelRegistry,
@@ -981,6 +1059,14 @@ export class GeminiClient {
         });
       consultationSucceeded = primaryAttempt.consultationSucceeded;
       failOpenKind = primaryAttempt.failOpenKind;
+      if (primaryAttempt.consultationSucceeded && primaryAttempt.guidance) {
+        winningGuidance = {
+          guidance: primaryAttempt.guidance,
+          structuredConfidence: primaryAttempt.structuredConfidence,
+          model: primaryAttempt.model,
+          attemptKind: primaryAttempt.attemptKind,
+        };
+      }
 
       if (experimental.emitAdvisorDebug) {
         debugLogger.log(
@@ -1010,6 +1096,14 @@ export class GeminiClient {
           });
         consultationSucceeded = repairAttempt.consultationSucceeded;
         failOpenKind = repairAttempt.failOpenKind;
+        if (repairAttempt.consultationSucceeded && repairAttempt.guidance) {
+          winningGuidance = {
+            guidance: repairAttempt.guidance,
+            structuredConfidence: repairAttempt.structuredConfidence,
+            model: repairAttempt.model,
+            attemptKind: repairAttempt.attemptKind,
+          };
+        }
       } else if (
         !consultationSucceeded &&
         primaryAttempt.retryableForFallback &&
@@ -1028,6 +1122,14 @@ export class GeminiClient {
           });
         consultationSucceeded = fallbackAttempt.consultationSucceeded;
         failOpenKind = fallbackAttempt.failOpenKind;
+        if (fallbackAttempt.consultationSucceeded && fallbackAttempt.guidance) {
+          winningGuidance = {
+            guidance: fallbackAttempt.guidance,
+            structuredConfidence: fallbackAttempt.structuredConfidence,
+            model: fallbackAttempt.model,
+            attemptKind: fallbackAttempt.attemptKind,
+          };
+        }
       }
     } catch (error) {
       if (signal.aborted) {
@@ -1065,10 +1167,67 @@ export class GeminiClient {
         sameTurnDowngraded: escalationMeta.sameTurnDowngraded,
         pauseBoundary: escalationMeta.pauseBoundary,
         contributingSignalIds: escalationMeta.contributingSignalIds,
+        contributingSignalAttributions:
+          escalationMeta.contributingSignalAttributions,
         failureKind: outcome === 'fail_open' ? failOpenKind : undefined,
       });
     }
-    return outcome;
+    if (winningGuidance) {
+      const guidanceInjection = {
+        guidance: winningGuidance.guidance,
+        reasonCode: escalationMeta?.reasonCode,
+        escalationTiming: escalationMeta?.escalationTiming,
+        confidence: winningGuidance.structuredConfidence,
+      };
+      if (escalationMeta?.escalationTiming === 'same_turn') {
+        this.polluxPendingAdvisorGuidance = guidanceInjection;
+      } else {
+        this.injectPolluxAdvisorGuidance(guidanceInjection);
+      }
+      return {
+        outcome: 'consulted',
+        guidance: winningGuidance.guidance,
+        structuredConfidence: winningGuidance.structuredConfidence,
+        model: winningGuidance.model,
+        attemptKind: winningGuidance.attemptKind,
+      };
+    }
+    return { outcome: 'fail_open', failureKind: failOpenKind };
+  }
+
+  private injectPolluxAdvisorGuidance(params: {
+    readonly guidance: string;
+    readonly reasonCode?: string;
+    readonly escalationTiming?: PolluxEscalationTiming;
+    readonly confidence?: number;
+  }): void {
+    const text = [
+      '<pollux:advisor_guidance>',
+      `reason=${params.reasonCode ?? 'unknown'}`,
+      `timing=${params.escalationTiming ?? 'next_turn'}`,
+      params.confidence === undefined
+        ? undefined
+        : `confidence=${params.confidence}`,
+      '',
+      'Use this guidance silently when continuing the task.',
+      'Do not mention Pollux, advisor, or this hidden note to the user.',
+      '',
+      params.guidance,
+      '</pollux:advisor_guidance>',
+    ]
+      .filter((line): line is string => line !== undefined)
+      .join('\n');
+
+    this.getChat().addHistory(createUserContent(text));
+  }
+
+  private flushPolluxPendingAdvisorGuidance(): void {
+    const pending = this.polluxPendingAdvisorGuidance;
+    if (!pending) {
+      return;
+    }
+    this.polluxPendingAdvisorGuidance = undefined;
+    this.injectPolluxAdvisorGuidance(pending);
   }
 
   private async attemptPolluxAdvisorConsultationWithModel(params: {
@@ -1085,6 +1244,7 @@ export class GeminiClient {
           escalationTiming?: 'same_turn' | 'next_turn';
           pauseBoundary?: 'pre_tool' | 'post_event';
           contributingSignalIds?: readonly string[];
+          contributingSignalAttributions?: readonly string[];
           sameTurnDowngraded?: boolean;
         }
       | undefined;
@@ -1109,29 +1269,51 @@ export class GeminiClient {
         [createUserContent(params.advisorPrompt)],
         params.advisorSignal,
         LlmRole.UTILITY_ADVISOR,
-        { maxAttemptsOverride: 1 },
+        {
+          maxAttemptsOverride: 1,
+          systemInstructionOverride:
+            'You are a concise advisor for an executor model. Return only the requested guidance.',
+          generateContentConfigOverride: {
+            maxOutputTokens: 384,
+            temperature: 0.2,
+          },
+        },
       );
       // eslint-disable-next-line no-console
       console.log(`[Pollux] Advisor consultation finished.`);
 
       const rawAdvisorResponse = getResponseText(advisorResponse) ?? '';
+      const classifiedRawFailure =
+        rawAdvisorResponse.trim().length > 0
+          ? this.classifyPolluxAdvisorFailure(new Error(rawAdvisorResponse))
+          : undefined;
+      if (classifiedRawFailure && classifiedRawFailure !== 'parse_error') {
+        result = {
+          attemptIndex: params.attemptIndex,
+          attemptKind: params.attemptKind,
+          model: params.advisorModelId,
+          parserOutcome: classifiedRawFailure,
+          outcome: classifiedRawFailure,
+          consultationSucceeded: false,
+          failOpenKind: classifiedRawFailure,
+          rawResponse: rawAdvisorResponse,
+          retryableForRepair: false,
+          retryableForFallback:
+            params.attemptKind === 'primary' &&
+            (classifiedRawFailure === 'timeout' ||
+              classifiedRawFailure === 'capacity_exhausted' ||
+              classifiedRawFailure === 'quota_exhausted'),
+        };
+        return result;
+      }
       const parsedResponse = parseAdvisorModelResponse(rawAdvisorResponse);
       if (!parsedResponse.ok) {
-        const classifiedRawFailure =
-          rawAdvisorResponse.trim().length > 0
-            ? this.classifyPolluxAdvisorFailure(new Error(rawAdvisorResponse))
-            : undefined;
         const failOpenKind =
           classifiedRawFailure && classifiedRawFailure !== 'parse_error'
             ? classifiedRawFailure
             : parsedResponse.reason === 'empty_response'
               ? 'empty_response'
               : 'parse_error';
-        const retryableForFallback =
-          params.attemptKind === 'primary' &&
-          (failOpenKind === 'timeout' ||
-            failOpenKind === 'capacity_exhausted' ||
-            failOpenKind === 'quota_exhausted');
         result = {
           attemptIndex: params.attemptIndex,
           attemptKind: params.attemptKind,
@@ -1146,11 +1328,10 @@ export class GeminiClient {
           rawResponse: rawAdvisorResponse,
           retryableForRepair:
             params.attemptKind === 'primary' &&
-            !retryableForFallback &&
             (parsedResponse.reason === 'empty_response' ||
               parsedResponse.reason === 'malformed_json' ||
               parsedResponse.reason === 'schema'),
-          retryableForFallback,
+          retryableForFallback: false,
         };
         return result;
       }
@@ -1317,6 +1498,8 @@ export class GeminiClient {
           sameTurnDowngraded,
           pauseBoundary: undefined,
           contributingSignalIds: pendingNextTurnIntent.contributingSignalIds,
+          contributingSignalAttributions:
+            pendingNextTurnIntent.contributingSignalAttributions,
         });
       }
       return;
@@ -1378,6 +1561,7 @@ export class GeminiClient {
         pauseBoundary:
           intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
         contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
       });
       return outcome;
     }
@@ -1394,21 +1578,51 @@ export class GeminiClient {
       }
     }
 
+    const isFunctionResponseContinuation =
+      isFunctionResponseOnlyRequest(request) &&
+      this.polluxActiveObserverPromptId === prompt_id &&
+      this.polluxActiveUserPromptText.length > 0;
+    const advisorRequestBody = isFunctionResponseContinuation
+      ? this.polluxActiveUserPromptText
+      : partListUnionToString(request);
+
     const turnContext = this.buildPolluxTurnContext(
       request,
       prompt_id,
       runtimeSurface,
       experimental,
       pendingToolContextOverride,
+      isFunctionResponseContinuation
+        ? this.polluxActiveUserPromptText
+        : undefined,
     );
+
+    const adaptiveBudget = this.checkPolluxAdaptiveAdvisorBudget(
+      turnContext,
+      intent.reasonCode,
+    );
+    if (!adaptiveBudget.allowed) {
+      this.recordPolluxEscalationTelemetry({
+        turnId: `${prompt_id}:${this.sessionTurnCount}`,
+        reasonCode: intent.reasonCode,
+        escalationTiming: intent.timing,
+        outcome: 'budget_exhausted',
+        sameTurnDowngraded,
+        pauseBoundary:
+          intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
+        contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
+      });
+      return 'budget_exhausted';
+    }
 
     // F.1.6 attribution: mark `sameTurnDowngraded` when either the caller
     // explicitly flags it (single-shot / kill switch / budget) OR the intent
     // carries a canonically same-turn reason code but is being run next-turn
     // (I11 inference so legacy paths still surface downgrades in telemetry).
-    const outcome = await this.executePolluxAdvisorConsultation(
+    const result = await this.executePolluxAdvisorConsultation(
       turnContext,
-      partListUnionToString(request),
+      advisorRequestBody,
       signal,
       {
         reasonCode: intent.reasonCode,
@@ -1416,10 +1630,45 @@ export class GeminiClient {
         pauseBoundary:
           intent.timing === 'same_turn' ? intent.pauseBoundary : undefined,
         contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
         sameTurnDowngraded,
       },
     );
-    return outcome;
+    return result.outcome;
+  }
+
+  private checkPolluxAdaptiveAdvisorBudget(
+    turnContext: PolluxTurnContext,
+    reasonCode?: string,
+  ): { readonly allowed: true } | { readonly allowed: false } {
+    const experimental = turnContext.experimental;
+    if (experimental.advisorBudgetMode !== 'adaptive') {
+      return { allowed: true };
+    }
+    const heuristic = experimental.longTaskHeuristic;
+    const digestLength = turnContext.userContentDigest?.length ?? 0;
+    const hasContinuationContext =
+      (turnContext.pendingToolContext?.trim().length ?? 0) > 0;
+    const longReason =
+      reasonCode === PolluxEscalationReasonCode.PRE_MUTATION_REVIEW ||
+      reasonCode === PolluxEscalationReasonCode.HARD_LOOP ||
+      reasonCode === PolluxEscalationReasonCode.FUSION_COMPOSITE ||
+      reasonCode === PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC ||
+      reasonCode === PolluxEscalationReasonCode.FUSION_BUDGET_TARGET;
+    const isLongTask =
+      digestLength >= heuristic.minPromptChars ||
+      (heuristic.anchoredMutation && hasContinuationContext) ||
+      longReason;
+    const adaptiveLimit = isLongTask
+      ? experimental.maxAdvisorCallsLongTask
+      : experimental.maxAdvisorCallsShortTask;
+    const effectiveLimit = Math.min(
+      experimental.maxAdvisorCallsPerTurn,
+      adaptiveLimit,
+    );
+    return turnContext.advisorCallsThisTurn >= effectiveLimit
+      ? { allowed: false }
+      : { allowed: true };
   }
 
   /**
@@ -1498,6 +1747,7 @@ export class GeminiClient {
         sameTurnDowngraded: true,
         pauseBoundary: intent.pauseBoundary,
         contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
       });
       return budgetBlocked ? 'budget_exhausted' : 'skipped';
     }
@@ -1555,6 +1805,7 @@ export class GeminiClient {
         sameTurnDowngraded: false,
         pauseBoundary: intent.pauseBoundary,
         contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
       });
       // Fail-open: the executor proceeds even when the consult throws.
       return 'fail_open';
@@ -1575,16 +1826,25 @@ export class GeminiClient {
     // Re-initialize turn (it was empty before if in loop, or new instance)
     let turn = new Turn(this.getChat(), prompt_id);
 
-    this.polluxAdvisorCallsThisTurn = 0;
-    // F.1.4: reset the single-shot same-turn guardrail at turn entry so each
-    // new turn is allowed exactly one same-turn consult (per I11).
-    this.polluxSameTurnFiredThisTurn = false;
+    const isFunctionResponseContinuation =
+      isFunctionResponseOnlyRequest(request);
+    const isNewPolluxUserTurn =
+      !isFunctionResponseContinuation ||
+      this.polluxActiveObserverPromptId !== prompt_id ||
+      this.polluxActiveObserver === undefined;
+    if (isNewPolluxUserTurn) {
+      this.polluxAdvisorCallsThisTurn = 0;
+      // F.1.4: reset the single-shot same-turn guardrail at user-turn entry so
+      // each new user task is allowed exactly one same-turn consult (per I11).
+      this.polluxSameTurnFiredThisTurn = false;
+    }
     this.polluxPendingSameTurnIntent = undefined;
-    const polluxObserver = createLiveExecutorObserver(
-      this.config.getPolluxExperimentalConfig(),
-      this.loopDetector,
-    );
-    polluxObserver.beginTurn(partListUnionToString(request));
+    const polluxObserver = this.getPolluxObserverForProcessTurn({
+      request,
+      promptId: prompt_id,
+      isFunctionResponseContinuation,
+    });
+    this.flushPolluxPendingAdvisorGuidance();
 
     this.sessionTurnCount++;
     if (
@@ -1925,6 +2185,8 @@ export class GeminiClient {
             outcome: 'deferred_next_turn',
             sameTurnDowngraded: true,
             contributingSignalIds: harvested.contributingSignalIds,
+            contributingSignalAttributions:
+              harvested.contributingSignalAttributions,
           });
         }
         if (!existing || harvested.netScore >= existing.netScore) {
@@ -2208,7 +2470,11 @@ export class GeminiClient {
     contents: Content[],
     abortSignal: AbortSignal,
     role: LlmRole,
-    options?: { maxAttemptsOverride?: number },
+    options?: {
+      maxAttemptsOverride?: number;
+      systemInstructionOverride?: string | null;
+      generateContentConfigOverride?: Partial<GenerateContentConfig>;
+    },
   ): Promise<GenerateContentResponse> {
     const desiredModelConfig =
       this.config.modelConfigService.getResolvedConfig(modelConfigKey);
@@ -2219,7 +2485,10 @@ export class GeminiClient {
 
     try {
       const userMemory = this.config.getSystemInstructionMemory();
-      const systemInstruction = getCoreSystemPrompt(this.config, userMemory);
+      const systemInstruction =
+        options?.systemInstructionOverride === undefined
+          ? getCoreSystemPrompt(this.config, userMemory)
+          : options.systemInstructionOverride;
       const {
         model,
         config: newConfig,
@@ -2256,8 +2525,9 @@ export class GeminiClient {
 
         const requestConfig: GenerateContentConfig = {
           ...currentAttemptGenerateContentConfig,
+          ...options?.generateContentConfigOverride,
           abortSignal,
-          systemInstruction,
+          ...(systemInstruction === null ? {} : { systemInstruction }),
         };
 
         return this.getContentGeneratorOrFail().generateContent(

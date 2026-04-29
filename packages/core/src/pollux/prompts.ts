@@ -45,9 +45,14 @@ const CONFIDENCE_XML_RE = /<pollux:confidence\b[^>]*\bvalue="(\d+)"[^>]*\/?>/gi;
 
 const STATUS_TAG_RE = /<pollux:status\b[^>]*\/?>/gi;
 const STATUS_TAG_PREFIX = '<pollux:status';
+const ADVISOR_REQUEST_TAG_RE = /<pollux:advisor_request\b[^>]*\/?>/gi;
+const ADVISOR_REQUEST_TAG_PREFIX = '<pollux:advisor_request';
 
 const STATUS_STUCK_ON_RE = /\bstuck_on\s*=\s*"([^"]*)"/i;
 const STATUS_NEXT_RE = /\bnext\s*=\s*"([^"]*)"/i;
+const ADVISOR_REQUEST_REASON_RE = /\breason\s*=\s*"([^"]*)"/i;
+const ADVISOR_REQUEST_TIMING_RE = /\btiming\s*=\s*"(now|next)"/i;
+const ADVISOR_PLAINTEXT_MAX_CHARS = 1200;
 
 /**
  * Lists pollux confidence tag values in document order (POLLUX_SPEC §7.3).
@@ -81,6 +86,11 @@ export interface PolluxStatusTag {
   readonly next?: string;
 }
 
+export interface PolluxAdvisorRequestTag {
+  readonly reason?: string;
+  readonly timing?: 'now' | 'next';
+}
+
 /**
  * Lists structured Pollux status tags in document order (DETECTOR_IMPLEMENTATION_PLAN Phase E).
  */
@@ -98,28 +108,49 @@ export function parsePolluxStatusTag(text: string): readonly PolluxStatusTag[] {
   return out;
 }
 
+export function parsePolluxAdvisorRequestTag(
+  text: string,
+): readonly PolluxAdvisorRequestTag[] {
+  const out: PolluxAdvisorRequestTag[] = [];
+  for (const match of text.matchAll(ADVISOR_REQUEST_TAG_RE)) {
+    const raw = match[0];
+    const reason = ADVISOR_REQUEST_REASON_RE.exec(raw)?.[1];
+    const timing = ADVISOR_REQUEST_TIMING_RE.exec(raw)?.[1];
+    out.push({
+      reason: typeof reason === 'string' ? reason : undefined,
+      timing: timing === 'now' || timing === 'next' ? timing : undefined,
+    });
+  }
+  return out;
+}
+
 /**
  * Removes Pollux status tags from free text (DETECTOR_IMPLEMENTATION_PLAN Phase E).
  */
 export function stripPolluxStatusTags(text: string): string {
   return text
     .replace(STATUS_TAG_RE, '')
+    .replace(ADVISOR_REQUEST_TAG_RE, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
 
 function findTrailingStatusTagCarryIndex(text: string): number {
-  const partialTag = /<pollux:status\b[^>]*$/i.exec(text);
+  const partialTag =
+    /<pollux:status\b[^>]*$/i.exec(text) ??
+    /<pollux:advisor_request\b[^>]*$/i.exec(text);
   if (partialTag) {
     return partialTag.index;
   }
 
   const lower = text.toLowerCase();
-  const maxPrefixLength = Math.min(STATUS_TAG_PREFIX.length, lower.length);
-  for (let length = maxPrefixLength; length > 0; length -= 1) {
-    const suffix = lower.slice(lower.length - length);
-    if (STATUS_TAG_PREFIX.startsWith(suffix)) {
-      return lower.length - length;
+  for (const prefix of [STATUS_TAG_PREFIX, ADVISOR_REQUEST_TAG_PREFIX]) {
+    const maxPrefixLength = Math.min(prefix.length, lower.length);
+    for (let length = maxPrefixLength; length > 0; length -= 1) {
+      const suffix = lower.slice(lower.length - length);
+      if (prefix.startsWith(suffix)) {
+        return lower.length - length;
+      }
     }
   }
   return -1;
@@ -157,7 +188,9 @@ export function flushPolluxStatusTagStreamCarry(carry: string): string {
   const lower = carry.toLowerCase();
   if (
     lower.startsWith(STATUS_TAG_PREFIX) ||
-    STATUS_TAG_PREFIX.startsWith(lower)
+    STATUS_TAG_PREFIX.startsWith(lower) ||
+    lower.startsWith(ADVISOR_REQUEST_TAG_PREFIX) ||
+    ADVISOR_REQUEST_TAG_PREFIX.startsWith(lower)
   ) {
     return '';
   }
@@ -243,7 +276,8 @@ function tryParseEmbeddedJsonObject(raw: string): unknown | undefined {
 export type PolluxAdvisorParserSuccessOutcome =
   | 'direct'
   | 'recovered_fence'
-  | 'recovered_substring';
+  | 'recovered_substring'
+  | 'plain_text_fallback';
 
 export type PolluxAdvisorParserOutcome =
   | PolluxAdvisorParserSuccessOutcome
@@ -291,6 +325,15 @@ function tryParseJsonObject(
   }
 }
 
+function stripAdvisorPlainText(raw: string): string {
+  let text = raw.replace(/^\uFEFF/, '').trim();
+  const fence = /^```(?:[a-z0-9_-]+)?\s*([\s\S]*?)```$/i.exec(text);
+  if (fence?.[1]) {
+    text = fence[1].trim();
+  }
+  return stripPolluxStatusTags(stripPolluxConfidenceTags(text));
+}
+
 export type ParsedAdvisorModelResponse =
   | {
       readonly ok: true;
@@ -325,6 +368,17 @@ export function parseAdvisorModelResponse(
   const tagValues = extractPolluxConfidenceTagValues(raw);
   const parsed = tryParseJsonObject(raw);
   if (parsed === undefined) {
+    const fallback = stripAdvisorPlainText(raw);
+    if (fallback.length > 0 && fallback.length <= ADVISOR_PLAINTEXT_MAX_CHARS) {
+      return {
+        ok: true,
+        parserOutcome: 'plain_text_fallback',
+        guidance: fallback,
+        structuredConfidence: tagValues
+          .map(clampConfidence)
+          .find((value): value is number => value !== undefined),
+      };
+    }
     return {
       ok: false,
       reason: 'malformed_json',
@@ -403,14 +457,12 @@ export function buildAdvisorConsultationPrompt(
 ): string {
   const lines = [
     `Tool: ${ADVISOR_CONSULTATION_TOOL_NAME}`,
+    'You are the stronger advisor. Give only executor-safe strategy.',
+    'Return compact JSON: {"guidance":"1. ... 2. ...","confidence":1-10}',
+    'Guidance must be under 100 words. Use numbered steps, not explanations.',
+    'No markdown. No code unless essential. No user-facing prose.',
     '',
-    'Respond with a single JSON object only (no markdown fences, no prose before or after).',
-    'Schema:',
-    JSON.stringify(POLLUX_ADVISOR_RESPONSE_SCHEMA, undefined, 2),
-    '',
-    'You may embed <!-- pollux:confidence:N --> (N=1..10) inside the guidance string; tags are stripped before the executor sees guidance.',
-    '',
-    'Consultation payload:',
+    'Context:',
     input.body,
   ];
   return lines.join('\n');

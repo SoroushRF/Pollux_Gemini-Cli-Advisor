@@ -326,6 +326,11 @@ describe('Gemini Client (client.ts)', () => {
           next_speaker: 'user',
           reasoning: 'test',
         }),
+        generateContent: vi.fn().mockResolvedValue({
+          candidates: [
+            { content: { parts: [{ text: '{"summary":"test"}' }] } },
+          ],
+        }),
       }),
       modelConfigService: {
         getResolvedConfig(modelConfigKey: ModelConfigKey) {
@@ -930,6 +935,7 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        advisorFallbackModel: null,
         detector: {
           ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
           selfReport: {
@@ -978,6 +984,13 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
       });
       mockPolicyCheck.mockResolvedValue({
         decision: PolicyDecision.ALLOW,
@@ -1020,6 +1033,13 @@ describe('Gemini Client (client.ts)', () => {
         LlmRole.UTILITY_ADVISOR,
         expect.objectContaining({ maxAttemptsOverride: 1 }),
       );
+      const historyText = client
+        .getHistory()
+        .flatMap((entry) => entry.parts ?? [])
+        .map((part) => ('text' in part ? part.text : ''))
+        .join('\n');
+      expect(historyText).toContain('<pollux:advisor_guidance>');
+      expect(historyText).toContain('Continue with executor');
     });
 
     it('fails open when advisor policy denies (Cell C)', async () => {
@@ -1040,6 +1060,13 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
       });
       mockPolicyCheck.mockResolvedValue({
         decision: PolicyDecision.DENY,
@@ -1083,6 +1110,13 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
       });
       mockPolicyCheck.mockResolvedValue({
         decision: PolicyDecision.ALLOW,
@@ -1189,7 +1223,7 @@ describe('Gemini Client (client.ts)', () => {
 
       expect(sawToolCall).toBe(true);
       expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
 
       const remaining: ServerGeminiStreamEvent[] = [];
       // Drain the stream to avoid leaking pending async work in this test.
@@ -1203,6 +1237,157 @@ describe('Gemini Client (client.ts)', () => {
       expect(
         remaining.some((event) => event.type === GeminiEventType.Finished),
       ).toBe(true);
+    });
+
+    it('carries Pollux observer state across tool-response continuations for M3 anchor fusion', async () => {
+      const prompt =
+        'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts.';
+      const makeToolRequest = (
+        callId: string,
+        name: string,
+        args: Record<string, unknown>,
+      ): ServerGeminiStreamEvent => ({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId,
+          name,
+          args,
+          isClientInitiated: false,
+          prompt_id: 'pollux-m3-continuation',
+        },
+      });
+      const finished: ServerGeminiStreamEvent = {
+        type: GeminiEventType.Finished,
+        value: { reason: FinishReason.STOP, usageMetadata: undefined },
+      };
+      const modelTurns: ServerGeminiStreamEvent[][] = [
+        [
+          makeToolRequest('read-index', 'read_file', {
+            file_path: 'src/index.ts',
+          }),
+          makeToolRequest('read-labels', 'read_file', {
+            file_path: 'src/labels.ts',
+          }),
+          makeToolRequest('read-view', 'read_file', {
+            file_path: 'src/view.ts',
+          }),
+          makeToolRequest('read-test', 'read_file', {
+            file_path: 'tests/view.test.ts',
+          }),
+          finished,
+        ],
+        [
+          makeToolRequest('mut-index', 'replace', {
+            file_path: 'src/index.ts',
+            old_string: 'export { createLabel } from "./labels.js";\n',
+            new_string: 'export { createStableLabel } from "./labels.js";\n',
+          }),
+          finished,
+        ],
+        [finished],
+      ];
+      mockTurnRunFn.mockImplementation(() => {
+        const events = modelTurns.shift() ?? [finished];
+        return (async function* () {
+          for (const event of events) {
+            yield event;
+          }
+        })();
+      });
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          observer: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.observer,
+            enabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"check public index repair"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+      const escalationSpy = vi.spyOn(telemetryLoggers, 'logPolluxEscalation');
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: prompt }],
+          new AbortController().signal,
+          'pollux-m3-continuation',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        ),
+      );
+      expect(advisorSpy).not.toHaveBeenCalled();
+
+      await fromAsync(
+        client.sendMessageStream(
+          [
+            {
+              functionResponse: {
+                name: 'read_file',
+                response: { success: true },
+              },
+            },
+          ],
+          new AbortController().signal,
+          'pollux-m3-continuation',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        ),
+      );
+
+      if (advisorSpy.mock.calls.length === 0) {
+        await fromAsync(
+          client.sendMessageStream(
+            [
+              {
+                functionResponse: {
+                  name: 'replace',
+                  response: { success: true },
+                },
+              },
+            ],
+            new AbortController().signal,
+            'pollux-m3-continuation',
+            undefined,
+            false,
+            undefined,
+            false,
+            PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+          ),
+        );
+      }
+
+      expect(advisorSpy).toHaveBeenCalled();
+      expect(JSON.stringify(advisorSpy.mock.calls[0]?.[1])).toContain(prompt);
+      expect(escalationSpy).toHaveBeenCalledWith(
+        mockConfig,
+        expect.objectContaining({
+          reason_code: PolluxEscalationReasonCode.PRE_MUTATION_REVIEW,
+          contributing_signal_ids: expect.arrayContaining([
+            'tool.pre_mutation_advisor',
+          ]),
+        }),
+      );
     });
 
     it('fails open on same-turn risk-gate advisor exceptions and still streams tool events', async () => {
@@ -1257,7 +1442,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       expect(
         events.some((event) => event.type === GeminiEventType.ToolCallRequest),
       ).toBe(true);
@@ -1395,7 +1580,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       expect(mockPolicyCheck).toHaveBeenCalledTimes(1);
       expect(
         events.filter(
@@ -1484,7 +1669,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       expect(sendMessageStreamSpy).toHaveBeenCalledTimes(2);
       expect(events).not.toContainEqual({ type: GeminiEventType.LoopDetected });
     });
@@ -1628,7 +1813,7 @@ describe('Gemini Client (client.ts)', () => {
             e.value === 'after recovery stream',
         ),
       ).toBe(true);
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
     it('Phase C §C.5: HARD_LOOP same-turn policy DENY queues next-turn; recovery turn consults once when ALLOW', async () => {
@@ -1712,7 +1897,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       expect(mockPolicyCheck).toHaveBeenCalledTimes(2);
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
     it('Phase C §C.5: HARD_LOOP same-turn budget exhausted downgrades; recovery turn consults queued intent', async () => {
@@ -1815,7 +2000,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      // 1 call for risk gate; loop consult is budget-exhausted; 1 call on recovery for queued HARD_LOOP
+      // 1 call for risk gate; loop consult is budget-exhausted; 1 call on recovery for queued HARD_LOOP.
       expect(advisorSpy).toHaveBeenCalledTimes(2);
       expect(events).not.toContainEqual({ type: GeminiEventType.LoopDetected });
       expect(
@@ -2051,7 +2236,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
     });
 
     // ──────────────────────────────────────────────────────────────
@@ -2107,6 +2292,7 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        advisorFallbackModel: null,
         detector: {
           ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
           observer: {
@@ -2144,7 +2330,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       const events = telemetry.stop();
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       const pending = events.find((e) => e.phase === 'pending');
       expect(pending?.escalationTiming).toBe('next_turn');
       expect(pending?.contributingSignalIds).toEqual([
@@ -2226,7 +2412,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       const events = telemetry.stop();
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       const pending = events.find((e) => e.phase === 'pending');
       expect(pending?.escalationTiming).toBe('same_turn');
       expect(pending?.pauseBoundary).toBe('post_event');
@@ -2261,6 +2447,7 @@ describe('Gemini Client (client.ts)', () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
+        advisorFallbackModel: null,
         detector: {
           ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
           observer: {
@@ -2330,7 +2517,7 @@ describe('Gemini Client (client.ts)', () => {
       expect(advisorSpy.mock.calls[0]?.[0]).toMatchObject({
         model: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
       });
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       expect(
         events
           .filter((event) => event.phase === 'consulting')
@@ -2419,7 +2606,7 @@ describe('Gemini Client (client.ts)', () => {
       );
 
       // Exactly one same-turn consult fired during the turn.
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       // The second risk trigger must have been downgraded to a next-turn
       // intent on the client, preserving its reason code.
       const queued = client['polluxPendingNextTurnIntent'];
@@ -2497,7 +2684,7 @@ describe('Gemini Client (client.ts)', () => {
         ),
       );
 
-      expect(advisorSpy).toHaveBeenCalledTimes(2);
+      expect(advisorSpy).toHaveBeenCalledTimes(1);
       expect(client['polluxSameTurnFiredThisTurn']).toBe(true);
     });
 
@@ -3593,7 +3780,7 @@ describe('Gemini Client (client.ts)', () => {
         prompt: 'pollux-p3-04-malformed-d5',
       },
     ])(
-      'fails open on malformed advisor response and keeps $label executor stream stable (P3-04)',
+      'accepts short plaintext advisor fallback and keeps $label executor stream stable (P3-04)',
       async ({ surface, prompt }) => {
         mockTurnRunFn.mockImplementation(() =>
           (async function* () {
@@ -3650,7 +3837,7 @@ describe('Gemini Client (client.ts)', () => {
             (event) => event.type === GeminiEventType.UserCancelled,
           ),
         ).toBe(false);
-        expect(advisorSpy).toHaveBeenCalledTimes(2);
+        expect(advisorSpy).toHaveBeenCalledTimes(1);
       },
     );
 
@@ -3755,7 +3942,7 @@ describe('Gemini Client (client.ts)', () => {
       const advisorSpy = vi
         .spyOn(client, 'generateContent')
         .mockResolvedValueOnce({
-          candidates: [{ content: { parts: [{ text: '{malformed json' }] } }],
+          candidates: [{ content: { parts: [{ text: '{"oops":true}' }] } }],
         } as GenerateContentResponse)
         .mockResolvedValueOnce({
           candidates: [
@@ -3785,7 +3972,7 @@ describe('Gemini Client (client.ts)', () => {
       expect(attemptSpy.mock.calls[0]?.[1]).toMatchObject({
         attempt_kind: 'primary',
         outcome: 'parse_error',
-        parser_outcome: 'malformed_json',
+        parser_outcome: 'schema',
       });
       expect(attemptSpy.mock.calls[1]?.[1]).toMatchObject({
         attempt_kind: 'repair_retry',
@@ -6873,7 +7060,7 @@ ${JSON.stringify(
       });
     });
 
-    it('classifies malformed advisor responses as parse_error', async () => {
+    it('accepts short plaintext advisor responses as fallback guidance', async () => {
       vi.spyOn(client, 'generateContent').mockResolvedValue({
         candidates: [
           {
@@ -6896,8 +7083,9 @@ ${JSON.stringify(
       });
 
       expect(result).toMatchObject({
-        consultationSucceeded: false,
-        failOpenKind: 'parse_error',
+        consultationSucceeded: true,
+        parserOutcome: 'plain_text_fallback',
+        guidance: 'this is not valid advisor json',
         retryableForFallback: false,
       });
     });

@@ -55,12 +55,12 @@ Rows are the Pollux runtime surfaces defined in
 Columns are the standard Pollux behavior cells required by every in-scope
 surface (P0-01 §2, PHASE2_GUARDRAILS.md §3):
 
-| Cell | Configuration                             | Observable contract                                                                                                                    |
-| ---- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| A    | Pollux off                                | Baseline-identical visible stream events. Zero policy check, zero advisor call, zero budget mutation.                                  |
-| B    | Pollux on, policy ALLOW                   | Advisor runs on the utility channel, visible stream events unchanged, `LlmRole.UTILITY_ADVISOR` tag emitted, no `GeminiChat` mutation. |
-| C    | Pollux on, policy DENY (or advisor error) | Fail-open: visible stream events unchanged, executor continues, no user-facing error.                                                  |
-| D    | Pollux on, advisor timeout                | Fail-open: visible stream events unchanged, executor continues, timeout budget incremented internally.                                 |
+| Cell | Configuration                             | Observable contract                                                                                                                                                          |
+| ---- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | Pollux off                                | Baseline-identical visible stream events. Zero policy check, zero advisor call, zero budget mutation.                                                                        |
+| B    | Pollux on, policy ALLOW                   | Advisor runs on the utility channel, visible stream events unchanged, `LlmRole.UTILITY_ADVISOR` tag emitted, successful guidance may be injected as hidden executor context. |
+| C    | Pollux on, policy DENY (or advisor error) | Fail-open: visible stream events unchanged, executor continues, no user-facing error.                                                                                        |
+| D    | Pollux on, advisor timeout                | Fail-open: visible stream events unchanged, executor continues, timeout budget incremented internally.                                                                       |
 
 For D6 there is no Cell A–D. The only cell is **Bypass**: seam-level no-op on
 the `A2A_DEFERRED` surface plus call-site tagging on every `sendMessageStream`
@@ -157,10 +157,12 @@ simultaneously pinned by the tests in section 3:
    (Cell D), the executor stream still completes with the same sequence of
    visible events as Cell A. No surface observes a user-facing error caused by
    Pollux. (P0-01 §4 Invariant I-2, POLLUX_SPEC.md §5 fail-open contract.)
-3. **No `GeminiChat` history mutation**: `maybeRunPolluxAdvisorConsultation` is
-   forbidden from touching chat history. The Cell B advisor-allow tests on every
-   surface assert that `GeminiChat.recordHistory` / equivalent is not called by
-   the advisor seam. (P0-01 §4 Invariant I-3.)
+3. **Hidden guidance only**: advisor traffic must not appear on visible
+   user-facing event channels. Successful advisor guidance may be injected as
+   hidden executor context, but the injected content must be tagged,
+   telemetry-visible, and excluded from normal user-authored transcript display.
+   Cross-surface tests assert no visible leakage rather than forbidding all
+   `GeminiChat` history mutation. (P0-01 §4 Invariant I-3.)
 4. **Policy routing**: every advisor call goes through `PolicyEngine.check` with
    action `advisor_consultation`. Cells A and D6 assert zero policy checks;
    Cells B/C/D assert exactly one policy check per advisor attempt. (P0-02

@@ -219,6 +219,8 @@ export interface PolluxAdvisorPhasePayload {
   pauseBoundary?: PolluxObserverPauseBoundary;
   /** Sensor ids that contributed to the escalation decision (observer path). */
   contributingSignalIds?: readonly string[];
+  /** Human-readable signal attributions parallel to contributingSignalIds. */
+  contributingSignalAttributions?: readonly string[];
   /**
    * True when a same-turn-qualified signal was merged into the next-turn
    * queue (e.g. same-turn budget or I11 single-shot guardrail).

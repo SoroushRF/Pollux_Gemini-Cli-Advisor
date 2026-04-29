@@ -284,6 +284,25 @@ export function buildRealBenchmarkPreflightReport(
     publishabilityBlockers.push(
       'A frozen pricing snapshot is required before reporting real-model USD costs.',
     );
+  } else {
+    const requiredPricingModels = new Set<string>();
+    for (const condition of manifest.conditions) {
+      requiredPricingModels.add(condition.executorModel);
+      if (condition.advisorModel) {
+        requiredPricingModels.add(condition.advisorModel);
+      }
+      if (condition.advisorFallbackModel) {
+        requiredPricingModels.add(condition.advisorFallbackModel);
+      }
+    }
+    const missingPricingModels = [...requiredPricingModels].filter(
+      (model) => pricingSnapshot.models[model] === undefined,
+    );
+    if (missingPricingModels.length > 0) {
+      publishabilityBlockers.push(
+        `Pricing snapshot is missing required model(s): ${missingPricingModels.join(', ')}.`,
+      );
+    }
   }
 
   if (

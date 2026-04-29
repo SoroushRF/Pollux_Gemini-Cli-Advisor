@@ -10,7 +10,7 @@ import type {
   RealBenchmarkLane,
 } from '../../core/src/pollux/benchmark/realTypes.js';
 
-export type RealBenchmarkConditionId = 'A' | 'E' | 'F';
+export type RealBenchmarkConditionId = 'A' | 'E' | 'F' | 'L' | 'LF';
 export type RealBenchmarkCampaignMode =
   | 'pilot'
   | 'dress_rehearsal'
@@ -50,6 +50,7 @@ export type RealBenchmarkAdvisorParserOutcome =
   | 'direct'
   | 'recovered_fence'
   | 'recovered_substring'
+  | 'plain_text_fallback'
   | 'parse_error'
   | 'malformed_json'
   | 'schema'
@@ -196,13 +197,18 @@ export interface RealBenchmarkPolluxTimingDiagnostics {
   firstEscalationOutcome: string | null;
   firstEscalationPauseBoundary: 'pre_tool' | 'post_event' | null;
   firstEscalationSignalIds: string[];
+  firstEscalationSignalAttributions?: string[];
 }
 
 export interface RealBenchmarkDetectorOpportunity {
   signalClass: RealBenchmarkEscalationSignalClass;
+  expectedSignalClasses?: RealBenchmarkEscalationSignalClass[];
   expectedForM3: boolean;
   observedReasonCodes: string[];
+  observedSignalIds?: string[];
+  observedSignalAttributions?: string[];
   matchedExpectedSignalClass: boolean | null;
+  matchedExpectedSignalEvidence?: string | null;
 }
 
 export interface RealBenchmarkAllSampleUsageSummary {
@@ -226,6 +232,7 @@ export interface RealBenchmarkEscalationEvent {
   sameTurnDowngraded: boolean;
   pauseBoundary: 'pre_tool' | 'post_event' | null;
   contributingSignalIds: string[];
+  contributingSignalAttributions?: string[];
   failureKind: string | null;
   eventIndex: number;
 }
@@ -797,6 +804,13 @@ export interface RealBenchmarkM3ValueSummary {
     fCheaperThanE: boolean;
   };
   advisorTokenShareF: number | null;
+  fAdvisorEvidencePresent: boolean;
+  fM3AlignedAdvisorEvidencePresent: boolean;
+  fConsultedSampleCount: number;
+  fM3AlignedConsultedSampleCount: number;
+  fTasksWithAdvisorEvidence: string[];
+  fTasksWithM3AlignedAdvisorEvidence: string[];
+  diagnosticOnly: boolean;
   pass: boolean;
   failedThresholds: string[];
 }

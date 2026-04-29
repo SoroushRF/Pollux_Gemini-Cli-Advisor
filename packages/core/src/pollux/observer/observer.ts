@@ -19,6 +19,10 @@ import {
   type PolluxExperimentalConfig,
 } from '../types.js';
 import { FusionLayer } from './fusion.js';
+import {
+  AdvisorRequestSensor,
+  SELF_ADVISOR_REQUEST_SIGNAL_ID,
+} from './sensors/advisorRequest.js';
 import { NegativeSignalsSensor } from './sensors/negatives.js';
 import { SelfReportSensor } from './sensors/selfReport.js';
 import {
@@ -33,12 +37,16 @@ import {
   LOOP_HARD_CONFIRMED_WEIGHT,
   LoopBridgeSensor,
 } from './sensors/loopBridge.js';
+import { parsePromptConstraintSummary } from './promptConstraints.js';
 import {
   RiskGateSensor,
   RISK_PRE_TOOL_HIGH_SIGNAL_ID,
 } from './sensors/riskGate.js';
 import { ThoughtSensor } from './sensors/thought.js';
-import { ToolPatternSensor } from './sensors/toolPattern.js';
+import {
+  ToolPatternSensor,
+  TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID,
+} from './sensors/toolPattern.js';
 import type { NextTurnIntent, SameTurnIntent } from './types.js';
 
 const READ_ONLY_TOOL_NAMES = new Set([
@@ -138,6 +146,12 @@ function hardPrecisionReasonForSignal(
   if (signalId === 'self.structured_status_stuck') {
     return PolluxEscalationReasonCode.SELF_REPORT_STUCK;
   }
+  if (signalId === SELF_ADVISOR_REQUEST_SIGNAL_ID) {
+    return PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST;
+  }
+  if (signalId === TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID) {
+    return PolluxEscalationReasonCode.PRE_MUTATION_REVIEW;
+  }
   return undefined;
 }
 
@@ -150,6 +164,7 @@ export function buildPolluxHardLoopNextTurnIntent(
     reasonCode: PolluxEscalationReasonCode.HARD_LOOP,
     netScore: LOOP_HARD_CONFIRMED_WEIGHT * LOOP_HARD_CONFIRMED_PRECISION_PRIOR,
     contributingSignalIds: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
+    contributingSignalAttributions: [LOOP_HARD_CONFIRMED_SIGNAL_ID],
     queuedAtMs,
   };
 }
@@ -214,6 +229,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
   private activeSignals = new Map<string, SensorSignal>();
   private turnStartedAtMs = Date.now();
   private userPromptText = '';
+  private promptConstraintSummary = parsePromptConstraintSummary();
   private currentTurnTokenCount = 0;
   private currentTurnModelOutput = '';
   private currentTurnToolCallCount = 0;
@@ -228,15 +244,29 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     loopDetection?: Pick<LoopDetectionService, 'peekState'>,
   ) {
     this.streamSensors = [];
-    if (this.experimental.detector.riskGate.enabled) {
+    const triggerMode = this.experimental.advisorTriggerMode;
+    const detectorTriggersEnabled = triggerMode !== 'executor_request';
+    const executorRequestEnabled = triggerMode !== 'detector';
+    if (
+      detectorTriggersEnabled &&
+      this.experimental.detector.riskGate.enabled
+    ) {
       this.streamSensors.push(
         new RiskGateSensor(this.experimental.detector.riskGate),
       );
     }
     if (this.experimental.detector.selfReport.enabled) {
-      this.streamSensors.push(new SelfReportSensor());
+      if (detectorTriggersEnabled) {
+        this.streamSensors.push(new SelfReportSensor());
+      }
+      if (executorRequestEnabled) {
+        this.streamSensors.push(new AdvisorRequestSensor());
+      }
     }
-    if (this.experimental.detector.observer.enabled) {
+    if (
+      detectorTriggersEnabled &&
+      this.experimental.detector.observer.enabled
+    ) {
       this.streamSensors.push(
         new ThoughtSensor(),
         new ToolPatternSensor(),
@@ -257,6 +287,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     this.activeSignals.clear();
     this.turnStartedAtMs = Date.now();
     this.userPromptText = userPromptText;
+    this.promptConstraintSummary = parsePromptConstraintSummary(userPromptText);
     this.currentTurnTokenCount = 0;
     this.currentTurnModelOutput = '';
     this.currentTurnToolCallCount = 0;
@@ -328,6 +359,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       toolEventWindow: this.toolEventWindow,
       thoughtWindow: this.thoughtWindow.entries,
       userPromptText: this.userPromptText,
+      promptConstraintSummary: this.promptConstraintSummary,
       currentTurnTokenCount: this.currentTurnTokenCount,
       sessionMedianSuccessfulTurnTokens: median(
         this.successfulTurnTokenHistory,
@@ -483,6 +515,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         reasonCode,
         netScore: signal.weight * signal.precisionPrior,
         contributingSignalIds: [signal.id],
+        contributingSignalAttributions: [signal.attribution ?? signal.id],
         preferSameTurn: true,
         pauseBoundary:
           event.type === GeminiEventType.ToolCallRequest &&
@@ -524,6 +557,8 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       PolluxEscalationReasonCode.RISK_GATE_BLOCK,
       PolluxEscalationReasonCode.HARD_LOOP,
       PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+      PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+      PolluxEscalationReasonCode.PRE_MUTATION_REVIEW,
     ]);
     if (output.escalate && !hardPrecisionReasonCodes.has(output.reasonCode)) {
       if (!this.fusionEscalatedThisTurn) {
@@ -534,6 +569,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
           reasonCode: output.reasonCode,
           netScore: output.netScore,
           contributingSignalIds: output.contributingSignalIds,
+          contributingSignalAttributions: this.attributionsForSignalIds(
+            output.contributingSignalIds,
+          ),
           preferSameTurn: sameTurnPreferred,
           pauseBoundary: sameTurnPreferred ? 'post_event' : undefined,
         });
@@ -550,6 +588,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     reasonCode: PolluxEscalationReasonCodeValue;
     netScore: number;
     contributingSignalIds: readonly string[];
+    contributingSignalAttributions?: readonly string[];
     preferSameTurn: boolean;
     pauseBoundary?: 'pre_tool' | 'post_event';
     pendingTool?: SameTurnIntent['pendingTool'];
@@ -569,6 +608,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         pendingTool: params.pendingTool,
         netScore: params.netScore,
         contributingSignalIds: params.contributingSignalIds,
+        contributingSignalAttributions: params.contributingSignalAttributions,
         queuedAtMs,
       };
       return;
@@ -580,6 +620,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       reasonCode: params.reasonCode,
       netScore: params.netScore,
       contributingSignalIds: params.contributingSignalIds,
+      contributingSignalAttributions: params.contributingSignalAttributions,
       queuedAtMs,
     };
     if (
@@ -589,6 +630,14 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     ) {
       this.pendingNextTurnIntent = nextTurnIntent;
     }
+  }
+
+  private attributionsForSignalIds(
+    signalIds: readonly string[],
+  ): readonly string[] {
+    return signalIds.map(
+      (signalId) => this.activeSignals.get(signalId)?.attribution ?? signalId,
+    );
   }
 
   private recordCompletedTurn(): void {

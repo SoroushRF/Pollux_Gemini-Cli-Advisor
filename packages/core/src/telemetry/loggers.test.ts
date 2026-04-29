@@ -2614,6 +2614,7 @@ describe('loggers', () => {
         sameTurnDowngraded: false,
         pauseBoundary: 'post_event',
         contributingSignalIds: ['loop.hard_confirmed'],
+        contributingSignalAttributions: ['loop.hard_confirmed'],
       });
 
       logPolluxEscalation(mockConfig, event);
@@ -2634,6 +2635,7 @@ describe('loggers', () => {
           same_turn_downgraded: false,
           pause_boundary: 'post_event',
           contributing_signal_ids: '["loop.hard_confirmed"]',
+          contributing_signal_attributions: '["loop.hard_confirmed"]',
           failure_kind: undefined,
         },
       });

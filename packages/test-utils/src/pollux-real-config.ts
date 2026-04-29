@@ -58,6 +58,29 @@ export const POLLUX_REAL_AUTH_SEED_FILES = [
   'installation_id',
 ] as const;
 
+const HYBRID_ADVISOR_SETTINGS: Record<string, unknown> = {
+  advisorTriggerMode: 'hybrid',
+  advisorBudgetMode: 'adaptive',
+  maxAdvisorCallsShortTask: 1,
+  maxAdvisorCallsLongTask: 2,
+  detector: {
+    riskGate: { enabled: true },
+    observer: { enabled: true },
+    selfReport: { enabled: true, promptPrimingEnabled: true },
+    fusion: {
+      requireComposite: true,
+      targetEscalationRate: 0.05,
+      lowPrecisionFloor: 0.5,
+      sameTurnThresholdMultiplier: 1.5,
+      sameTurnAbsoluteFloor: 3.5,
+    },
+    timing: {
+      sameTurnEnabled: true,
+      maxSameTurnEscalationsPerTurn: 1,
+    },
+  },
+};
+
 export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'A',
@@ -79,28 +102,29 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     id: 'F',
     executorModel: 'gemini-3-flash-preview',
     advisorModel: 'gemini-3.1-pro-preview',
-    advisorFallbackModel: 'gemini-2.5-pro',
+    advisorFallbackModel: null,
     polluxEnabled: true,
     authProfile: 'pollux-advisor',
     publishableEligible: true,
-    settingsOverrides: {
-      detector: {
-        riskGate: { enabled: true },
-        observer: { enabled: true },
-        selfReport: { enabled: true, promptPrimingEnabled: true },
-        fusion: {
-          requireComposite: true,
-          targetEscalationRate: 0.05,
-          lowPrecisionFloor: 0.5,
-          sameTurnThresholdMultiplier: 1.5,
-          sameTurnAbsoluteFloor: 3.5,
-        },
-        timing: {
-          sameTurnEnabled: true,
-          maxSameTurnEscalationsPerTurn: 1,
-        },
-      },
-    },
+    settingsOverrides: HYBRID_ADVISOR_SETTINGS,
+  },
+  {
+    id: 'L',
+    executorModel: 'gemini-3.1-flash-lite-preview',
+    polluxEnabled: false,
+    authProfile: 'lite-executor',
+    publishableEligible: true,
+    settingsOverrides: {},
+  },
+  {
+    id: 'LF',
+    executorModel: 'gemini-3.1-flash-lite-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'lite-advisor',
+    publishableEligible: true,
+    settingsOverrides: HYBRID_ADVISOR_SETTINGS,
   },
 ];
 
@@ -120,6 +144,12 @@ export function buildRealBenchmarkSettings(
   condition: RealBenchmarkConditionProfile,
   telemetryPath: string,
 ): Record<string, unknown> & BenchmarkSettingsOverrides {
+  const advisorTriggerMode = condition.settingsOverrides['advisorTriggerMode'];
+  const advisorBudgetMode = condition.settingsOverrides['advisorBudgetMode'];
+  const maxAdvisorCallsShortTask =
+    condition.settingsOverrides['maxAdvisorCallsShortTask'];
+  const maxAdvisorCallsLongTask =
+    condition.settingsOverrides['maxAdvisorCallsLongTask'];
   const detector =
     (condition.settingsOverrides['detector'] as Record<string, unknown>) ??
     undefined;
@@ -164,8 +194,28 @@ export function buildRealBenchmarkSettings(
         executorModel: condition.executorModel,
         advisorModel: condition.advisorModel,
         advisorFallbackModel: condition.polluxEnabled
-          ? (condition.advisorFallbackModel ?? condition.executorModel)
+          ? condition.advisorFallbackModel === undefined
+            ? condition.executorModel
+            : condition.advisorFallbackModel
           : null,
+        advisorTriggerMode:
+          advisorTriggerMode === 'executor_request' ||
+          advisorTriggerMode === 'detector' ||
+          advisorTriggerMode === 'hybrid'
+            ? advisorTriggerMode
+            : undefined,
+        advisorBudgetMode:
+          advisorBudgetMode === 'fixed' || advisorBudgetMode === 'adaptive'
+            ? advisorBudgetMode
+            : undefined,
+        maxAdvisorCallsShortTask:
+          typeof maxAdvisorCallsShortTask === 'number'
+            ? maxAdvisorCallsShortTask
+            : undefined,
+        maxAdvisorCallsLongTask:
+          typeof maxAdvisorCallsLongTask === 'number'
+            ? maxAdvisorCallsLongTask
+            : undefined,
         ...(detector ? { detector } : {}),
       },
     },

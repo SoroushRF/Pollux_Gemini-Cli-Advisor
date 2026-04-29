@@ -189,6 +189,15 @@ export interface BenchmarkSettingsOverrides {
       executorModel: string;
       advisorModel?: string;
       advisorFallbackModel?: string | null;
+      advisorTriggerMode?: 'executor_request' | 'detector' | 'hybrid';
+      advisorBudgetMode?: 'fixed' | 'adaptive';
+      maxAdvisorCallsShortTask?: number;
+      maxAdvisorCallsLongTask?: number;
+      longTaskHeuristic?: {
+        minToolCalls?: number;
+        minPromptChars?: number;
+        anchoredMutation?: boolean;
+      };
       detector?: BenchmarkCondition['detector'];
     };
   };

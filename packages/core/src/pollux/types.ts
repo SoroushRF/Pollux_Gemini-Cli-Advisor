@@ -63,6 +63,19 @@ export interface PolluxDetectorConfig {
   };
 }
 
+export type PolluxAdvisorTriggerMode =
+  | 'executor_request'
+  | 'detector'
+  | 'hybrid';
+
+export type PolluxAdvisorBudgetMode = 'fixed' | 'adaptive';
+
+export interface PolluxLongTaskHeuristicConfig {
+  readonly minToolCalls: number;
+  readonly minPromptChars: number;
+  readonly anchoredMutation: boolean;
+}
+
 /**
  * Lower bound for merged {@link PolluxDetectorConfig.fusion.sameTurnAbsoluteFloor}.
  * Prevents `0` from silently removing the emphatic same-turn floor (plan §2a.2).
@@ -107,6 +120,8 @@ export const PolluxEscalationReasonCode = {
   RISK_GATE_BLOCK: 'pollux.escalation.risk_gate_block',
   HARD_LOOP: 'pollux.escalation.hard_loop',
   SELF_REPORT_STUCK: 'pollux.escalation.self_report_stuck',
+  EXECUTOR_ADVISOR_REQUEST: 'pollux.escalation.executor_advisor_request',
+  PRE_MUTATION_REVIEW: 'pollux.escalation.pre_mutation_review',
   FUSION_COMPOSITE: 'pollux.escalation.fusion_composite',
   FUSION_COMPOSITE_EMPHATIC: 'pollux.escalation.fusion_composite_emphatic',
   FUSION_BUDGET_TARGET: 'pollux.escalation.fusion_budget_target',
@@ -136,6 +151,8 @@ export const POLLUX_ESCALATION_TIMING: Readonly<
   [PolluxEscalationReasonCode.RISK_GATE_BLOCK]: 'same_turn',
   [PolluxEscalationReasonCode.HARD_LOOP]: 'same_turn',
   [PolluxEscalationReasonCode.SELF_REPORT_STUCK]: 'same_turn',
+  [PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST]: 'same_turn',
+  [PolluxEscalationReasonCode.PRE_MUTATION_REVIEW]: 'same_turn',
   [PolluxEscalationReasonCode.FUSION_COMPOSITE]: 'next_turn',
   [PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC]: 'same_turn',
   [PolluxEscalationReasonCode.FUSION_BUDGET_TARGET]: 'next_turn',
@@ -158,6 +175,11 @@ export interface PolluxExperimentalConfig {
   readonly advisorFallbackModel: string | null;
   readonly maxAdvisorCallsPerTurn: number;
   readonly maxAdvisorCallsPerSession: number;
+  readonly advisorTriggerMode: PolluxAdvisorTriggerMode;
+  readonly advisorBudgetMode: PolluxAdvisorBudgetMode;
+  readonly maxAdvisorCallsShortTask: number;
+  readonly maxAdvisorCallsLongTask: number;
+  readonly longTaskHeuristic: PolluxLongTaskHeuristicConfig;
   readonly emitAdvisorDebug: boolean;
   /**
    * Max time to wait for an advisor model response before fail-open (ms).
@@ -178,9 +200,18 @@ export type PolluxDetectorConfigMergeInput = Partial<{
 
 /** Merge input for `experimental.pollux` including nested detector overrides. */
 export type PolluxExperimentalConfigMergeInput = Partial<
-  Omit<PolluxExperimentalConfig, 'detector'>
+  Omit<
+    PolluxExperimentalConfig,
+    | 'detector'
+    | 'longTaskHeuristic'
+    | 'advisorTriggerMode'
+    | 'advisorBudgetMode'
+  >
 > & {
+  advisorTriggerMode?: unknown;
+  advisorBudgetMode?: unknown;
   detector?: PolluxDetectorConfigMergeInput;
+  longTaskHeuristic?: Partial<PolluxLongTaskHeuristicConfig>;
 };
 
 /**
@@ -195,6 +226,15 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   advisorFallbackModel: 'gemini-2.5-pro',
   maxAdvisorCallsPerTurn: 2,
   maxAdvisorCallsPerSession: 20,
+  advisorTriggerMode: 'hybrid',
+  advisorBudgetMode: 'adaptive',
+  maxAdvisorCallsShortTask: 1,
+  maxAdvisorCallsLongTask: 2,
+  longTaskHeuristic: {
+    minToolCalls: 4,
+    minPromptChars: 1200,
+    anchoredMutation: true,
+  },
   emitAdvisorDebug: false,
   advisorRequestTimeoutMs: 120_000,
   detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
@@ -346,6 +386,42 @@ export function mergePolluxExperimentalConfig(
       d.maxAdvisorCallsPerSession,
       { min: POLLUX_MIN_ADVISOR_CALLS },
     ),
+    advisorTriggerMode:
+      partial?.advisorTriggerMode === 'executor_request' ||
+      partial?.advisorTriggerMode === 'detector' ||
+      partial?.advisorTriggerMode === 'hybrid'
+        ? partial.advisorTriggerMode
+        : d.advisorTriggerMode,
+    advisorBudgetMode:
+      partial?.advisorBudgetMode === 'fixed' ||
+      partial?.advisorBudgetMode === 'adaptive'
+        ? partial.advisorBudgetMode
+        : d.advisorBudgetMode,
+    maxAdvisorCallsShortTask: polluxFiniteNumberInRange(
+      partial?.maxAdvisorCallsShortTask,
+      d.maxAdvisorCallsShortTask,
+      { min: POLLUX_MIN_ADVISOR_CALLS },
+    ),
+    maxAdvisorCallsLongTask: polluxFiniteNumberInRange(
+      partial?.maxAdvisorCallsLongTask,
+      d.maxAdvisorCallsLongTask,
+      { min: POLLUX_MIN_ADVISOR_CALLS },
+    ),
+    longTaskHeuristic: {
+      minToolCalls: polluxFiniteNumberInRange(
+        partial?.longTaskHeuristic?.minToolCalls,
+        d.longTaskHeuristic.minToolCalls,
+        { min: 1 },
+      ),
+      minPromptChars: polluxFiniteNumberInRange(
+        partial?.longTaskHeuristic?.minPromptChars,
+        d.longTaskHeuristic.minPromptChars,
+        { min: 1 },
+      ),
+      anchoredMutation:
+        partial?.longTaskHeuristic?.anchoredMutation ??
+        d.longTaskHeuristic.anchoredMutation,
+    },
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
     advisorRequestTimeoutMs: Math.max(
       POLLUX_MIN_ADVISOR_TIMEOUT_MS,

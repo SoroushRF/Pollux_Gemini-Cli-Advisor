@@ -498,6 +498,9 @@ function parseEscalationTelemetryEvents(
       contributingSignalIds: parseJsonStringArray(
         getStringAttribute(attributes, 'contributing_signal_ids'),
       ),
+      contributingSignalAttributions: parseJsonStringArray(
+        getStringAttribute(attributes, 'contributing_signal_attributions'),
+      ),
       failureKind: getStringAttribute(attributes, 'failure_kind') ?? null,
       eventIndex,
     });
@@ -543,6 +546,7 @@ function parseAdvisorAttemptTelemetryEvents(
         parserOutcome === 'direct' ||
         parserOutcome === 'recovered_fence' ||
         parserOutcome === 'recovered_substring' ||
+        parserOutcome === 'plain_text_fallback' ||
         parserOutcome === 'parse_error' ||
         parserOutcome === 'malformed_json' ||
         parserOutcome === 'schema' ||
@@ -793,24 +797,45 @@ function buildPolluxTimingDiagnostics(params: {
     firstEscalationOutcome: firstEscalation?.outcome ?? null,
     firstEscalationPauseBoundary: firstEscalation?.pauseBoundary ?? null,
     firstEscalationSignalIds: firstEscalation?.contributingSignalIds ?? [],
+    firstEscalationSignalAttributions:
+      firstEscalation?.contributingSignalAttributions ?? [],
   };
 }
 
 function signalClassMatchesReason(
   signalClass: RealBenchmarkTaskSpec['escalationSignalClass'],
-  reasonCode: string,
+  event: RealBenchmarkEscalationEvent,
 ): boolean | null {
+  const reasonCode = event.reasonCode;
+  if (reasonCode === null) {
+    return false;
+  }
   if (signalClass === 'none') {
     return null;
   }
   if (signalClass === 'risk_gate') {
-    return reasonCode === 'pollux.escalation.risk_gate_block';
+    return (
+      reasonCode === 'pollux.escalation.risk_gate_block' &&
+      (event.contributingSignalAttributions ?? []).some((attribution) =>
+        attribution.startsWith('prompt_protected_path:'),
+      )
+    );
   }
   if (signalClass === 'hard_loop') {
     return reasonCode === 'pollux.escalation.hard_loop';
   }
   if (signalClass === 'fusion_composite') {
-    return reasonCode.startsWith('pollux.escalation.fusion_');
+    return (
+      reasonCode.startsWith('pollux.escalation.fusion_') &&
+      event.contributingSignalIds.some((signalId) =>
+        [
+          'tool.cross_surface_drift',
+          'tool.anchor_guided_mutation',
+          'tool.anchor_test_failure',
+          'longitudinal.m3_anchor_pressure',
+        ].includes(signalId),
+      )
+    );
   }
   if (signalClass === 'self_report') {
     return reasonCode === 'pollux.escalation.self_report_stuck';
@@ -821,28 +846,60 @@ function signalClassMatchesReason(
 function buildDetectorOpportunity(
   task: RealBenchmarkTaskSpec,
   condition: RealBenchmarkConditionProfile,
-  reasonCodes: readonly string[],
+  escalationEvents: readonly RealBenchmarkEscalationEvent[],
 ): RealBenchmarkRunRecord['detectorOpportunity'] {
   const signalClass = task.escalationSignalClass;
+  const expectedSignalClasses = [
+    ...(task.expectedEscalationSignalClasses ?? [signalClass]),
+  ];
+  const reasonCodes = escalationEvents
+    .map((event) => event.reasonCode)
+    .filter((reasonCode): reasonCode is string => reasonCode !== null);
+  const observedSignalIds = [
+    ...new Set(
+      escalationEvents.flatMap((event) => event.contributingSignalIds),
+    ),
+  ];
+  const observedSignalAttributions = [
+    ...new Set(
+      escalationEvents.flatMap(
+        (event) => event.contributingSignalAttributions ?? [],
+      ),
+    ),
+  ];
   const expectedForM3 =
     condition.id === 'F' &&
-    signalClass !== 'none' &&
-    (signalClass === 'risk_gate' ||
-      signalClass === 'hard_loop' ||
-      signalClass === 'fusion_composite' ||
-      signalClass === 'self_report');
-  let matchedExpectedSignalClass: boolean | null = null;
-  if (expectedForM3) {
-    matchedExpectedSignalClass = reasonCodes.some(
-      (reasonCode) =>
-        signalClassMatchesReason(signalClass, reasonCode) === true,
+    expectedSignalClasses.some(
+      (expected) =>
+        expected === 'risk_gate' ||
+        expected === 'hard_loop' ||
+        expected === 'fusion_composite' ||
+        expected === 'self_report',
     );
+  let matchedExpectedSignalClass: boolean | null = null;
+  let matchedExpectedSignalEvidence: string | null = null;
+  if (expectedForM3) {
+    for (const event of escalationEvents) {
+      const matchedClass = expectedSignalClasses.find(
+        (expected) => signalClassMatchesReason(expected, event) === true,
+      );
+      if (matchedClass) {
+        matchedExpectedSignalClass = true;
+        matchedExpectedSignalEvidence = `${matchedClass}:${event.reasonCode ?? 'unknown'}`;
+        break;
+      }
+    }
+    matchedExpectedSignalClass ??= false;
   }
   return {
     signalClass,
+    expectedSignalClasses,
     expectedForM3,
     observedReasonCodes: [...reasonCodes],
+    observedSignalIds,
+    observedSignalAttributions,
     matchedExpectedSignalClass,
+    matchedExpectedSignalEvidence,
   };
 }
 
@@ -1192,9 +1249,7 @@ export class PolluxLiveRunRig {
       detectorOpportunity: buildDetectorOpportunity(
         task,
         condition,
-        telemetry.escalationEvents
-          .map((event) => event.reasonCode)
-          .filter((reasonCode): reasonCode is string => reasonCode !== null),
+        telemetry.escalationEvents,
       ),
       entrypointKind: entrypoint.kind,
       entrypointPath: entrypoint.path,

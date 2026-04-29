@@ -9,6 +9,7 @@ import {
   buildAdvisorConsultationPrompt,
   buildAdvisorConsultationRepairPrompt,
   extractPolluxConfidenceTagValues,
+  parsePolluxAdvisorRequestTag,
   parsePolluxStatusTag,
   parseAdvisorModelResponse,
   flushPolluxStatusTagStreamCarry,
@@ -91,6 +92,11 @@ describe('pollux/prompts', () => {
       expect(
         stripPolluxStatusTags('x <pollux:status next="c" stuck_on="a b"/> y'),
       ).toBe('x y');
+      expect(
+        stripPolluxStatusTags(
+          'x <pollux:advisor_request reason="need plan" timing="now"/> y',
+        ),
+      ).toBe('x y');
     });
 
     it('interleaves cleanly with confidence tags (confidence behavior unchanged)', () => {
@@ -139,6 +145,30 @@ describe('pollux/prompts', () => {
     });
   });
 
+  describe('parsePolluxAdvisorRequestTag', () => {
+    it('parses advisor self-request tags in document order', () => {
+      expect(
+        parsePolluxAdvisorRequestTag(
+          'x <pollux:advisor_request reason="need alias map before edit" timing="now"/> y <pollux:advisor_request reason="final review" timing="next"/>',
+        ),
+      ).toEqual([
+        { reason: 'need alias map before edit', timing: 'now' },
+        { reason: 'final review', timing: 'next' },
+      ]);
+    });
+
+    it('tolerates missing attributes and ignores malformed near-misses', () => {
+      expect(
+        parsePolluxAdvisorRequestTag('<pollux:advisor_request reason="risk"/>'),
+      ).toEqual([{ reason: 'risk', timing: undefined }]);
+      expect(
+        parsePolluxAdvisorRequestTag(
+          '<pollux:advisor_requestreason="not valid"/>',
+        ),
+      ).toEqual([]);
+    });
+  });
+
   describe('parseAdvisorModelResponse', () => {
     it('accepts minimal valid JSON', () => {
       const r = parseAdvisorModelResponse('{"guidance":"Use the left file."}');
@@ -150,13 +180,23 @@ describe('pollux/prompts', () => {
       });
     });
 
-    it('fails closed on invalid JSON', () => {
-      expect(parseAdvisorModelResponse('not json')).toMatchObject({
-        ok: false,
-        reason: 'malformed_json',
-        parserOutcome: 'malformed_json',
+    it('accepts short plaintext fallback when JSON parsing fails', () => {
+      expect(
+        parseAdvisorModelResponse('1. Inspect aliases. 2. Patch export.'),
+      ).toMatchObject({
+        ok: true,
+        parserOutcome: 'plain_text_fallback',
+        guidance: '1. Inspect aliases. 2. Patch export.',
       });
       expect(parseAdvisorModelResponse('{')).toMatchObject({
+        ok: true,
+        parserOutcome: 'plain_text_fallback',
+        guidance: '{',
+      });
+    });
+
+    it('rejects long plaintext fallback', () => {
+      expect(parseAdvisorModelResponse('x'.repeat(1201))).toMatchObject({
         ok: false,
         reason: 'malformed_json',
         parserOutcome: 'malformed_json',
@@ -227,11 +267,13 @@ describe('pollux/prompts', () => {
   });
 
   describe('buildAdvisorConsultationPrompt', () => {
-    it('includes tool name, schema, and payload', () => {
+    it('includes compact advisor contract and payload', () => {
       const p = buildAdvisorConsultationPrompt(minimalInput('summarize'));
       expect(p).toContain(ADVISOR_CONSULTATION_TOOL_NAME);
       expect(p).toContain('"guidance"');
-      expect(p).toContain('Consultation payload:');
+      expect(p).toContain('under 100 words');
+      expect(p).toContain('Context:');
+      expect(p).not.toContain('JSON Schema');
       expect(p.endsWith('summarize')).toBe(true);
     });
   });

@@ -42,7 +42,7 @@ function isNonTrivialStuckValue(value: string): boolean {
   return tokenCount(trimmed) >= NON_TRIVIAL_STUCK_TOKENS;
 }
 
-function extractInspectableText(input: SensorInput): string | undefined {
+export function extractInspectableText(input: SensorInput): string | undefined {
   if (input.event.type === GeminiEventType.Thought) {
     const entry = input.event.value;
     return `${entry.subject}\n${entry.description}`.trim();

@@ -143,7 +143,7 @@ export async function runPolluxRealM3Value(params: {
     campaignId: `${params.valueId}-value`,
     repeats: params.repeats,
     taskIds: selectedTaskSet.selectedTaskIds,
-    conditionIds: ['A', 'E', 'F'],
+    conditionIds: ['A', 'F', 'E', 'L', 'LF'],
     pricingSnapshotPath: params.pricingSnapshotPath,
     binaryPath: params.binaryPath,
     entrypointPreference: params.entrypointPreference,

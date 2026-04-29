@@ -439,6 +439,7 @@ describe('CoreEventEmitter', () => {
         escalationTiming: 'same_turn',
         pauseBoundary: 'pre_tool',
         contributingSignalIds: ['risk.pre_tool_high'],
+        contributingSignalAttributions: ['prompt_protected_path:docs/tax.md'],
         sameTurnDowngraded: false,
       };
       events.emitPolluxAdvisorPhase(payload);

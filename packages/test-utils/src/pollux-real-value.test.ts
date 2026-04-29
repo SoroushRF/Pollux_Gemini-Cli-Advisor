@@ -116,6 +116,28 @@ function buildRun(params: {
     advisorConsultOutcome:
       (params.advisorCalls ?? 0) > 0 ? 'consulted' : 'not_expected',
     advisorFailureKind: null,
+    detectorOpportunity:
+      params.conditionId === 'F'
+        ? {
+            signalClass: 'fusion_composite',
+            expectedSignalClasses: ['fusion_composite'],
+            expectedForM3: true,
+            observedReasonCodes:
+              (params.advisorCalls ?? 0) > 0
+                ? ['pollux.escalation.fusion_composite']
+                : [],
+            observedSignalIds:
+              (params.advisorCalls ?? 0) > 0
+                ? ['longitudinal.m3_anchor_pressure']
+                : [],
+            observedSignalAttributions: [],
+            matchedExpectedSignalClass: (params.advisorCalls ?? 0) > 0,
+            matchedExpectedSignalEvidence:
+              (params.advisorCalls ?? 0) > 0
+                ? 'fusion_composite:pollux.escalation.fusion_composite'
+                : null,
+          }
+        : undefined,
     entrypointKind: 'binary',
     entrypointPath: process.execPath,
     buildFreshness: {
@@ -176,6 +198,17 @@ describe('buildRealBenchmarkM3ValueSummary', () => {
     expect(summary.economics.fCostPerTaskVsE).toBe(0.5);
     expect(summary.economics.fCostPerSuccessVsE).toBe(0.5);
     expect(summary.advisorTokenShareF).toBe(0.25);
+    expect(summary.fAdvisorEvidencePresent).toBe(true);
+    expect(summary.fM3AlignedAdvisorEvidencePresent).toBe(true);
+    expect(summary.fConsultedSampleCount).toBe(1);
+    expect(summary.fM3AlignedConsultedSampleCount).toBe(1);
+    expect(summary.fTasksWithAdvisorEvidence).toEqual([
+      'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+    ]);
+    expect(summary.fTasksWithM3AlignedAdvisorEvidence).toEqual([
+      'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+    ]);
+    expect(summary.diagnosticOnly).toBe(false);
     expect(summary.pass).toBe(true);
   });
 
@@ -269,5 +302,108 @@ describe('buildRealBenchmarkM3ValueSummary', () => {
     expect(markdown).toContain('Pollux M3 Value Report');
     expect(markdown).toContain('Condition Economics');
     expect(markdown).toContain('Per-Task Outcomes');
+  });
+
+  it('marks the value suite as diagnostic-only when F has zero advisor evidence', () => {
+    const summary = buildRealBenchmarkM3ValueSummary({
+      valueBatchId: 'm3-value-unit',
+      selectedTaskSetPath: 'selected-task-set.json',
+      selectedTaskSet,
+      corpusSha: 'corpus',
+      thresholds,
+      runs: [
+        buildRun({
+          conditionId: 'A',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.01,
+        }),
+        buildRun({
+          conditionId: 'E',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.1,
+        }),
+        buildRun({
+          conditionId: 'F',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.05,
+          advisorCalls: 0,
+          advisorTokens: 0,
+        }),
+      ],
+    });
+
+    expect(summary.pass).toBe(false);
+    expect(summary.diagnosticOnly).toBe(true);
+    expect(summary.fAdvisorEvidencePresent).toBe(false);
+    expect(summary.fM3AlignedAdvisorEvidencePresent).toBe(false);
+    expect(summary.failedThresholds.join('\n')).toContain(
+      'zero advisor evidence',
+    );
+
+    const markdown = renderRealBenchmarkM3ValueReport(summary);
+    expect(markdown).toContain('Diagnostic-only: yes');
+    expect(markdown).toContain(
+      'detector-miss diagnostic evidence, not valid Pollux product-value evidence',
+    );
+  });
+
+  it('marks the value suite as diagnostic-only when F advisor evidence is not M3-aligned', () => {
+    const summary = buildRealBenchmarkM3ValueSummary({
+      valueBatchId: 'm3-value-unit',
+      selectedTaskSetPath: 'selected-task-set.json',
+      selectedTaskSet,
+      corpusSha: 'corpus',
+      thresholds,
+      runs: [
+        buildRun({
+          conditionId: 'A',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.01,
+        }),
+        buildRun({
+          conditionId: 'E',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.1,
+        }),
+        {
+          ...buildRun({
+            conditionId: 'F',
+            sampleIndex: 1,
+            oraclePass: true,
+            totalCostUsd: 0.05,
+            totalTokens: 200,
+            advisorTokens: 50,
+            advisorCalls: 1,
+          }),
+          detectorOpportunity: {
+            signalClass: 'risk_gate',
+            expectedSignalClasses: ['risk_gate', 'fusion_composite'],
+            expectedForM3: true,
+            observedReasonCodes: ['pollux.escalation.risk_gate_block'],
+            observedSignalIds: ['risk.pre_tool_high'],
+            observedSignalAttributions: ['generic_shell:built_in:rm\\s+-rf'],
+            matchedExpectedSignalClass: false,
+            matchedExpectedSignalEvidence: null,
+          },
+        },
+      ],
+    });
+
+    expect(summary.fAdvisorEvidencePresent).toBe(true);
+    expect(summary.fM3AlignedAdvisorEvidencePresent).toBe(false);
+    expect(summary.diagnosticOnly).toBe(true);
+    expect(summary.failedThresholds.join('\n')).toContain(
+      'zero M3-aligned advisor evidence',
+    );
+
+    const markdown = renderRealBenchmarkM3ValueReport(summary);
+    expect(markdown).toContain(
+      'detector-alignment diagnostic evidence, not valid Pollux product-value evidence',
+    );
   });
 });

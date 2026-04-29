@@ -7,7 +7,7 @@
 import { GeminiEventType } from '../../../core/turn.js';
 import type { ToolCallRequestInfo } from '../../../scheduler/types.js';
 import type { PolluxDetectorConfig } from '../../types.js';
-import type { Sensor, SensorInput, SensorSignal } from './base.js';
+import type { Sensor, SensorInput, SensorSignal , PromptConstraintSummary } from './base.js';
 import {
   EDIT_TOOL_NAME,
   PARAM_FILE_PATH,
@@ -60,6 +60,7 @@ const DELETE_TOOL_NAMES = new Set([
 ]);
 const ENV_PATH_RE = /(^|\/)\.env(?:\.|$)/i;
 const MIGRATIONS_PATH_RE = /(^|\/)migrations(\/|$)/i;
+const RENAME_TOOL_NAMES = new Set(['rename_file', 'move_file']);
 
 function toNormalizedPath(value: string): string {
   return value.trim().replace(/\\/g, '/');
@@ -102,6 +103,10 @@ function findFirstPatternMatch(
   return undefined;
 }
 
+function shellPatternAttribution(kind: string, value: string): string {
+  return `generic_shell:${kind}:${value}`;
+}
+
 function classifyShellCommandRisk(
   command: string,
   riskGateConfig: Readonly<PolluxDetectorConfig['riskGate']>,
@@ -119,7 +124,7 @@ function classifyShellCommandRisk(
     return {
       risk: 'high',
       reason: 'shell command matched built-in high-risk pattern',
-      matchedPattern: builtInMatch,
+      matchedPattern: shellPatternAttribution('built_in', builtInMatch),
     };
   }
 
@@ -141,6 +146,7 @@ function classifyShellCommandRisk(
     return {
       risk: 'high',
       reason: 'shell command is not allowlisted',
+      matchedPattern: shellPatternAttribution('not_allowlisted', 'default'),
     };
   }
 
@@ -152,7 +158,7 @@ function classifyShellCommandRisk(
     return {
       risk: 'high',
       reason: 'shell command matched configured high-risk pattern',
-      matchedPattern: configuredMatch,
+      matchedPattern: shellPatternAttribution('configured', configuredMatch),
     };
   }
 
@@ -271,12 +277,14 @@ function classifyPathRisk(
       return {
         risk: 'high',
         reason: 'target path is environment configuration (.env)',
+        matchedPattern: `generic_path:${primaryPath}`,
       };
     }
     if (MIGRATIONS_PATH_RE.test(primaryPath)) {
       return {
         risk: 'high',
         reason: 'target path is in migrations',
+        matchedPattern: `generic_path:${primaryPath}`,
       };
     }
     if (
@@ -286,6 +294,7 @@ function classifyPathRisk(
       return {
         risk: 'high',
         reason: 'top-level package.json dependency mutation detected',
+        matchedPattern: 'generic_path:package.json:dependencies',
       };
     }
     if (isEtcPath(primaryPath)) {
@@ -314,6 +323,64 @@ function classifyPathRisk(
   return undefined;
 }
 
+function isPathMutationTool(toolName: string): boolean {
+  return (
+    toolName === WRITE_FILE_TOOL_NAME ||
+    toolName === EDIT_TOOL_NAME ||
+    DELETE_TOOL_NAMES.has(toolName) ||
+    RENAME_TOOL_NAMES.has(toolName)
+  );
+}
+
+function protectedPathAttribution(path: string): string {
+  return `prompt_protected_path:${path}`;
+}
+
+function matchesProtectedPath(
+  candidate: string,
+  protectedPath: string,
+): boolean {
+  const normalizedCandidate = toNormalizedPath(candidate).toLowerCase();
+  const normalizedProtected = toNormalizedPath(protectedPath).toLowerCase();
+  return (
+    normalizedCandidate === normalizedProtected ||
+    normalizedCandidate.endsWith(`/${normalizedProtected}`) ||
+    normalizedProtected.endsWith(`/${normalizedCandidate}`)
+  );
+}
+
+function classifyPromptProtectedPathRisk(
+  request: ToolCallRequestInfo,
+  promptConstraintSummary?: PromptConstraintSummary,
+): RiskClassification | undefined {
+  if (
+    promptConstraintSummary === undefined ||
+    promptConstraintSummary.mutationProtectedPaths.length === 0
+  ) {
+    return undefined;
+  }
+  const toolName = request.name.trim().toLowerCase();
+  if (!isPathMutationTool(toolName)) {
+    return undefined;
+  }
+
+  const pathCandidates = collectPathCandidates(request.args);
+  for (const candidate of pathCandidates) {
+    const matchedProtectedPath =
+      promptConstraintSummary.mutationProtectedPaths.find((protectedPath) =>
+        matchesProtectedPath(candidate, protectedPath),
+      );
+    if (matchedProtectedPath) {
+      return {
+        risk: 'high',
+        reason: 'prompt-protected path targeted for mutation',
+        matchedPattern: protectedPathAttribution(matchedProtectedPath),
+      };
+    }
+  }
+  return undefined;
+}
+
 /**
  * Deterministically classify risk for a pending tool request.
  *
@@ -325,13 +392,22 @@ function classifyPathRisk(
 export function classifyToolCallRisk(
   request: ToolCallRequestInfo,
   riskGateConfig: Readonly<PolluxDetectorConfig['riskGate']>,
+  promptConstraintSummary?: PromptConstraintSummary,
 ): RiskClassification {
   const toolName = request.name.trim().toLowerCase();
+  const promptProtectedPathRisk = classifyPromptProtectedPathRisk(
+    request,
+    promptConstraintSummary,
+  );
+  if (promptProtectedPathRisk) {
+    return promptProtectedPathRisk;
+  }
 
   if (DELETE_TOOL_NAMES.has(toolName)) {
     return {
       risk: 'high',
       reason: 'delete-like tool is always treated as high risk',
+      matchedPattern: `generic_tool:${toolName}`,
     };
   }
 
@@ -369,6 +445,7 @@ export class RiskGateSensor implements Sensor {
       const classification = classifyToolCallRisk(
         input.event.value,
         this.riskGateConfig,
+        input.promptConstraintSummary,
       );
       if (classification.risk !== 'high') {
         return [];
@@ -381,7 +458,7 @@ export class RiskGateSensor implements Sensor {
           category: 'risk',
           hardPrecision: true,
           tsMs: Date.now(),
-          attribution: classification.reason ?? classification.matchedPattern,
+          attribution: classification.matchedPattern ?? classification.reason,
         },
       ];
     } catch {

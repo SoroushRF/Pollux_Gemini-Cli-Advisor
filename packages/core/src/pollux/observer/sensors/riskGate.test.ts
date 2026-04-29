@@ -4,17 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { GeminiEventType } from '../../../core/turn.js';
 import { describe, expect, it } from 'vitest';
 import type { ToolCallRequestInfo } from '../../../scheduler/types.js';
 import type { PolluxDetectorConfig } from '../../types.js';
 import {
   classifyToolCallRisk,
+  RiskGateSensor,
   RISK_GATE_ELEVATED_FILE_COUNT_THRESHOLD,
   RISK_PRE_TOOL_HIGH_SIGNAL_ID,
   RISK_PRE_TOOL_HIGH_SIGNAL_PRECISION,
   RISK_PRE_TOOL_HIGH_SIGNAL_WEIGHT,
   RISK_GATE_SENSOR_ID,
 } from './riskGate.js';
+import { parsePromptConstraintSummary } from '../promptConstraints.js';
 
 function makeRequest(
   name: string,
@@ -273,5 +276,93 @@ describe('pollux/observer/sensors/riskGate', () => {
       BLOCKLIST_CONFIG,
     );
     expect(crossPackage.risk).toBe('elevated');
+  });
+
+  it('classifies prompt-protected path mutations as high risk', () => {
+    const result = classifyToolCallRisk(
+      makeRequest('replace', {
+        file_path: 'tests/csv.test.ts',
+        old_string: 'mismatch',
+        new_string: 'fixed',
+      }),
+      BLOCKLIST_CONFIG,
+      parsePromptConstraintSummary(
+        'Fix src/csv.ts. Do not weaken or edit tests/csv.test.ts or README.md.',
+      ),
+    );
+
+    expect(result.risk).toBe('high');
+    expect(result.matchedPattern).toBe(
+      'prompt_protected_path:tests/csv.test.ts',
+    );
+  });
+
+  it('classifies generic shell risk separately from prompt-protected risk', () => {
+    const result = classifyToolCallRisk(
+      makeRequest('run_shell_command', { command: 'rm -rf *' }),
+      BLOCKLIST_CONFIG,
+    );
+
+    expect(result.risk).toBe('high');
+    expect(result.matchedPattern).toMatch(/^generic_shell:built_in:/);
+  });
+
+  it('does not treat behavior-anchor source edits as prompt-protected mutation', () => {
+    const result = classifyToolCallRisk(
+      makeRequest('replace', {
+        file_path: 'src/labels.ts',
+        old_string: 'createStableLabel',
+        new_string: 'createStableLabel',
+      }),
+      BLOCKLIST_CONFIG,
+      parsePromptConstraintSummary(
+        'Fix the transitive import/export mismatch through the public index. Do not change src/labels.ts behavior or tests/view.test.ts.',
+      ),
+    );
+
+    expect(result.risk).toBe('low');
+  });
+
+  it('risk gate sensor emits hard precision for protected file mutation but not reads', () => {
+    const sensor = new RiskGateSensor(BLOCKLIST_CONFIG);
+    const promptConstraintSummary = parsePromptConstraintSummary(
+      'Fix src/tax.ts only. tests/tax.test.ts plus docs/tax.md are protected.',
+    );
+
+    const mutationSignals = sensor.observe({
+      event: {
+        type: GeminiEventType.ToolCallRequest,
+        value: makeRequest('replace', {
+          file_path: 'docs/tax.md',
+          old_string: 'before',
+          new_string: 'after',
+        }),
+      },
+      turnElapsedMs: 1_000,
+      toolEventWindow: [],
+      thoughtWindow: [],
+      promptConstraintSummary,
+    });
+    expect(mutationSignals).toEqual([
+      expect.objectContaining({
+        id: RISK_PRE_TOOL_HIGH_SIGNAL_ID,
+        hardPrecision: true,
+        attribution: 'prompt_protected_path:docs/tax.md',
+      }),
+    ]);
+
+    const readSignals = sensor.observe({
+      event: {
+        type: GeminiEventType.ToolCallRequest,
+        value: makeRequest('read_file', {
+          file_path: 'docs/tax.md',
+        }),
+      },
+      turnElapsedMs: 1_000,
+      toolEventWindow: [],
+      thoughtWindow: [],
+      promptConstraintSummary,
+    });
+    expect(readSignals).toEqual([]);
   });
 });

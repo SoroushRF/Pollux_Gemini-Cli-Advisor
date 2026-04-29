@@ -26,6 +26,7 @@ export interface BaseEscalationIntent {
   readonly reasonCode: PolluxEscalationReasonCode;
   readonly netScore: number;
   readonly contributingSignalIds: readonly string[];
+  readonly contributingSignalAttributions?: readonly string[];
   readonly queuedAtMs: number;
 }
 

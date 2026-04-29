@@ -42,6 +42,10 @@ export type { PolluxObserverSensor } from './sensors/base.js';
 export { THOUGHT_SENSOR_ID } from './sensors/thought.js';
 export { TOOL_PATTERN_SENSOR_ID } from './sensors/toolPattern.js';
 export { SELF_REPORT_SENSOR_ID } from './sensors/selfReport.js';
+export {
+  ADVISOR_REQUEST_SENSOR_ID,
+  SELF_ADVISOR_REQUEST_SIGNAL_ID,
+} from './sensors/advisorRequest.js';
 export { NEGATIVE_SENSOR_ID } from './sensors/negatives.js';
 export {
   LOOP_BRIDGE_SENSOR_ID,

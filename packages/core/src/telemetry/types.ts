@@ -1150,6 +1150,7 @@ export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
   same_turn_downgraded: boolean;
   pause_boundary?: 'pre_tool' | 'post_event';
   contributing_signal_ids: readonly string[];
+  contributing_signal_attributions: readonly string[];
   failure_kind?: string;
 
   constructor(params: {
@@ -1166,6 +1167,7 @@ export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
     sameTurnDowngraded?: boolean;
     pauseBoundary?: 'pre_tool' | 'post_event';
     contributingSignalIds?: readonly string[];
+    contributingSignalAttributions?: readonly string[];
     failureKind?: string;
   }) {
     this['event.name'] = 'pollux_escalation';
@@ -1177,6 +1179,8 @@ export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
     this.same_turn_downgraded = params.sameTurnDowngraded === true;
     this.pause_boundary = params.pauseBoundary;
     this.contributing_signal_ids = params.contributingSignalIds ?? [];
+    this.contributing_signal_attributions =
+      params.contributingSignalAttributions ?? [];
     this.failure_kind = params.failureKind;
   }
 
@@ -1192,6 +1196,9 @@ export class PolluxEscalationTelemetryEvent implements BaseTelemetryEvent {
       same_turn_downgraded: this.same_turn_downgraded,
       pause_boundary: this.pause_boundary,
       contributing_signal_ids: JSON.stringify(this.contributing_signal_ids),
+      contributing_signal_attributions: JSON.stringify(
+        this.contributing_signal_attributions,
+      ),
       failure_kind: this.failure_kind,
     };
   }
@@ -1215,6 +1222,7 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
     | 'direct'
     | 'recovered_fence'
     | 'recovered_substring'
+    | 'plain_text_fallback'
     | 'parse_error'
     | 'malformed_json'
     | 'schema'
@@ -1242,6 +1250,7 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
       | 'direct'
       | 'recovered_fence'
       | 'recovered_substring'
+      | 'plain_text_fallback'
       | 'parse_error'
       | 'malformed_json'
       | 'schema'

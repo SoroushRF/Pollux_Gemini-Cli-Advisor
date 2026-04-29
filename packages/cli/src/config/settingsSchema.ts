@@ -2281,6 +2281,94 @@ const SETTINGS_SCHEMA = {
               'Upper bound on advisor consultations across the session.',
             showInDialog: false,
           },
+          advisorTriggerMode: {
+            type: 'string',
+            label: 'Advisor trigger mode',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorTriggerMode,
+            description:
+              'Controls whether advisor calls are triggered by executor requests, detector signals, or both.',
+            showInDialog: false,
+          },
+          advisorBudgetMode: {
+            type: 'string',
+            label: 'Advisor budget mode',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorBudgetMode,
+            description:
+              'Controls whether Pollux uses fixed per-turn advisor caps or adaptive short/long task caps.',
+            showInDialog: false,
+          },
+          maxAdvisorCallsShortTask: {
+            type: 'number',
+            label: 'Max advisor calls for short tasks',
+            category: 'Experimental',
+            requiresRestart: true,
+            default:
+              DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsShortTask,
+            description: 'Adaptive budget cap for short Pollux tasks.',
+            showInDialog: false,
+          },
+          maxAdvisorCallsLongTask: {
+            type: 'number',
+            label: 'Max advisor calls for long tasks',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.maxAdvisorCallsLongTask,
+            description:
+              'Adaptive budget cap for long or anchored Pollux tasks.',
+            showInDialog: false,
+          },
+          longTaskHeuristic: {
+            type: 'object',
+            label: 'Long task heuristic',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: {},
+            description:
+              'Heuristics used by adaptive advisor budgeting to classify longer Pollux tasks.',
+            showInDialog: false,
+            mergeStrategy: MergeStrategy.SHALLOW_MERGE,
+            properties: {
+              minToolCalls: {
+                type: 'number',
+                label: 'Long task min tool calls',
+                category: 'Experimental',
+                requiresRestart: true,
+                default:
+                  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.longTaskHeuristic
+                    .minToolCalls,
+                description: 'Tool-call threshold used as a long-task signal.',
+                showInDialog: false,
+              },
+              minPromptChars: {
+                type: 'number',
+                label: 'Long task min prompt chars',
+                category: 'Experimental',
+                requiresRestart: true,
+                default:
+                  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.longTaskHeuristic
+                    .minPromptChars,
+                description:
+                  'Prompt character threshold used as a long-task signal.',
+                showInDialog: false,
+              },
+              anchoredMutation: {
+                type: 'boolean',
+                label: 'Long task anchored mutation',
+                category: 'Experimental',
+                requiresRestart: true,
+                default:
+                  DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.longTaskHeuristic
+                    .anchoredMutation,
+                description:
+                  'Whether anchored mutation/continuation context qualifies for the long-task advisor budget.',
+                showInDialog: false,
+              },
+            },
+          },
           emitAdvisorDebug: {
             type: 'boolean',
             label: 'Emit advisor debug',

@@ -146,6 +146,7 @@ describe('polluxCommand', () => {
   it('formatPolluxStatus is exported for cross-surface parity', () => {
     const formatted = formatPolluxStatus(
       {
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
         enabled: true,
         executorModel: 'gemini-3-flash-preview',
         advisorModel: 'gemini-3.1-pro-preview',

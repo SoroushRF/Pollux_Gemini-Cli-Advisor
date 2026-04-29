@@ -147,6 +147,7 @@ describe('pollux/types', () => {
           "pollux.escalation.budget_exhausted": "next_turn",
           "pollux.escalation.config_disabled": "next_turn",
           "pollux.escalation.deferred_surface": "next_turn",
+          "pollux.escalation.executor_advisor_request": "same_turn",
           "pollux.escalation.fail_open": "next_turn",
           "pollux.escalation.fusion_budget_target": "next_turn",
           "pollux.escalation.fusion_composite": "next_turn",
@@ -154,6 +155,7 @@ describe('pollux/types', () => {
           "pollux.escalation.hard_loop": "same_turn",
           "pollux.escalation.live_observer_match": "next_turn",
           "pollux.escalation.none": "next_turn",
+          "pollux.escalation.pre_mutation_review": "same_turn",
           "pollux.escalation.risk_gate_block": "same_turn",
           "pollux.escalation.self_report_stuck": "same_turn",
         }

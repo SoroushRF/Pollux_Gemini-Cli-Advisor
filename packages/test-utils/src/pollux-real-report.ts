@@ -1249,6 +1249,18 @@ function buildEscalationEvidenceBlockers(
     );
   }
 
+  const missedM3OpportunitySamples = validRuns.filter(
+    (run) =>
+      run.conditionId === 'F' &&
+      run.detectorOpportunity?.expectedForM3 === true &&
+      run.detectorOpportunity.matchedExpectedSignalClass !== true,
+  );
+  if (missedM3OpportunitySamples.length > 0) {
+    blockers.push(
+      `Observed ${missedM3OpportunitySamples.length} valid F samples marked as M3 detector opportunities with no M3-aligned escalation evidence: ${missedM3OpportunitySamples.map((run) => run.sampleId).join(', ')}.`,
+    );
+  }
+
   const malformedStatusTagCount = validRuns.reduce(
     (sum, run) => sum + getMalformedStatusTagCount(run),
     0,
@@ -2465,6 +2477,36 @@ export function buildRealBenchmarkM3ValueSummary(params: {
     e.costPerSuccessUsd > 0
       ? f.costPerSuccessUsd / e.costPerSuccessUsd
       : null;
+  const validFWithAdvisorEvidence = params.runs.filter(
+    (run) =>
+      run.conditionId === 'F' &&
+      !run.invalidated &&
+      (run.observedAdvisorCalls > 0 ||
+        run.observedEscalationAttempts > 0 ||
+        run.polluxEscalationTelemetryCount > 0 ||
+        run.tokens.advisor > 0),
+  );
+  const validFWithM3AlignedAdvisorEvidence = validFWithAdvisorEvidence.filter(
+    (run) => run.detectorOpportunity?.matchedExpectedSignalClass === true,
+  );
+  const fAdvisorEvidencePresent = validFWithAdvisorEvidence.length > 0;
+  const fM3AlignedAdvisorEvidencePresent =
+    validFWithM3AlignedAdvisorEvidence.length > 0;
+  const fConsultedSampleCount = validFWithAdvisorEvidence.length;
+  const fM3AlignedConsultedSampleCount =
+    validFWithM3AlignedAdvisorEvidence.length;
+  const fTasksWithAdvisorEvidence = [
+    ...new Set(validFWithAdvisorEvidence.map((run) => run.taskId)),
+  ].sort();
+  const fTasksWithM3AlignedAdvisorEvidence = [
+    ...new Set(validFWithM3AlignedAdvisorEvidence.map((run) => run.taskId)),
+  ].sort();
+  const diagnosticOnly =
+    !fAdvisorEvidencePresent ||
+    !fM3AlignedAdvisorEvidencePresent ||
+    f?.advisorTokenShare === null ||
+    f?.advisorTokenShare === undefined ||
+    f.advisorTokenShare <= 0;
 
   const failedThresholds: string[] = [];
   if (
@@ -2506,6 +2548,25 @@ export function buildRealBenchmarkM3ValueSummary(params: {
       );
     }
   }
+  if (!fAdvisorEvidencePresent) {
+    failedThresholds.push(
+      'F produced zero advisor evidence on the selected set; treat this as detector-miss diagnostic evidence, not product-value evidence',
+    );
+  }
+  if (fAdvisorEvidencePresent && !fM3AlignedAdvisorEvidencePresent) {
+    failedThresholds.push(
+      'F produced advisor evidence but zero M3-aligned advisor evidence on the selected set; treat this as detector-alignment diagnostic evidence, not product-value evidence',
+    );
+  }
+  if (
+    f?.advisorTokenShare === null ||
+    f?.advisorTokenShare === undefined ||
+    f.advisorTokenShare <= 0
+  ) {
+    failedThresholds.push(
+      'F advisor token share is zero on the selected set; treat this as detector-miss diagnostic evidence, not product-value evidence',
+    );
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -2530,7 +2591,14 @@ export function buildRealBenchmarkM3ValueSummary(params: {
         fCostPerSuccessVsE <= params.thresholds.maxFCostPerSuccessVsE,
     },
     advisorTokenShareF: f?.advisorTokenShare ?? null,
-    pass: failedThresholds.length === 0,
+    fAdvisorEvidencePresent,
+    fM3AlignedAdvisorEvidencePresent,
+    fConsultedSampleCount,
+    fM3AlignedConsultedSampleCount,
+    fTasksWithAdvisorEvidence,
+    fTasksWithM3AlignedAdvisorEvidence,
+    diagnosticOnly,
+    pass: !diagnosticOnly && failedThresholds.length === 0,
     failedThresholds,
   };
 }
@@ -2549,6 +2617,7 @@ export function renderRealBenchmarkM3ValueReport(
   lines.push('## 1) Product-Value Decision');
   lines.push('');
   lines.push(`- Pass: ${summary.pass ? 'yes' : 'no'}`);
+  lines.push(`- Diagnostic-only: ${summary.diagnosticOnly ? 'yes' : 'no'}`);
   lines.push(`- Selected tasks: ${summary.selectedTaskIds.length}`);
   lines.push(`- F over A: ${formatRate(summary.uplift.absoluteFOverA)}`);
   lines.push(`- Gap closed by F: ${formatRate(summary.uplift.gapClosedByF)}`);
@@ -2561,6 +2630,30 @@ export function renderRealBenchmarkM3ValueReport(
   lines.push(
     `- F advisor token share: ${formatRate(summary.advisorTokenShareF)}`,
   );
+  lines.push(
+    `- F consulted samples with advisor evidence: ${summary.fConsultedSampleCount}`,
+  );
+  lines.push(
+    `- F consulted samples with M3-aligned advisor evidence: ${summary.fM3AlignedConsultedSampleCount}`,
+  );
+  lines.push(
+    `- F tasks with advisor evidence: ${summary.fTasksWithAdvisorEvidence.length === 0 ? 'none' : summary.fTasksWithAdvisorEvidence.join(', ')}`,
+  );
+  lines.push(
+    `- F tasks with M3-aligned advisor evidence: ${summary.fTasksWithM3AlignedAdvisorEvidence.length === 0 ? 'none' : summary.fTasksWithM3AlignedAdvisorEvidence.join(', ')}`,
+  );
+  if (summary.diagnosticOnly) {
+    lines.push('');
+    if (summary.fAdvisorEvidencePresent) {
+      lines.push(
+        '> F produced advisor evidence, but no M3-aligned advisor evidence on the frozen selected set. This is detector-alignment diagnostic evidence, not valid Pollux product-value evidence.',
+      );
+    } else {
+      lines.push(
+        '> F produced zero advisor evidence on the frozen selected set. This is detector-miss diagnostic evidence, not valid Pollux product-value evidence.',
+      );
+    }
+  }
   if (summary.failedThresholds.length > 0) {
     lines.push('');
     lines.push('Failed thresholds:');
