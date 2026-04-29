@@ -88,6 +88,16 @@ const SHAM_ADVISOR_SETTINGS: Record<string, unknown> = {
     '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
 };
 
+const EXECUTOR_REQUEST_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...HYBRID_ADVISOR_SETTINGS,
+  advisorTriggerMode: 'executor_request',
+};
+
+const DETECTOR_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...HYBRID_ADVISOR_SETTINGS,
+  advisorTriggerMode: 'detector',
+};
+
 export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'A',
@@ -132,6 +142,46 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     authProfile: 'lite-advisor',
     publishableEligible: true,
     settingsOverrides: HYBRID_ADVISOR_SETTINGS,
+  },
+  {
+    id: 'FR',
+    executorModel: 'gemini-3-flash-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'flash-request-advisor',
+    publishableEligible: false,
+    settingsOverrides: EXECUTOR_REQUEST_ADVISOR_SETTINGS,
+  },
+  {
+    id: 'FD',
+    executorModel: 'gemini-3-flash-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'flash-detector-advisor',
+    publishableEligible: false,
+    settingsOverrides: DETECTOR_ADVISOR_SETTINGS,
+  },
+  {
+    id: 'LFR',
+    executorModel: 'gemini-3.1-flash-lite-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'lite-request-advisor',
+    publishableEligible: false,
+    settingsOverrides: EXECUTOR_REQUEST_ADVISOR_SETTINGS,
+  },
+  {
+    id: 'LFD',
+    executorModel: 'gemini-3.1-flash-lite-preview',
+    advisorModel: 'gemini-3.1-pro-preview',
+    advisorFallbackModel: null,
+    polluxEnabled: true,
+    authProfile: 'lite-detector-advisor',
+    publishableEligible: false,
+    settingsOverrides: DETECTOR_ADVISOR_SETTINGS,
   },
   {
     id: 'FS',

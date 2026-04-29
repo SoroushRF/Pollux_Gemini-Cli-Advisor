@@ -295,6 +295,28 @@ describe('pollux/observer', () => {
     expect(obs.peekSameTurnIntent()).toBeUndefined();
   });
 
+  it('detector mode ignores executor advisor-request tags', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        advisorTriggerMode: 'detector',
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value:
+        '<pollux:advisor_request reason="need alias map before editing" timing="now"/>',
+    });
+
+    expect(obs.peekSameTurnIntent()).toBeUndefined();
+  });
+
   it('emits a pre-tool same-turn intent for high-risk shell commands', () => {
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({

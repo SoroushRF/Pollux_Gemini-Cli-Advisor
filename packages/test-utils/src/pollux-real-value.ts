@@ -17,6 +17,7 @@ import {
 } from './pollux-real-report.js';
 import type {
   RealBenchmarkEntrypointPreference,
+  RealBenchmarkConditionId,
   RealBenchmarkM3SelectedTaskSet,
   RealBenchmarkM3ValueThresholds,
 } from './pollux-real-types.js';
@@ -30,12 +31,27 @@ export const POLLUX_REAL_M3_DEFAULT_VALUE_THRESHOLDS: RealBenchmarkM3ValueThresh
     minSelectedTaskCount: 8,
   };
 
+export const POLLUX_REAL_M3_DEFAULT_VALUE_CONDITION_IDS: RealBenchmarkConditionId[] =
+  ['A', 'F', 'E', 'L', 'LF'];
+
 function parseArg(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
   if (index === -1 || index === process.argv.length - 1) {
     return undefined;
   }
   return process.argv[index + 1];
+}
+
+export function parseRealBenchmarkConditionIds(
+  value: string | undefined,
+): RealBenchmarkConditionId[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value
+    .split(',')
+    .map((entry) => entry.trim().toUpperCase())
+    .filter((entry) => entry.length > 0) as RealBenchmarkConditionId[];
 }
 
 function parseEntrypointPreference(
@@ -118,6 +134,7 @@ export async function runPolluxRealM3Value(params: {
   maxWallClockMs?: number;
   maxModelResponsesPerSample?: number;
   fMaxModelResponsesPerSample?: number;
+  conditionIds?: RealBenchmarkConditionId[];
   allowOverwrite?: boolean;
   thresholds?: RealBenchmarkM3ValueThresholds;
 }) {
@@ -143,7 +160,8 @@ export async function runPolluxRealM3Value(params: {
     campaignId: `${params.valueId}-value`,
     repeats: params.repeats,
     taskIds: selectedTaskSet.selectedTaskIds,
-    conditionIds: ['A', 'F', 'E', 'L', 'LF'],
+    conditionIds:
+      params.conditionIds ?? POLLUX_REAL_M3_DEFAULT_VALUE_CONDITION_IDS,
     pricingSnapshotPath: params.pricingSnapshotPath,
     binaryPath: params.binaryPath,
     entrypointPreference: params.entrypointPreference,
@@ -161,6 +179,8 @@ export async function runPolluxRealM3Value(params: {
     selectedTaskSet,
     corpusSha,
     runs: result.runs,
+    conditionIds:
+      params.conditionIds ?? POLLUX_REAL_M3_DEFAULT_VALUE_CONDITION_IDS,
     thresholds,
   });
 
@@ -210,6 +230,7 @@ export async function runPolluxRealM3ValueCli() {
     fMaxModelResponsesPerSample: parsePositiveNumberArg(
       '--f-max-model-responses',
     ),
+    conditionIds: parseRealBenchmarkConditionIds(parseArg('--condition-ids')),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     thresholds,
   });

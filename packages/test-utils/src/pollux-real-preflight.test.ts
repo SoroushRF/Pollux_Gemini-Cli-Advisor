@@ -274,3 +274,66 @@ describe('Pollux real benchmark sham controls', () => {
     });
   });
 });
+
+describe('Pollux real benchmark trigger-mode diagnostics', () => {
+  it('exposes executor-request and detector-only advisor lanes as opt-in diagnostics', () => {
+    const conditions = getPolluxRealConditionsById(['FR', 'FD', 'LFR', 'LFD']);
+
+    expect(conditions).toEqual([
+      expect.objectContaining({
+        id: 'FR',
+        executorModel: 'gemini-3-flash-preview',
+        advisorModel: 'gemini-3.1-pro-preview',
+        advisorFallbackModel: null,
+        polluxEnabled: true,
+        publishableEligible: false,
+      }),
+      expect.objectContaining({
+        id: 'FD',
+        executorModel: 'gemini-3-flash-preview',
+        advisorModel: 'gemini-3.1-pro-preview',
+        advisorFallbackModel: null,
+        polluxEnabled: true,
+        publishableEligible: false,
+      }),
+      expect.objectContaining({
+        id: 'LFR',
+        executorModel: 'gemini-3.1-flash-lite-preview',
+        advisorModel: 'gemini-3.1-pro-preview',
+        advisorFallbackModel: null,
+        polluxEnabled: true,
+        publishableEligible: false,
+      }),
+      expect.objectContaining({
+        id: 'LFD',
+        executorModel: 'gemini-3.1-flash-lite-preview',
+        advisorModel: 'gemini-3.1-pro-preview',
+        advisorFallbackModel: null,
+        polluxEnabled: true,
+        publishableEligible: false,
+      }),
+    ]);
+
+    expect(
+      conditions.map(
+        (condition) =>
+          buildRealBenchmarkSettings(condition, 'telemetry.jsonl').experimental
+            .pollux.advisorTriggerMode,
+      ),
+    ).toEqual(['executor_request', 'detector', 'executor_request', 'detector']);
+  });
+
+  it('keeps trigger-mode diagnostics out of the default manifest', () => {
+    const manifest = buildDefaultCampaignManifest('default-check', [
+      'M3-BM-01-CROSS-FILE-EXPORT-FIX',
+    ]);
+
+    expect(manifest.conditions.map((condition) => condition.id)).toEqual([
+      'A',
+      'E',
+      'F',
+      'L',
+      'LF',
+    ]);
+  });
+});

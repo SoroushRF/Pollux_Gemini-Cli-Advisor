@@ -10,7 +10,17 @@ import type {
   RealBenchmarkLane,
 } from '../../core/src/pollux/benchmark/realTypes.js';
 
-export type RealBenchmarkConditionId = 'A' | 'E' | 'F' | 'L' | 'LF' | 'FS';
+export type RealBenchmarkConditionId =
+  | 'A'
+  | 'E'
+  | 'F'
+  | 'L'
+  | 'LF'
+  | 'FS'
+  | 'FR'
+  | 'FD'
+  | 'LFR'
+  | 'LFD';
 export type RealBenchmarkCampaignMode =
   | 'pilot'
   | 'dress_rehearsal'
@@ -804,6 +814,7 @@ export interface RealBenchmarkTemporaryFlashOnlySummary {
 
 export interface RealBenchmarkM3ConditionValueSummary {
   conditionId: RealBenchmarkConditionId;
+  advisorTriggerMode: RealBenchmarkAdvisorTriggerMode | null;
   sampleCount: number;
   validSamples: number;
   invalidSamples: number;
@@ -829,6 +840,20 @@ export interface RealBenchmarkM3ConditionValueSummary {
   allSamples: RealBenchmarkAllSampleUsageSummary;
 }
 
+export interface RealBenchmarkM3TriggerModeComparisonSummary {
+  baselineConditionId: RealBenchmarkConditionId;
+  comparisonConditionId: RealBenchmarkConditionId;
+  comparisonKind: 'executor_request' | 'detector';
+  baselinePassRate: number | null;
+  comparisonPassRate: number | null;
+  passRateDelta: number | null;
+  baselineCostPerSuccessUsd: number | null;
+  comparisonCostPerSuccessUsd: number | null;
+  costPerSuccessRatio: number | null;
+  baselineAdvisorGuidanceInjectionCount: number;
+  comparisonAdvisorGuidanceInjectionCount: number;
+}
+
 export interface RealBenchmarkM3TaskValueSummary {
   taskId: string;
   passByCondition: Partial<Record<RealBenchmarkConditionId, number | null>>;
@@ -843,8 +868,10 @@ export interface RealBenchmarkM3ValueSummary {
   corpusSha: string;
   thresholds: RealBenchmarkM3ValueThresholds;
   selectedTaskIds: string[];
+  conditionIds: RealBenchmarkConditionId[];
   conditionValueSummaries: RealBenchmarkM3ConditionValueSummary[];
   taskValueSummaries: RealBenchmarkM3TaskValueSummary[];
+  triggerModeComparisons: RealBenchmarkM3TriggerModeComparisonSummary[];
   uplift: {
     absoluteFOverA: number | null;
     gapClosedByF: number | null;

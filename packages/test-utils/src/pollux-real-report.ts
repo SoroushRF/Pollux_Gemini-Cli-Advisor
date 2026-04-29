@@ -10,6 +10,7 @@ import { getRealBenchmarkSeedTask } from '../../core/src/pollux/benchmark/realTa
 import type {
   RealBenchmarkAdvisorConsultOutcome,
   RealBenchmarkAdvisorAttemptRecord,
+  RealBenchmarkAdvisorTriggerMode,
   RealBenchmarkCanaryReliabilitySummary,
   RealBenchmarkCampaignManifest,
   RealBenchmarkCampaignSummary,
@@ -28,6 +29,7 @@ import type {
   RealBenchmarkM3SelectedTaskSet,
   RealBenchmarkM3TaskCalibrationSummary,
   RealBenchmarkM3TaskValueSummary,
+  RealBenchmarkM3TriggerModeComparisonSummary,
   RealBenchmarkM3ValueSummary,
   RealBenchmarkM3ValueThresholds,
   RealBenchmarkNumericStats,
@@ -161,6 +163,62 @@ function hasAdvisorGuidanceInjection(run: RealBenchmarkRunRecord): boolean {
     return run.advisorGuidanceInjected;
   }
   return getAdvisorGuidanceInjectionCount(run) > 0;
+}
+
+const M3_VALUE_CONDITION_ORDER: RealBenchmarkConditionId[] = [
+  'A',
+  'F',
+  'FR',
+  'FD',
+  'E',
+  'L',
+  'LF',
+  'LFR',
+  'LFD',
+  'FS',
+];
+
+function getM3ValueConditionIds(
+  runs: RealBenchmarkRunRecord[],
+): RealBenchmarkConditionId[] {
+  const present = new Set(runs.map((run) => run.conditionId));
+  const ordered = M3_VALUE_CONDITION_ORDER.filter((conditionId) =>
+    present.has(conditionId),
+  );
+  return ordered.length > 0 ? ordered : ['A', 'E', 'F'];
+}
+
+function inferAdvisorTriggerModeForCondition(
+  conditionId: RealBenchmarkConditionId,
+): RealBenchmarkAdvisorTriggerMode | null {
+  if (conditionId === 'F' || conditionId === 'LF' || conditionId === 'FS') {
+    return 'hybrid';
+  }
+  if (conditionId === 'FR' || conditionId === 'LFR') {
+    return 'executor_request';
+  }
+  if (conditionId === 'FD' || conditionId === 'LFD') {
+    return 'detector';
+  }
+  return null;
+}
+
+function getAdvisorTriggerModeForCondition(params: {
+  conditionId: RealBenchmarkConditionId;
+  runs: RealBenchmarkRunRecord[];
+}): RealBenchmarkAdvisorTriggerMode | null {
+  for (const run of params.runs) {
+    const telemetryMode =
+      run.advisorTriggerModes?.find((mode) => mode !== null) ??
+      run.advisorGuidanceEvents?.find(
+        (event) => event.advisorTriggerMode !== null,
+      )?.advisorTriggerMode ??
+      null;
+    if (telemetryMode !== null) {
+      return telemetryMode;
+    }
+  }
+  return inferAdvisorTriggerModeForCondition(params.conditionId);
 }
 
 function buildAllSampleUsageSummary(runs: RealBenchmarkRunRecord[]) {
@@ -2413,6 +2471,10 @@ function buildM3ConditionValueSummary(
 
   return {
     conditionId,
+    advisorTriggerMode: getAdvisorTriggerModeForCondition({
+      conditionId,
+      runs: conditionRuns,
+    }),
     sampleCount: conditionRuns.length,
     validSamples: validRuns.length,
     invalidSamples: conditionRuns.length - validRuns.length,
@@ -2468,6 +2530,7 @@ function buildM3ConditionValueSummary(
 function buildM3TaskValueSummaries(
   selectedTaskIds: string[],
   runs: RealBenchmarkRunRecord[],
+  conditionIds: RealBenchmarkConditionId[],
 ): RealBenchmarkM3TaskValueSummary[] {
   return selectedTaskIds.map((taskId) => {
     const passByCondition: Partial<
@@ -2478,7 +2541,7 @@ function buildM3TaskValueSummaries(
     const invalidByCondition: Partial<
       Record<RealBenchmarkConditionId, number>
     > = {};
-    for (const conditionId of ['A', 'E', 'F'] as const) {
+    for (const conditionId of conditionIds) {
       const conditionRuns = runs.filter(
         (run) => run.taskId === taskId && run.conditionId === conditionId,
       );
@@ -2506,20 +2569,105 @@ function findM3ConditionValueSummary(
   return summaries.find((summary) => summary.conditionId === conditionId);
 }
 
+function buildM3TriggerModeComparisons(
+  summaries: RealBenchmarkM3ConditionValueSummary[],
+): RealBenchmarkM3TriggerModeComparisonSummary[] {
+  const pairs: Array<{
+    baselineConditionId: RealBenchmarkConditionId;
+    comparisonConditionId: RealBenchmarkConditionId;
+    comparisonKind: 'executor_request' | 'detector';
+  }> = [
+    {
+      baselineConditionId: 'F',
+      comparisonConditionId: 'FR',
+      comparisonKind: 'executor_request',
+    },
+    {
+      baselineConditionId: 'F',
+      comparisonConditionId: 'FD',
+      comparisonKind: 'detector',
+    },
+    {
+      baselineConditionId: 'LF',
+      comparisonConditionId: 'LFR',
+      comparisonKind: 'executor_request',
+    },
+    {
+      baselineConditionId: 'LF',
+      comparisonConditionId: 'LFD',
+      comparisonKind: 'detector',
+    },
+  ];
+  const comparisons: RealBenchmarkM3TriggerModeComparisonSummary[] = [];
+
+  for (const pair of pairs) {
+    const baseline = findM3ConditionValueSummary(
+      summaries,
+      pair.baselineConditionId,
+    );
+    const comparison = findM3ConditionValueSummary(
+      summaries,
+      pair.comparisonConditionId,
+    );
+    if (
+      baseline === undefined ||
+      comparison === undefined ||
+      baseline.sampleCount === 0 ||
+      comparison.sampleCount === 0
+    ) {
+      continue;
+    }
+    comparisons.push({
+      baselineConditionId: pair.baselineConditionId,
+      comparisonConditionId: pair.comparisonConditionId,
+      comparisonKind: pair.comparisonKind,
+      baselinePassRate: baseline.passRate,
+      comparisonPassRate: comparison.passRate,
+      passRateDelta:
+        baseline.passRate === null || comparison.passRate === null
+          ? null
+          : comparison.passRate - baseline.passRate,
+      baselineCostPerSuccessUsd: baseline.costPerSuccessUsd,
+      comparisonCostPerSuccessUsd: comparison.costPerSuccessUsd,
+      costPerSuccessRatio:
+        baseline.costPerSuccessUsd === null ||
+        comparison.costPerSuccessUsd === null
+          ? null
+          : divideOrNull(
+              comparison.costPerSuccessUsd,
+              baseline.costPerSuccessUsd,
+            ),
+      baselineAdvisorGuidanceInjectionCount:
+        baseline.advisorGuidanceInjectionCount,
+      comparisonAdvisorGuidanceInjectionCount:
+        comparison.advisorGuidanceInjectionCount,
+    });
+  }
+
+  return comparisons;
+}
+
 export function buildRealBenchmarkM3ValueSummary(params: {
   valueBatchId: string;
   selectedTaskSetPath: string;
   selectedTaskSet: RealBenchmarkM3SelectedTaskSet;
   corpusSha: string;
   runs: RealBenchmarkRunRecord[];
+  conditionIds?: RealBenchmarkConditionId[];
   thresholds: RealBenchmarkM3ValueThresholds;
 }): RealBenchmarkM3ValueSummary {
-  const conditionValueSummaries = (['A', 'E', 'F'] as const).map(
-    (conditionId) => buildM3ConditionValueSummary(conditionId, params.runs),
+  const conditionIds =
+    params.conditionIds ?? getM3ValueConditionIds(params.runs);
+  const conditionValueSummaries = conditionIds.map((conditionId) =>
+    buildM3ConditionValueSummary(conditionId, params.runs),
   );
   const taskValueSummaries = buildM3TaskValueSummaries(
     params.selectedTaskSet.selectedTaskIds,
     params.runs,
+    conditionIds,
+  );
+  const triggerModeComparisons = buildM3TriggerModeComparisons(
+    conditionValueSummaries,
   );
   const a = findM3ConditionValueSummary(conditionValueSummaries, 'A');
   const e = findM3ConditionValueSummary(conditionValueSummaries, 'E');
@@ -2657,8 +2805,10 @@ export function buildRealBenchmarkM3ValueSummary(params: {
     corpusSha: params.corpusSha,
     thresholds: params.thresholds,
     selectedTaskIds: params.selectedTaskSet.selectedTaskIds,
+    conditionIds,
     conditionValueSummaries,
     taskValueSummaries,
+    triggerModeComparisons,
     uplift: {
       absoluteFOverA,
       gapClosedByF,
@@ -2751,31 +2901,63 @@ export function renderRealBenchmarkM3ValueReport(
   );
   lines.push('');
   lines.push(
-    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Guidance injections | Avg advisor tokens/injection | Wall ms | Service ms | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All guidance injections | All cost | All mean responses |',
+    '| Condition | Trigger mode | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Guidance injections | Avg advisor tokens/injection | Wall ms | Service ms | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All guidance injections | All cost | All mean responses |',
   );
   lines.push(
-    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| --- | --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   );
   for (const condition of summary.conditionValueSummaries) {
     const all = condition.allSamples;
     lines.push(
-      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${condition.advisorGuidanceInjectionCount} | ${formatNullableNumber(condition.avgAdvisorTokensPerInjectedConsultation)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${all.advisorGuidanceInjections} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
+      `| ${condition.conditionId} | ${condition.advisorTriggerMode ?? 'n/a'} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${condition.advisorGuidanceInjectionCount} | ${formatNullableNumber(condition.avgAdvisorTokensPerInjectedConsultation)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${all.advisorGuidanceInjections} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
     );
   }
   lines.push('');
-  lines.push('## 3) Per-Task Outcomes');
+  if (summary.triggerModeComparisons.length > 0) {
+    lines.push('## 3) Trigger-Mode Diagnostics');
+    lines.push('');
+    lines.push(
+      '| Base | Compare | Mode | Base pass | Compare pass | Delta | Base cost/success | Compare cost/success | Cost ratio | Base injections | Compare injections |',
+    );
+    lines.push(
+      '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    );
+    for (const comparison of summary.triggerModeComparisons) {
+      lines.push(
+        `| ${comparison.baselineConditionId} | ${comparison.comparisonConditionId} | ${comparison.comparisonKind} | ${formatRate(comparison.baselinePassRate)} | ${formatRate(comparison.comparisonPassRate)} | ${formatRate(comparison.passRateDelta)} | ${formatNullableCurrency(comparison.baselineCostPerSuccessUsd)} | ${formatNullableCurrency(comparison.comparisonCostPerSuccessUsd)} | ${comparison.costPerSuccessRatio === null ? 'n/a' : comparison.costPerSuccessRatio.toFixed(3)} | ${comparison.baselineAdvisorGuidanceInjectionCount} | ${comparison.comparisonAdvisorGuidanceInjectionCount} |`,
+      );
+    }
+    lines.push('');
+  }
+  lines.push(
+    `## ${summary.triggerModeComparisons.length > 0 ? 4 : 3}) Per-Task Outcomes`,
+  );
+  lines.push('');
+  const passHeaders = summary.conditionIds.map(
+    (conditionId) => `${conditionId} pass`,
+  );
+  const invalidHeaders = summary.conditionIds.map(
+    (conditionId) => `${conditionId} invalid`,
+  );
+  lines.push(`| Task | ${[...passHeaders, ...invalidHeaders].join(' | ')} |`);
+  lines.push(
+    `| --- | ${summary.conditionIds.map(() => '---:').join(' | ')} | ${summary.conditionIds.map(() => '---:').join(' | ')} |`,
+  );
+  for (const task of summary.taskValueSummaries) {
+    const passCells = summary.conditionIds.map((conditionId) =>
+      formatRate(task.passByCondition[conditionId] ?? null),
+    );
+    const invalidCells = summary.conditionIds.map(
+      (conditionId) => `${task.invalidByCondition[conditionId] ?? 0}`,
+    );
+    lines.push(
+      `| ${task.taskId} | ${[...passCells, ...invalidCells].join(' | ')} |`,
+    );
+  }
   lines.push('');
   lines.push(
-    '| Task | A pass | E pass | F pass | A invalid | E invalid | F invalid |',
+    `## ${summary.triggerModeComparisons.length > 0 ? 5 : 4}) Interpretation`,
   );
-  lines.push('| --- | ---: | ---: | ---: | ---: | ---: | ---: |');
-  for (const task of summary.taskValueSummaries) {
-    lines.push(
-      `| ${task.taskId} | ${formatRate(task.passByCondition.A ?? null)} | ${formatRate(task.passByCondition.E ?? null)} | ${formatRate(task.passByCondition.F ?? null)} | ${task.invalidByCondition.A ?? 0} | ${task.invalidByCondition.E ?? 0} | ${task.invalidByCondition.F ?? 0} |`,
-    );
-  }
-  lines.push('');
-  lines.push('## 4) Interpretation');
   lines.push('');
   lines.push('- A is the cheap weak-executor baseline.');
   lines.push('- E is the strong-model-only ceiling and cost reference.');

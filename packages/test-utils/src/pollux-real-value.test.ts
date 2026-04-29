@@ -9,7 +9,9 @@ import {
   buildRealBenchmarkM3ValueSummary,
   renderRealBenchmarkM3ValueReport,
 } from './pollux-real-report.js';
+import { parseRealBenchmarkConditionIds } from './pollux-real-value.js';
 import type {
+  RealBenchmarkAdvisorTriggerMode,
   RealBenchmarkConditionId,
   RealBenchmarkM3SelectedTaskSet,
   RealBenchmarkM3ValueThresholds,
@@ -48,8 +50,16 @@ function buildRun(params: {
   totalTokens?: number;
   advisorTokens?: number;
   advisorCalls?: number;
+  advisorTriggerMode?: RealBenchmarkAdvisorTriggerMode;
   invalidated?: boolean;
 }): RealBenchmarkRunRecord {
+  const advisorTriggerMode =
+    params.advisorTriggerMode ??
+    (params.conditionId === 'FR' || params.conditionId === 'LFR'
+      ? 'executor_request'
+      : params.conditionId === 'FD' || params.conditionId === 'LFD'
+        ? 'detector'
+        : 'hybrid');
   return {
     campaignId: 'm3-value-unit',
     sampleId: `${params.conditionId}-${params.sampleIndex}`,
@@ -82,7 +92,8 @@ function buildRun(params: {
     advisorGuidanceChars: (params.advisorCalls ?? 0) > 0 ? 32 : 0,
     advisorGuidanceWords: (params.advisorCalls ?? 0) > 0 ? 5 : 0,
     advisorParserOutcomes: (params.advisorCalls ?? 0) > 0 ? ['direct'] : [],
-    advisorTriggerModes: (params.advisorCalls ?? 0) > 0 ? ['hybrid'] : [],
+    advisorTriggerModes:
+      (params.advisorCalls ?? 0) > 0 ? [advisorTriggerMode] : [],
     advisorTriggerSources: (params.advisorCalls ?? 0) > 0 ? ['fusion'] : [],
     advisorInjectionTimings:
       (params.advisorCalls ?? 0) > 0 ? ['next_turn'] : [],
@@ -172,6 +183,17 @@ function buildRun(params: {
 }
 
 describe('buildRealBenchmarkM3ValueSummary', () => {
+  it('parses opt-in condition IDs for trigger-mode comparison runs', () => {
+    expect(parseRealBenchmarkConditionIds(undefined)).toBeUndefined();
+    expect(parseRealBenchmarkConditionIds('A,FR,E,L,LFR')).toEqual([
+      'A',
+      'FR',
+      'E',
+      'L',
+      'LFR',
+    ]);
+  });
+
   it('computes uplift, gap closure, cost ratios, and advisor token share', () => {
     const summary = buildRealBenchmarkM3ValueSummary({
       valueBatchId: 'm3-value-unit',
@@ -323,6 +345,150 @@ describe('buildRealBenchmarkM3ValueSummary', () => {
     expect(markdown).toContain('Pollux M3 Value Report');
     expect(markdown).toContain('Condition Economics');
     expect(markdown).toContain('Per-Task Outcomes');
+  });
+
+  it('renders requested trigger-mode lanes dynamically', () => {
+    const conditionIds: RealBenchmarkConditionId[] = [
+      'A',
+      'F',
+      'FR',
+      'FD',
+      'E',
+      'L',
+      'LF',
+      'LFR',
+      'LFD',
+    ];
+    const summary = buildRealBenchmarkM3ValueSummary({
+      valueBatchId: 'm3-value-unit',
+      selectedTaskSetPath: 'selected-task-set.json',
+      selectedTaskSet,
+      corpusSha: 'corpus',
+      thresholds,
+      conditionIds,
+      runs: [
+        buildRun({
+          conditionId: 'A',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.01,
+        }),
+        buildRun({
+          conditionId: 'F',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.05,
+          totalTokens: 200,
+          advisorTokens: 50,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'FR',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.052,
+          totalTokens: 180,
+          advisorTokens: 40,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'FD',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.045,
+          totalTokens: 170,
+          advisorTokens: 35,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'E',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.1,
+        }),
+        buildRun({
+          conditionId: 'L',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.005,
+        }),
+        buildRun({
+          conditionId: 'LF',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.04,
+          totalTokens: 190,
+          advisorTokens: 45,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'LFR',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.038,
+          totalTokens: 170,
+          advisorTokens: 38,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'LFD',
+          sampleIndex: 1,
+          oraclePass: false,
+          totalCostUsd: 0.03,
+          totalTokens: 160,
+          advisorTokens: 30,
+          advisorCalls: 1,
+        }),
+      ],
+    });
+
+    expect(summary.conditionIds).toEqual(conditionIds);
+    expect(
+      summary.conditionValueSummaries.map((condition) => [
+        condition.conditionId,
+        condition.advisorTriggerMode,
+      ]),
+    ).toEqual([
+      ['A', null],
+      ['F', 'hybrid'],
+      ['FR', 'executor_request'],
+      ['FD', 'detector'],
+      ['E', null],
+      ['L', null],
+      ['LF', 'hybrid'],
+      ['LFR', 'executor_request'],
+      ['LFD', 'detector'],
+    ]);
+    expect(summary.triggerModeComparisons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          baselineConditionId: 'F',
+          comparisonConditionId: 'FR',
+          comparisonKind: 'executor_request',
+        }),
+        expect.objectContaining({
+          baselineConditionId: 'F',
+          comparisonConditionId: 'FD',
+          comparisonKind: 'detector',
+        }),
+        expect.objectContaining({
+          baselineConditionId: 'LF',
+          comparisonConditionId: 'LFR',
+          comparisonKind: 'executor_request',
+        }),
+        expect.objectContaining({
+          baselineConditionId: 'LF',
+          comparisonConditionId: 'LFD',
+          comparisonKind: 'detector',
+        }),
+      ]),
+    );
+
+    const markdown = renderRealBenchmarkM3ValueReport(summary);
+    expect(markdown).toContain('Trigger-Mode Diagnostics');
+    expect(markdown).toContain('Trigger mode');
+    expect(markdown).toContain('FR pass');
+    expect(markdown).toContain('LFD invalid');
   });
 
   it('marks the value suite as diagnostic-only when F has zero advisor evidence', () => {
