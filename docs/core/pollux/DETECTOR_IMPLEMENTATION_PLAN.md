@@ -109,8 +109,9 @@ The Pollux detector uses a **hybrid timing policy**:
   executor is struggling (§2a.2 confidence gate), it emits a `SameTurnIntent`
   **during the current turn**, pauses the executor at the nearest safe event
   boundary, and invokes the advisor immediately. The advisor's guidance is
-  injected back into the executor's context and the turn resumes (or is
-  replaced) with advisor influence.
+  recorded as hidden executor context for the next continuation/request. The v1
+  implementation does not abort, rewrite, or replace an already-emitted tool
+  call; true abort/restart is a later phase and must be reported separately.
 
 The rule is content-agnostic: it does **not** matter _why_ the executor is
 struggling (risk-gated tool, confirmed loop, explicit self-report, or emphatic
@@ -186,8 +187,11 @@ All of these are MUST and have dedicated tests in Phase F:
    does not interrupt partial content delivery.
 7. **Risk gate is pre-tool.** The `RISK_GATE_BLOCK` pause point is the
    `ToolCallRequest` event boundary, _before_ the tool executes, so the advisor
-   can actually influence the decision. The tool scheduler already has a
-   confirmation seam we can hook into (see §7 for details).
+   can run before scheduler handoff. In v1 the original tool call is not
+   rewritten; successful guidance is injected for the next continuation/request
+   and the original request proceeds unless normal policy/tool confirmation
+   blocks it. The tool scheduler already has a confirmation seam we can hook
+   into for a later abort/restart phase (see §7 for details).
 8. **Other same-turn triggers are post-event.** `HARD_LOOP`,
    `SELF_REPORT_STUCK`, and `FUSION_COMPOSITE_EMPHATIC` pause after the
    triggering event's dispatch completes. They do not try to rewind in-flight
@@ -1101,15 +1105,17 @@ Flip `detector.selfReport.enabled = false` (disables sensor and prompt priming).
 - `client.test.ts` — **same-turn lifecycle (risk gate)**: high-risk
   `ToolCallRequest` → observer produces
   `SameTurnIntent{ pauseBoundary: 'pre_tool' }` → advisor invoked BEFORE tool
-  scheduler → advisor output injected → tool scheduler called afterwards →
-  telemetry shows `escalationTiming: 'same_turn'`,
-  `reasonCode: RISK_GATE_BLOCK`.
+  scheduler → original tool request continues unchanged in v1 → advisor output
+  injected for the next continuation/request → telemetry shows
+  `escalationTiming: 'same_turn'`, `reasonCode: RISK_GATE_BLOCK`, and guidance
+  telemetry reports `injectionTiming: 'same_turn_next_continuation'`.
 - `client.test.ts` — **same-turn lifecycle (hard loop)**: confirmed loop
-  mid-stream → advisor invoked in-turn → turn resumes with advisor guidance (no
-  silent drop).
+  mid-stream → advisor invoked in-turn → hidden guidance is available to the
+  next continuation/request (no silent drop).
 - `client.test.ts` — **same-turn lifecycle (self-report)**:
   `<pollux:status stuck_on="foo">` in a thought → advisor invoked on the next
-  event boundary → `escalationTiming: 'same_turn'`.
+  event boundary → `escalationTiming: 'same_turn'` and guidance injection
+  telemetry records `same_turn_next_continuation`.
 - `client.test.ts` — **emphatic composite**: stacked soft signals with
   `netScore ≥ sameTurnThreshold` produce a `SameTurnIntent` with
   `reasonCode: FUSION_COMPOSITE_EMPHATIC`.

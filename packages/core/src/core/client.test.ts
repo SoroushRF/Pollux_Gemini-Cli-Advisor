@@ -2410,6 +2410,9 @@ describe('Gemini Client (client.ts)', () => {
       const escalationSpy = vi
         .spyOn(telemetryLoggers, 'logPolluxEscalation')
         .mockImplementation(() => {});
+      const guidanceSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxAdvisorGuidance')
+        .mockImplementation(() => {});
 
       const telemetry = capturePolluxAdvisorPhaseEvents();
 
@@ -2442,6 +2445,22 @@ describe('Gemini Client (client.ts)', () => {
             event.reason_code === PolluxEscalationReasonCode.SELF_REPORT_STUCK,
         );
       expect(consulted?.escalation_timing).toBe('same_turn');
+      expect(guidanceSpy).not.toHaveBeenCalled();
+      expect(client['polluxPendingAdvisorGuidance']).toMatchObject({
+        guidance: 'try rebase',
+        injectionTiming: 'same_turn_next_continuation',
+      });
+
+      client['flushPolluxPendingAdvisorGuidance']();
+      expect(guidanceSpy).toHaveBeenCalledWith(
+        mockConfig,
+        expect.objectContaining({
+          reason_code: PolluxEscalationReasonCode.SELF_REPORT_STUCK,
+          escalation_timing: 'same_turn',
+          injection_timing: 'same_turn_next_continuation',
+          advisor_trigger_source: 'self_status',
+        }),
+      );
     });
 
     it('records capacity_exhausted when the advisor model is capacity-limited', async () => {
