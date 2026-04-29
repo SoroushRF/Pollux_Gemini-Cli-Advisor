@@ -77,6 +77,17 @@ function buildRun(params: {
       pricingSnapshotId: params.totalCostUsd === null ? null : 'pricing',
     },
     observedAdvisorCalls: params.advisorCalls ?? 0,
+    advisorGuidanceInjected: (params.advisorCalls ?? 0) > 0,
+    advisorGuidanceInjectionCount: (params.advisorCalls ?? 0) > 0 ? 1 : 0,
+    advisorGuidanceChars: (params.advisorCalls ?? 0) > 0 ? 32 : 0,
+    advisorGuidanceWords: (params.advisorCalls ?? 0) > 0 ? 5 : 0,
+    advisorParserOutcomes: (params.advisorCalls ?? 0) > 0 ? ['direct'] : [],
+    advisorTriggerModes: (params.advisorCalls ?? 0) > 0 ? ['hybrid'] : [],
+    advisorTriggerSources: (params.advisorCalls ?? 0) > 0 ? ['fusion'] : [],
+    advisorInjectionTimings:
+      (params.advisorCalls ?? 0) > 0 ? ['next_turn'] : [],
+    firstAdvisorGuidanceInjectionEventIndex:
+      (params.advisorCalls ?? 0) > 0 ? 2 : null,
     observedEscalationAttempts: params.advisorCalls ?? 0,
     polluxEscalationTelemetryCount: params.advisorCalls ?? 0,
     stdoutStatusTagCount: 0,
@@ -198,6 +209,16 @@ describe('buildRealBenchmarkM3ValueSummary', () => {
     expect(summary.economics.fCostPerTaskVsE).toBe(0.5);
     expect(summary.economics.fCostPerSuccessVsE).toBe(0.5);
     expect(summary.advisorTokenShareF).toBe(0.25);
+    expect(
+      summary.conditionValueSummaries.find(
+        (condition) => condition.conditionId === 'F',
+      ),
+    ).toMatchObject({
+      advisorGuidanceInjectionCount: 1,
+      advisorGuidanceInjectionRate: 1,
+      avgAdvisorTokensPerInjectedConsultation: 50,
+      costPerPassWithInjectedGuidanceUsd: 0.05,
+    });
     expect(summary.fAdvisorEvidencePresent).toBe(true);
     expect(summary.fM3AlignedAdvisorEvidencePresent).toBe(true);
     expect(summary.fConsultedSampleCount).toBe(1);

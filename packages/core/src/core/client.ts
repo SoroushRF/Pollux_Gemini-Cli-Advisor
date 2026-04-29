@@ -54,6 +54,7 @@ import {
   logContentRetryFailure,
   logNextSpeakerCheck,
   logPolluxAdvisorAttempt,
+  logPolluxAdvisorGuidance,
   logPolluxEscalation,
 } from '../telemetry/loggers.js';
 import type {
@@ -64,6 +65,7 @@ import {
   ContentRetryFailureEvent,
   NextSpeakerCheckEvent,
   LlmRole,
+  PolluxAdvisorGuidanceTelemetryEvent,
   PolluxAdvisorAttemptTelemetryEvent,
   PolluxEscalationTelemetryEvent,
 } from '../telemetry/types.js';
@@ -232,6 +234,31 @@ type PolluxAdvisorAttemptParserOutcome =
   | 'capacity_exhausted'
   | 'quota_exhausted';
 
+type PolluxAdvisorTriggerSource =
+  | 'executor_request'
+  | 'pre_mutation'
+  | 'risk_gate'
+  | 'fusion'
+  | 'self_status'
+  | 'loop'
+  | 'unknown';
+
+type PolluxAdvisorInjectionTiming = 'next_turn' | 'same_turn_next_continuation';
+
+interface PolluxAdvisorGuidanceInjection {
+  readonly guidance: string;
+  readonly turnId: string;
+  readonly reasonCode?: string;
+  readonly escalationTiming?: PolluxEscalationTiming;
+  readonly injectionTiming: PolluxAdvisorInjectionTiming;
+  readonly confidence?: number;
+  readonly parserOutcome?: PolluxAdvisorAttemptParserOutcome;
+  readonly triggerMode?: 'executor_request' | 'detector' | 'hybrid';
+  readonly triggerSource: PolluxAdvisorTriggerSource;
+  readonly model?: string;
+  readonly attemptKind?: PolluxAdvisorAttemptKind;
+}
+
 interface PolluxAdvisorAttemptResult {
   readonly attemptIndex: number;
   readonly attemptKind: PolluxAdvisorAttemptKind;
@@ -326,12 +353,7 @@ export class GeminiClient {
    */
   private polluxPendingSameTurnIntent: SameTurnIntent | undefined;
   private polluxPendingAdvisorGuidance:
-    | {
-        readonly guidance: string;
-        readonly reasonCode?: string;
-        readonly escalationTiming?: PolluxEscalationTiming;
-        readonly confidence?: number;
-      }
+    | PolluxAdvisorGuidanceInjection
     | undefined;
   /**
    * Phase F §F.1.4 single-shot guardrail (I11): flips to `true` once a same-
@@ -1020,6 +1042,7 @@ export class GeminiClient {
           readonly structuredConfidence?: number;
           readonly model: string;
           readonly attemptKind: PolluxAdvisorAttemptKind;
+          readonly parserOutcome: PolluxAdvisorAttemptParserOutcome;
         }
       | undefined;
 
@@ -1065,6 +1088,7 @@ export class GeminiClient {
           structuredConfidence: primaryAttempt.structuredConfidence,
           model: primaryAttempt.model,
           attemptKind: primaryAttempt.attemptKind,
+          parserOutcome: primaryAttempt.parserOutcome,
         };
       }
 
@@ -1102,6 +1126,7 @@ export class GeminiClient {
             structuredConfidence: repairAttempt.structuredConfidence,
             model: repairAttempt.model,
             attemptKind: repairAttempt.attemptKind,
+            parserOutcome: repairAttempt.parserOutcome,
           };
         }
       } else if (
@@ -1128,6 +1153,7 @@ export class GeminiClient {
             structuredConfidence: fallbackAttempt.structuredConfidence,
             model: fallbackAttempt.model,
             attemptKind: fallbackAttempt.attemptKind,
+            parserOutcome: fallbackAttempt.parserOutcome,
           };
         }
       }
@@ -1175,10 +1201,23 @@ export class GeminiClient {
     if (winningGuidance) {
       const guidanceInjection = {
         guidance: winningGuidance.guidance,
+        turnId: turnContext.turnId,
         reasonCode: escalationMeta?.reasonCode,
         escalationTiming: escalationMeta?.escalationTiming,
+        injectionTiming:
+          escalationMeta?.escalationTiming === 'same_turn'
+            ? 'same_turn_next_continuation'
+            : 'next_turn',
         confidence: winningGuidance.structuredConfidence,
-      };
+        parserOutcome: winningGuidance.parserOutcome,
+        triggerMode: experimental.advisorTriggerMode,
+        triggerSource: this.derivePolluxAdvisorTriggerSource({
+          reasonCode: escalationMeta?.reasonCode,
+          contributingSignalIds: escalationMeta?.contributingSignalIds,
+        }),
+        model: winningGuidance.model,
+        attemptKind: winningGuidance.attemptKind,
+      } satisfies PolluxAdvisorGuidanceInjection;
       if (escalationMeta?.escalationTiming === 'same_turn') {
         this.polluxPendingAdvisorGuidance = guidanceInjection;
       } else {
@@ -1197,9 +1236,16 @@ export class GeminiClient {
 
   private injectPolluxAdvisorGuidance(params: {
     readonly guidance: string;
+    readonly turnId?: string;
     readonly reasonCode?: string;
     readonly escalationTiming?: PolluxEscalationTiming;
+    readonly injectionTiming?: PolluxAdvisorInjectionTiming;
     readonly confidence?: number;
+    readonly parserOutcome?: PolluxAdvisorAttemptParserOutcome;
+    readonly triggerMode?: 'executor_request' | 'detector' | 'hybrid';
+    readonly triggerSource?: PolluxAdvisorTriggerSource;
+    readonly model?: string;
+    readonly attemptKind?: PolluxAdvisorAttemptKind;
   }): void {
     const text = [
       '<pollux:advisor_guidance>',
@@ -1219,6 +1265,29 @@ export class GeminiClient {
       .join('\n');
 
     this.getChat().addHistory(createUserContent(text));
+
+    if (params.turnId) {
+      const trimmedGuidance = params.guidance.trim();
+      logPolluxAdvisorGuidance(
+        this.config,
+        new PolluxAdvisorGuidanceTelemetryEvent({
+          turnId: params.turnId,
+          reasonCode: params.reasonCode,
+          escalationTiming: params.escalationTiming,
+          injectionTiming: params.injectionTiming ?? 'next_turn',
+          guidanceChars: params.guidance.length,
+          guidanceWords:
+            trimmedGuidance.length === 0
+              ? 0
+              : trimmedGuidance.split(/\s+/u).length,
+          parserOutcome: params.parserOutcome,
+          advisorTriggerMode: params.triggerMode,
+          advisorTriggerSource: params.triggerSource ?? 'unknown',
+          model: params.model,
+          attemptKind: params.attemptKind,
+        }),
+      );
+    }
   }
 
   private flushPolluxPendingAdvisorGuidance(): void {
@@ -1228,6 +1297,44 @@ export class GeminiClient {
     }
     this.polluxPendingAdvisorGuidance = undefined;
     this.injectPolluxAdvisorGuidance(pending);
+  }
+
+  private derivePolluxAdvisorTriggerSource(params: {
+    readonly reasonCode?: string;
+    readonly contributingSignalIds?: readonly string[];
+  }): PolluxAdvisorTriggerSource {
+    const signalIds = params.contributingSignalIds ?? [];
+    if (
+      params.reasonCode ===
+        PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST ||
+      signalIds.some((signalId) => signalId === 'self.advisor_request')
+    ) {
+      return 'executor_request';
+    }
+    if (
+      params.reasonCode === PolluxEscalationReasonCode.PRE_MUTATION_REVIEW ||
+      signalIds.some((signalId) => signalId === 'tool.pre_mutation_advisor')
+    ) {
+      return 'pre_mutation';
+    }
+    if (params.reasonCode === PolluxEscalationReasonCode.RISK_GATE_BLOCK) {
+      return 'risk_gate';
+    }
+    if (
+      params.reasonCode === PolluxEscalationReasonCode.FUSION_COMPOSITE ||
+      params.reasonCode ===
+        PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC ||
+      params.reasonCode === PolluxEscalationReasonCode.FUSION_BUDGET_TARGET
+    ) {
+      return 'fusion';
+    }
+    if (params.reasonCode === PolluxEscalationReasonCode.SELF_REPORT_STUCK) {
+      return 'self_status';
+    }
+    if (params.reasonCode === PolluxEscalationReasonCode.HARD_LOOP) {
+      return 'loop';
+    }
+    return 'unknown';
   }
 
   private async attemptPolluxAdvisorConsultationWithModel(params: {

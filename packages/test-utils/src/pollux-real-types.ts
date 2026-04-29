@@ -58,6 +58,21 @@ export type RealBenchmarkAdvisorParserOutcome =
   | 'timeout'
   | 'capacity_exhausted'
   | 'quota_exhausted';
+export type RealBenchmarkAdvisorInjectionTiming =
+  | 'next_turn'
+  | 'same_turn_next_continuation';
+export type RealBenchmarkAdvisorTriggerMode =
+  | 'executor_request'
+  | 'detector'
+  | 'hybrid';
+export type RealBenchmarkAdvisorTriggerSource =
+  | 'executor_request'
+  | 'pre_mutation'
+  | 'risk_gate'
+  | 'fusion'
+  | 'self_status'
+  | 'loop'
+  | 'unknown';
 export type RealBenchmarkConfusionExclusion = 'budget_exhausted' | 'fail_open';
 export type RealBenchmarkConfusionOutcome =
   | 'true_positive'
@@ -158,6 +173,7 @@ export interface RealBenchmarkTelemetrySummary {
   serviceLatencyMs: number[];
   advisorCalls: number;
   advisorAttempts: RealBenchmarkAdvisorAttemptRecord[];
+  advisorGuidanceEvents: RealBenchmarkAdvisorGuidanceRecord[];
   escalationAttemptCount: number;
   escalationEvents: RealBenchmarkEscalationEvent[];
   tokens: {
@@ -217,6 +233,11 @@ export interface RealBenchmarkAllSampleUsageSummary {
   executorTokens: number;
   totalCostUsd: number | null;
   advisorCalls: number;
+  advisorGuidanceInjections: number;
+  advisorGuidanceInjectedSamples: number;
+  advisorGuidanceChars: number;
+  advisorGuidanceWords: number;
+  avgAdvisorTokensPerInjectedConsultation: number | null;
   escalationAttempts: number;
   rawOraclePasses: number;
   ceilingInvalidations: number;
@@ -250,6 +271,21 @@ export interface RealBenchmarkAdvisorAttemptRecord {
   eventIndex: number;
 }
 
+export interface RealBenchmarkAdvisorGuidanceRecord {
+  turnId: string | null;
+  reasonCode: string | null;
+  escalationTiming: RealBenchmarkEscalationTiming | null;
+  injectionTiming: RealBenchmarkAdvisorInjectionTiming | null;
+  guidanceChars: number;
+  guidanceWords: number;
+  parserOutcome: RealBenchmarkAdvisorParserOutcome | null;
+  advisorTriggerMode: RealBenchmarkAdvisorTriggerMode | null;
+  advisorTriggerSource: RealBenchmarkAdvisorTriggerSource;
+  model: string | null;
+  attemptKind: RealBenchmarkAdvisorAttemptKind | null;
+  eventIndex: number;
+}
+
 export interface RealBenchmarkRunRecord {
   campaignId: string;
   sampleId: string;
@@ -279,6 +315,16 @@ export interface RealBenchmarkRunRecord {
   stderrWorkspacePathViolationCount: number;
   toolErrorCount: number;
   advisorAttempts: RealBenchmarkAdvisorAttemptRecord[];
+  advisorGuidanceEvents?: RealBenchmarkAdvisorGuidanceRecord[];
+  advisorGuidanceInjected?: boolean;
+  advisorGuidanceInjectionCount?: number;
+  advisorGuidanceChars?: number;
+  advisorGuidanceWords?: number;
+  advisorParserOutcomes?: RealBenchmarkAdvisorParserOutcome[];
+  advisorTriggerModes?: RealBenchmarkAdvisorTriggerMode[];
+  advisorTriggerSources?: RealBenchmarkAdvisorTriggerSource[];
+  advisorInjectionTimings?: RealBenchmarkAdvisorInjectionTiming[];
+  firstAdvisorGuidanceInjectionEventIndex?: number | null;
   escalationEvents: RealBenchmarkEscalationEvent[];
   escalationTiming: RealBenchmarkEscalationTiming[];
   reasonCodes: string[];
@@ -773,6 +819,11 @@ export interface RealBenchmarkM3ConditionValueSummary {
   executorTokens: number;
   advisorTokens: number;
   advisorCallRate: number | null;
+  advisorGuidanceInjectionCount: number;
+  advisorGuidanceInjectionRate: number | null;
+  avgAdvisorTokensPerInjectedConsultation: number | null;
+  costPerInjectedSuccessfulSampleUsd: number | null;
+  costPerPassWithInjectedGuidanceUsd: number | null;
   advisorTokenShare: number | null;
   invalidRate: number;
   allSamples: RealBenchmarkAllSampleUsageSummary;

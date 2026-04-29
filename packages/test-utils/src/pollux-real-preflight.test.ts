@@ -170,6 +170,22 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           outcome: 'consulted',
         },
       },
+      {
+        attributes: {
+          'event.name': 'gemini_cli.pollux_advisor_guidance',
+          turn_id: 'prompt-1:1',
+          reason_code: 'pollux.escalation.self_report_stuck',
+          escalation_timing: 'same_turn',
+          injection_timing: 'same_turn_next_continuation',
+          guidance_chars: 32,
+          guidance_words: 5,
+          parser_outcome: 'direct',
+          advisor_trigger_mode: 'hybrid',
+          advisor_trigger_source: 'self_status',
+          model: 'gemini-3-pro-preview',
+          attempt_kind: 'primary',
+        },
+      },
     ]);
 
     expect(summary.promptIds).toEqual(['prompt-1']);
@@ -219,5 +235,15 @@ describe('summarizeRealBenchmarkTelemetry', () => {
       pauseBoundary: 'post_event',
       contributingSignalIds: ['self.structured_status_stuck'],
     });
+    expect(summary.advisorGuidanceEvents).toEqual([
+      expect.objectContaining({
+        guidanceChars: 32,
+        guidanceWords: 5,
+        parserOutcome: 'direct',
+        advisorTriggerMode: 'hybrid',
+        advisorTriggerSource: 'self_status',
+        injectionTiming: 'same_turn_next_continuation',
+      }),
+    ]);
   });
 });

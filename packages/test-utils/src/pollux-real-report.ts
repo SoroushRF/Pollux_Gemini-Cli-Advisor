@@ -125,13 +125,70 @@ function divideOrNull(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
+function getAdvisorGuidanceInjectionCount(run: RealBenchmarkRunRecord): number {
+  if (typeof run.advisorGuidanceInjectionCount === 'number') {
+    return run.advisorGuidanceInjectionCount;
+  }
+  return run.advisorGuidanceEvents?.length ?? 0;
+}
+
+function getAdvisorGuidanceChars(run: RealBenchmarkRunRecord): number {
+  if (typeof run.advisorGuidanceChars === 'number') {
+    return run.advisorGuidanceChars;
+  }
+  return (
+    run.advisorGuidanceEvents?.reduce(
+      (sum, event) => sum + event.guidanceChars,
+      0,
+    ) ?? 0
+  );
+}
+
+function getAdvisorGuidanceWords(run: RealBenchmarkRunRecord): number {
+  if (typeof run.advisorGuidanceWords === 'number') {
+    return run.advisorGuidanceWords;
+  }
+  return (
+    run.advisorGuidanceEvents?.reduce(
+      (sum, event) => sum + event.guidanceWords,
+      0,
+    ) ?? 0
+  );
+}
+
+function hasAdvisorGuidanceInjection(run: RealBenchmarkRunRecord): boolean {
+  if (typeof run.advisorGuidanceInjected === 'boolean') {
+    return run.advisorGuidanceInjected;
+  }
+  return getAdvisorGuidanceInjectionCount(run) > 0;
+}
+
 function buildAllSampleUsageSummary(runs: RealBenchmarkRunRecord[]) {
+  const advisorGuidanceInjections = runs.reduce(
+    (sum, run) => sum + getAdvisorGuidanceInjectionCount(run),
+    0,
+  );
   return {
     totalTokens: runs.reduce((sum, run) => sum + run.tokens.total, 0),
     advisorTokens: runs.reduce((sum, run) => sum + run.tokens.advisor, 0),
     executorTokens: runs.reduce((sum, run) => sum + run.tokens.executor, 0),
     totalCostUsd: sumNullable(runs.map((run) => run.costUsd.total)),
     advisorCalls: runs.reduce((sum, run) => sum + run.observedAdvisorCalls, 0),
+    advisorGuidanceInjections,
+    advisorGuidanceInjectedSamples: runs.filter(hasAdvisorGuidanceInjection)
+      .length,
+    advisorGuidanceChars: runs.reduce(
+      (sum, run) => sum + getAdvisorGuidanceChars(run),
+      0,
+    ),
+    advisorGuidanceWords: runs.reduce(
+      (sum, run) => sum + getAdvisorGuidanceWords(run),
+      0,
+    ),
+    avgAdvisorTokensPerInjectedConsultation: divideOrNull(
+      runs.reduce((sum, run) => sum + run.tokens.advisor, 0),
+      advisorGuidanceInjections,
+    ),
     escalationAttempts: runs.reduce(
       (sum, run) => sum + getObservedEscalationAttempts(run),
       0,
@@ -2346,6 +2403,13 @@ function buildM3ConditionValueSummary(
     (sum, run) => sum + run.tokens.advisor,
     0,
   );
+  const advisorGuidanceInjectionCount = validRuns.reduce(
+    (sum, run) => sum + getAdvisorGuidanceInjectionCount(run),
+    0,
+  );
+  const injectedSuccessfulRuns = validRuns.filter(
+    (run) => run.oraclePass && hasAdvisorGuidanceInjection(run),
+  );
 
   return {
     conditionId,
@@ -2374,6 +2438,23 @@ function buildM3ConditionValueSummary(
       validRuns.reduce((sum, run) => sum + run.observedAdvisorCalls, 0),
       validRuns.length,
     ),
+    advisorGuidanceInjectionCount,
+    advisorGuidanceInjectionRate: divideOrNull(
+      advisorGuidanceInjectionCount,
+      validRuns.length,
+    ),
+    avgAdvisorTokensPerInjectedConsultation: divideOrNull(
+      advisorTokens,
+      advisorGuidanceInjectionCount,
+    ),
+    costPerInjectedSuccessfulSampleUsd:
+      totalCostUsd === null
+        ? null
+        : divideOrNull(totalCostUsd, injectedSuccessfulRuns.length),
+    costPerPassWithInjectedGuidanceUsd:
+      totalCostUsd === null
+        ? null
+        : divideOrNull(totalCostUsd, injectedSuccessfulRuns.length),
     advisorTokenShare: divideOrNull(advisorTokens, totalTokens),
     invalidRate:
       divideOrNull(
@@ -2481,7 +2562,8 @@ export function buildRealBenchmarkM3ValueSummary(params: {
     (run) =>
       run.conditionId === 'F' &&
       !run.invalidated &&
-      (run.observedAdvisorCalls > 0 ||
+      (hasAdvisorGuidanceInjection(run) ||
+        run.observedAdvisorCalls > 0 ||
         run.observedEscalationAttempts > 0 ||
         run.polluxEscalationTelemetryCount > 0 ||
         run.tokens.advisor > 0),
@@ -2669,15 +2751,15 @@ export function renderRealBenchmarkM3ValueReport(
   );
   lines.push('');
   lines.push(
-    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Wall ms | Service ms | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All cost | All mean responses |',
+    '| Condition | Valid | Invalid | Pass rate | Cost/task | Cost/success | Tokens | Advisor tokens | Advisor calls/run | Guidance injections | Avg advisor tokens/injection | Wall ms | Service ms | All raw oracle | All ceiling invalid | All tokens | All advisor tokens | All guidance injections | All cost | All mean responses |',
   );
   lines.push(
-    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| --- | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   );
   for (const condition of summary.conditionValueSummaries) {
     const all = condition.allSamples;
     lines.push(
-      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
+      `| ${condition.conditionId} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${condition.advisorGuidanceInjectionCount} | ${formatNullableNumber(condition.avgAdvisorTokensPerInjectedConsultation)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${all.advisorGuidanceInjections} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
     );
   }
   lines.push('');

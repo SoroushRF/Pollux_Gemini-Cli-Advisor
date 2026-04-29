@@ -1006,6 +1006,10 @@ describe('Gemini Client (client.ts)', () => {
           },
         ],
       } as GenerateContentResponse);
+      const guidanceTelemetrySpy = vi.spyOn(
+        telemetryLoggers,
+        'logPolluxAdvisorGuidance',
+      );
 
       seedPolluxCompositeIntent(client);
       const polluxOn = await fromAsync(
@@ -1040,6 +1044,17 @@ describe('Gemini Client (client.ts)', () => {
         .join('\n');
       expect(historyText).toContain('<pollux:advisor_guidance>');
       expect(historyText).toContain('Continue with executor');
+      expect(guidanceTelemetrySpy).toHaveBeenCalledWith(
+        mockConfig,
+        expect.objectContaining({
+          guidance_chars: 'Continue with executor'.length,
+          guidance_words: 3,
+          parser_outcome: 'direct',
+          advisor_trigger_mode: 'hybrid',
+          advisor_trigger_source: 'fusion',
+          injection_timing: 'next_turn',
+        }),
+      );
     });
 
     it('fails open when advisor policy denies (Cell C)', async () => {

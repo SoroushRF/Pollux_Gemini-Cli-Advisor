@@ -23,6 +23,7 @@ import {
   resolveCliEntrypoint,
 } from './pollux-real-config.js';
 import type {
+  RealBenchmarkAdvisorGuidanceRecord,
   RealBenchmarkAdvisorAttemptRecord,
   PolluxRealPilotOptions,
   RealBenchmarkAdvisorConsultOutcome,
@@ -572,6 +573,90 @@ function parseAdvisorAttemptTelemetryEvents(
   return parsed;
 }
 
+function parseAdvisorGuidanceTelemetryEvents(
+  events: ParsedTelemetryLog[],
+): RealBenchmarkAdvisorGuidanceRecord[] {
+  const parsed: RealBenchmarkAdvisorGuidanceRecord[] = [];
+  for (const [eventIndex, event] of events.entries()) {
+    const attributes = event.attributes;
+    const eventName = getStringAttribute(attributes, 'event.name');
+    if (eventName !== 'gemini_cli.pollux_advisor_guidance') {
+      continue;
+    }
+
+    const escalationTiming = getStringAttribute(
+      attributes,
+      'escalation_timing',
+    );
+    const injectionTiming = getStringAttribute(attributes, 'injection_timing');
+    const parserOutcome = getStringAttribute(attributes, 'parser_outcome');
+    const advisorTriggerMode = getStringAttribute(
+      attributes,
+      'advisor_trigger_mode',
+    );
+    const advisorTriggerSource = getStringAttribute(
+      attributes,
+      'advisor_trigger_source',
+    );
+    const attemptKind = getStringAttribute(attributes, 'attempt_kind');
+
+    parsed.push({
+      turnId: getStringAttribute(attributes, 'turn_id') ?? null,
+      reasonCode: getStringAttribute(attributes, 'reason_code') ?? null,
+      escalationTiming:
+        escalationTiming === 'same_turn' || escalationTiming === 'next_turn'
+          ? escalationTiming
+          : null,
+      injectionTiming:
+        injectionTiming === 'next_turn' ||
+        injectionTiming === 'same_turn_next_continuation'
+          ? injectionTiming
+          : null,
+      guidanceChars: getNumberAttribute(attributes, 'guidance_chars'),
+      guidanceWords: getNumberAttribute(attributes, 'guidance_words'),
+      parserOutcome:
+        parserOutcome === 'direct' ||
+        parserOutcome === 'recovered_fence' ||
+        parserOutcome === 'recovered_substring' ||
+        parserOutcome === 'plain_text_fallback' ||
+        parserOutcome === 'parse_error' ||
+        parserOutcome === 'malformed_json' ||
+        parserOutcome === 'schema' ||
+        parserOutcome === 'empty_response' ||
+        parserOutcome === 'timeout' ||
+        parserOutcome === 'capacity_exhausted' ||
+        parserOutcome === 'quota_exhausted'
+          ? parserOutcome
+          : null,
+      advisorTriggerMode:
+        advisorTriggerMode === 'executor_request' ||
+        advisorTriggerMode === 'detector' ||
+        advisorTriggerMode === 'hybrid'
+          ? advisorTriggerMode
+          : null,
+      advisorTriggerSource:
+        advisorTriggerSource === 'executor_request' ||
+        advisorTriggerSource === 'pre_mutation' ||
+        advisorTriggerSource === 'risk_gate' ||
+        advisorTriggerSource === 'fusion' ||
+        advisorTriggerSource === 'self_status' ||
+        advisorTriggerSource === 'loop' ||
+        advisorTriggerSource === 'unknown'
+          ? advisorTriggerSource
+          : 'unknown',
+      model: getStringAttribute(attributes, 'model') ?? null,
+      attemptKind:
+        attemptKind === 'primary' ||
+        attemptKind === 'repair_retry' ||
+        attemptKind === 'fallback'
+          ? attemptKind
+          : null,
+      eventIndex,
+    });
+  }
+  return parsed;
+}
+
 function deriveConfusionExclusion(
   escalationEvents: RealBenchmarkEscalationEvent[],
 ): RealBenchmarkRunRecord['excludedFromConfusion'] {
@@ -646,6 +731,7 @@ export function summarizeRealBenchmarkTelemetry(
 
   const escalationEvents = parseEscalationTelemetryEvents(events);
   const advisorAttempts = parseAdvisorAttemptTelemetryEvents(events);
+  const advisorGuidanceEvents = parseAdvisorGuidanceTelemetryEvents(events);
   const escalationAttemptCount = countEscalationAttempts(escalationEvents);
 
   for (const event of events) {
@@ -713,6 +799,7 @@ export function summarizeRealBenchmarkTelemetry(
     serviceLatencyMs,
     advisorCalls,
     advisorAttempts,
+    advisorGuidanceEvents,
     escalationAttemptCount,
     escalationEvents,
     tokens: {
@@ -1203,6 +1290,52 @@ export class PolluxLiveRunRig {
       stderrWorkspacePathViolationCount,
       toolErrorCount,
       advisorAttempts: telemetry.advisorAttempts,
+      advisorGuidanceEvents: telemetry.advisorGuidanceEvents,
+      advisorGuidanceInjected: telemetry.advisorGuidanceEvents.length > 0,
+      advisorGuidanceInjectionCount: telemetry.advisorGuidanceEvents.length,
+      advisorGuidanceChars: telemetry.advisorGuidanceEvents.reduce(
+        (sum, event) => sum + event.guidanceChars,
+        0,
+      ),
+      advisorGuidanceWords: telemetry.advisorGuidanceEvents.reduce(
+        (sum, event) => sum + event.guidanceWords,
+        0,
+      ),
+      advisorParserOutcomes: [
+        ...new Set(
+          telemetry.advisorGuidanceEvents
+            .map((event) => event.parserOutcome)
+            .filter(
+              (outcome): outcome is NonNullable<typeof outcome> =>
+                outcome !== null,
+            ),
+        ),
+      ],
+      advisorTriggerModes: [
+        ...new Set(
+          telemetry.advisorGuidanceEvents
+            .map((event) => event.advisorTriggerMode)
+            .filter((mode): mode is NonNullable<typeof mode> => mode !== null),
+        ),
+      ],
+      advisorTriggerSources: [
+        ...new Set(
+          telemetry.advisorGuidanceEvents.map(
+            (event) => event.advisorTriggerSource,
+          ),
+        ),
+      ],
+      advisorInjectionTimings: [
+        ...new Set(
+          telemetry.advisorGuidanceEvents
+            .map((event) => event.injectionTiming)
+            .filter(
+              (timing): timing is NonNullable<typeof timing> => timing !== null,
+            ),
+        ),
+      ],
+      firstAdvisorGuidanceInjectionEventIndex:
+        telemetry.advisorGuidanceEvents[0]?.eventIndex ?? null,
       escalationEvents: telemetry.escalationEvents,
       escalationTiming: [
         ...new Set(
