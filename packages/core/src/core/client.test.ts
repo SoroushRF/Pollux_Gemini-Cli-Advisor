@@ -2463,6 +2463,145 @@ describe('Gemini Client (client.ts)', () => {
       );
     });
 
+    it('executor-request smoke: advisor_request triggers same-turn consult before a substantive edit and stages hidden guidance', async () => {
+      let advisorCalledBeforeTool = false;
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              'Plan first: <pollux:advisor_request reason="need alias map before editing exports across parser and renderer" timing="now"/>',
+          };
+          expect(advisorCalledBeforeTool).toBe(true);
+          yield {
+            type: GeminiEventType.ToolCallRequest,
+            value: {
+              callId: 'tool-1',
+              name: 'replace',
+              args: {
+                file_path: 'src/parser.ts',
+                old_string: 'legacyAlias',
+                new_string: 'stableAlias',
+              },
+              isClientInitiated: false,
+              prompt_id: 'pollux-phase-f-executor-request',
+            },
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        advisorTriggerMode: 'executor_request',
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockImplementation(async (...args) => {
+          if (args[3] === LlmRole.UTILITY_ADVISOR) {
+            advisorCalledBeforeTool = true;
+          }
+          return {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    { text: '{"guidance":"Inspect alias ownership first"}' },
+                  ],
+                },
+              },
+            ],
+          } as GenerateContentResponse;
+        });
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
+      const guidanceSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxAdvisorGuidance')
+        .mockImplementation(() => {});
+
+      const telemetry = capturePolluxAdvisorPhaseEvents();
+
+      const events = await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'update parser alias handling safely' }],
+          new AbortController().signal,
+          'pollux-phase-f-executor-request',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      const phaseEvents = telemetry.stop();
+      expect(advisorSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(Object),
+        LlmRole.UTILITY_ADVISOR,
+        expect.objectContaining({ maxAttemptsOverride: 1 }),
+      );
+      expect(
+        events.some((event) => event.type === GeminiEventType.ToolCallRequest),
+      ).toBe(true);
+      const pending = phaseEvents.find((e) => e.phase === 'pending');
+      expect(pending?.escalationTiming).toBe('same_turn');
+      expect(pending?.pauseBoundary).toBe('post_event');
+      expect(pending?.contributingSignalIds).toContain('self.advisor_request');
+      const consulted = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .find(
+          (event) =>
+            event.outcome === 'consulted' &&
+            event.reason_code ===
+              PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+        );
+      expect(consulted?.escalation_timing).toBe('same_turn');
+      expect(client['polluxPendingAdvisorGuidance']).toMatchObject({
+        guidance: 'Inspect alias ownership first',
+        injectionTiming: 'same_turn_next_continuation',
+      });
+
+      client['flushPolluxPendingAdvisorGuidance']();
+      expect(guidanceSpy).toHaveBeenCalledWith(
+        mockConfig,
+        expect.objectContaining({
+          reason_code: PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+          escalation_timing: 'same_turn',
+          injection_timing: 'same_turn_next_continuation',
+          advisor_trigger_source: 'executor_request',
+        }),
+      );
+      const historyText = client
+        .getHistory()
+        .flatMap((entry) => entry.parts ?? [])
+        .map((part) => ('text' in part ? part.text : ''))
+        .join('\n');
+      expect(historyText).toContain('<pollux:advisor_guidance>');
+      expect(historyText).toContain('Inspect alias ownership first');
+    });
+
     it('records capacity_exhausted when the advisor model is capacity-limited', async () => {
       mockTurnRunFn.mockImplementation(() =>
         (async function* () {
