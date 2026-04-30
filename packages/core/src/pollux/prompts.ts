@@ -10,7 +10,10 @@
  */
 
 import type { AnySchema } from 'ajv';
-import type { AdvisorConsultationInput } from './types.js';
+import type {
+  AdvisorConsultationInput,
+  AdvisorConsultationMode,
+} from './types.js';
 import { ADVISOR_CONSULTATION_TOOL_NAME } from './types.js';
 import { SchemaValidator } from '../utils/schemaValidator.js';
 
@@ -36,6 +39,21 @@ export const POLLUX_ADVISOR_RESPONSE_SCHEMA = {
       maximum: 10,
       description: 'Optional structured confidence (1–10).',
     },
+    must_include: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: 'Optional structural facts the executor must include.',
+    },
+    must_forbid: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: 'Optional structural shortcuts the executor must avoid.',
+    },
+    verify_before_done: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: 'Optional final checks before the executor finishes.',
+    },
   },
 } as const satisfies AnySchema;
 
@@ -47,6 +65,16 @@ const STATUS_TAG_RE = /<pollux:status\b[^>]*\/?>/gi;
 const STATUS_TAG_PREFIX = '<pollux:status';
 const ADVISOR_REQUEST_TAG_RE = /<pollux:advisor_request\b[^>]*\/?>/gi;
 const ADVISOR_REQUEST_TAG_PREFIX = '<pollux:advisor_request';
+const ADVISOR_REQUEST_LINE_RE =
+  /^[ \t]*ADVISOR_REQUEST(?:\s+(now|next))?\s*:\s*(.+)$/gim;
+const ADVISOR_REQUEST_BRACKET_RE = /\[\s*advisor\s+request\s*:\s*([^\]]+)\]/gi;
+const ADVISOR_REQUEST_SNAKE_RE =
+  /^[ \t]*consult_advisor(?:\s+(now|next))?\s*:\s*(.+)$/gim;
+const ADVISOR_REQUEST_LINE_PREFIXES = [
+  'advisor_request',
+  '[advisor request',
+  'consult_advisor',
+] as const;
 
 const STATUS_STUCK_ON_RE = /\bstuck_on\s*=\s*"([^"]*)"/i;
 const STATUS_NEXT_RE = /\bnext\s*=\s*"([^"]*)"/i;
@@ -89,6 +117,7 @@ export interface PolluxStatusTag {
 export interface PolluxAdvisorRequestTag {
   readonly reason?: string;
   readonly timing?: 'now' | 'next';
+  readonly sourceFormat?: 'xml' | 'line' | 'bracket' | 'snake_case' | 'status';
 }
 
 /**
@@ -119,6 +148,32 @@ export function parsePolluxAdvisorRequestTag(
     out.push({
       reason: typeof reason === 'string' ? reason : undefined,
       timing: timing === 'now' || timing === 'next' ? timing : undefined,
+      sourceFormat: 'xml',
+    });
+  }
+  for (const match of text.matchAll(ADVISOR_REQUEST_LINE_RE)) {
+    const timing = match[1];
+    const reason = match[2];
+    out.push({
+      reason: typeof reason === 'string' ? reason.trim() : undefined,
+      timing: timing === 'now' || timing === 'next' ? timing : undefined,
+      sourceFormat: 'line',
+    });
+  }
+  for (const match of text.matchAll(ADVISOR_REQUEST_BRACKET_RE)) {
+    const reason = match[1];
+    out.push({
+      reason: typeof reason === 'string' ? reason.trim() : undefined,
+      sourceFormat: 'bracket',
+    });
+  }
+  for (const match of text.matchAll(ADVISOR_REQUEST_SNAKE_RE)) {
+    const timing = match[1];
+    const reason = match[2];
+    out.push({
+      reason: typeof reason === 'string' ? reason.trim() : undefined,
+      timing: timing === 'now' || timing === 'next' ? timing : undefined,
+      sourceFormat: 'snake_case',
     });
   }
   return out;
@@ -131,6 +186,9 @@ export function stripPolluxStatusTags(text: string): string {
   return text
     .replace(STATUS_TAG_RE, '')
     .replace(ADVISOR_REQUEST_TAG_RE, '')
+    .replace(ADVISOR_REQUEST_LINE_RE, '')
+    .replace(ADVISOR_REQUEST_BRACKET_RE, '')
+    .replace(ADVISOR_REQUEST_SNAKE_RE, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
 }
@@ -144,7 +202,11 @@ function findTrailingStatusTagCarryIndex(text: string): number {
   }
 
   const lower = text.toLowerCase();
-  for (const prefix of [STATUS_TAG_PREFIX, ADVISOR_REQUEST_TAG_PREFIX]) {
+  for (const prefix of [
+    STATUS_TAG_PREFIX,
+    ADVISOR_REQUEST_TAG_PREFIX,
+    ...ADVISOR_REQUEST_LINE_PREFIXES,
+  ]) {
     const maxPrefixLength = Math.min(prefix.length, lower.length);
     for (let length = maxPrefixLength; length > 0; length -= 1) {
       const suffix = lower.slice(lower.length - length);
@@ -190,7 +252,10 @@ export function flushPolluxStatusTagStreamCarry(carry: string): string {
     lower.startsWith(STATUS_TAG_PREFIX) ||
     STATUS_TAG_PREFIX.startsWith(lower) ||
     lower.startsWith(ADVISOR_REQUEST_TAG_PREFIX) ||
-    ADVISOR_REQUEST_TAG_PREFIX.startsWith(lower)
+    ADVISOR_REQUEST_TAG_PREFIX.startsWith(lower) ||
+    ADVISOR_REQUEST_LINE_PREFIXES.some(
+      (prefix) => lower.startsWith(prefix) || prefix.startsWith(lower),
+    )
   ) {
     return '';
   }
@@ -334,6 +399,17 @@ function stripAdvisorPlainText(raw: string): string {
   return stripPolluxStatusTags(stripPolluxConfidenceTags(text));
 }
 
+function collectStringArray(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const entries = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => stripPolluxStatusTags(stripPolluxConfidenceTags(entry)))
+    .filter((entry) => entry.length > 0);
+  return entries.length > 0 ? entries : undefined;
+}
+
 export type ParsedAdvisorModelResponse =
   | {
       readonly ok: true;
@@ -342,6 +418,9 @@ export type ParsedAdvisorModelResponse =
       readonly guidance: string;
       /** From JSON `confidence`, else first valid embedded tag (1–10). */
       readonly structuredConfidence?: number;
+      readonly mustInclude?: readonly string[];
+      readonly mustForbid?: readonly string[];
+      readonly verifyBeforeDone?: readonly string[];
     }
   | {
       readonly ok: false;
@@ -440,12 +519,42 @@ export function parseAdvisorModelResponse(
     }
   }
 
+  const mustInclude = collectStringArray(parsed.value['must_include']);
+  const mustForbid = collectStringArray(parsed.value['must_forbid']);
+  const verifyBeforeDone = collectStringArray(
+    parsed.value['verify_before_done'],
+  );
+
   return {
     ok: true,
     parserOutcome: parsed.parserOutcome,
     guidance,
     structuredConfidence,
+    ...(mustInclude === undefined ? {} : { mustInclude }),
+    ...(mustForbid === undefined ? {} : { mustForbid }),
+    ...(verifyBeforeDone === undefined ? {} : { verifyBeforeDone }),
   };
+}
+
+function buildAdvisorContractLines(mode: AdvisorConsultationMode | undefined) {
+  if (mode === 'constraint_audit' || mode === 'final_audit') {
+    const label =
+      mode === 'final_audit' ? 'final constraint audit' : 'constraint audit';
+    return [
+      `Mode: ${label}`,
+      'You are the stronger advisor. Give only executor-safe strategy.',
+      'Return compact JSON: {"guidance":"1. ... 2. ...","must_include":["..."],"must_forbid":["..."],"verify_before_done":["..."],"confidence":1-10}',
+      'Keep total output under 160 words. Use numbered steps and short checklists.',
+      'Focus on structural constraints the executor is likely to miss.',
+      'No markdown. No user-facing prose.',
+    ];
+  }
+  return [
+    'You are the stronger advisor. Give only executor-safe strategy.',
+    'Return compact JSON: {"guidance":"1. ... 2. ...","confidence":1-10}',
+    'Guidance must be under 100 words. Use numbered steps, not explanations.',
+    'No markdown. No code unless essential. No user-facing prose.',
+  ];
 }
 
 /**
@@ -457,10 +566,7 @@ export function buildAdvisorConsultationPrompt(
 ): string {
   const lines = [
     `Tool: ${ADVISOR_CONSULTATION_TOOL_NAME}`,
-    'You are the stronger advisor. Give only executor-safe strategy.',
-    'Return compact JSON: {"guidance":"1. ... 2. ...","confidence":1-10}',
-    'Guidance must be under 100 words. Use numbered steps, not explanations.',
-    'No markdown. No code unless essential. No user-facing prose.',
+    ...buildAdvisorContractLines(input.mode),
     '',
     'Context:',
     input.body,

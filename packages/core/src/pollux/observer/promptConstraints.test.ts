@@ -72,4 +72,25 @@ describe('pollux/observer/promptConstraints', () => {
       expect.arrayContaining(['tests/color.test.ts']),
     );
   });
+
+  it('detects high-risk state-machine and terminal-state completeness constraints', () => {
+    const summary = parsePromptConstraintSummary(
+      'Repair src/flow.ts so the state machine transition map preserves terminal-state behavior. The done and failed states must remain explicit entries with empty arrays. Do not edit tests/flow.test.ts.',
+    );
+
+    expect(summary.hasStateMachineConstraint).toBe(true);
+    expect(summary.hasTerminalStateConstraint).toBe(true);
+    expect(summary.hasExplicitCompletenessConstraint).toBe(true);
+    expect(summary.hasStructuredMapConstraint).toBe(true);
+    expect(summary.hasBehaviorPreservationConstraint).toBe(true);
+  });
+
+  it('detects negative-space and forbidden-behavior constraints', () => {
+    const summary = parsePromptConstraintSummary(
+      'Preserve the negative space in src/tax.ts: do not add new exemptions and must not weaken forbidden behavior.',
+    );
+
+    expect(summary.hasNegativeSpaceConstraint).toBe(true);
+    expect(summary.hasForbiddenBehaviorConstraint).toBe(true);
+  });
 });

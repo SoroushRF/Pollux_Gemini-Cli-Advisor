@@ -25,6 +25,18 @@ const COMPATIBILITY_ALIAS_RE =
   /\b(compatibility alias|compat alias|old alias .* compatibility|keep .* exported|keeping .* facade|legacy .* facade|facade available|external compatibility|alias-preserving)\b/i;
 const CROSS_FILE_RE =
   /\b(across (?:all )?source files|source files only|through the public index|source of truth|transitive import\/export|transitive import|cross-file|compatibility alias|public index|internal source usage|rename .* across|update internal source usage|cascade contract)\b/i;
+const NEGATIVE_SPACE_RE =
+  /\b(negative space|negative-space|preserve absent|keep absent|must remain absent|do not add|must not add|forbidden)\b/i;
+const EXPLICIT_COMPLETENESS_RE =
+  /\b(explicit|must include|include every|all states|all keys|complete map|completeness|required entries?)\b/i;
+const STATE_MACHINE_RE =
+  /\b(state machine|state-machine|transition map|transitions?|state graph|queued|running)\b/i;
+const TERMINAL_STATE_RE =
+  /\b(terminal state|terminal-state|terminal states|done|failed)\b/i;
+const STRUCTURED_MAP_RE =
+  /\b(registry|alias map|transition map|lookup map|mapping|keyed object|record<|state map)\b/i;
+const FORBIDDEN_BEHAVIOR_RE =
+  /\b(must not|cannot|do not|never|forbidden|without changing|without weakening)\b/i;
 
 export function normalizePromptPath(value: string): string {
   return value
@@ -196,6 +208,12 @@ export function parsePromptConstraintSummary(
       hasBehaviorPreservationConstraint: false,
       hasCrossFileRepairConstraint: false,
       hasCompatibilityAliasConstraint: false,
+      hasNegativeSpaceConstraint: false,
+      hasExplicitCompletenessConstraint: false,
+      hasStateMachineConstraint: false,
+      hasTerminalStateConstraint: false,
+      hasStructuredMapConstraint: false,
+      hasForbiddenBehaviorConstraint: false,
     };
   }
 
@@ -226,6 +244,14 @@ export function parsePromptConstraintSummary(
     (CROSS_FILE_RE.test(normalizedPrompt) ||
       hasPublicInterfaceConstraint ||
       hasCompatibilityAliasConstraint);
+  const hasNegativeSpaceConstraint = NEGATIVE_SPACE_RE.test(normalizedPrompt);
+  const hasExplicitCompletenessConstraint =
+    EXPLICIT_COMPLETENESS_RE.test(normalizedPrompt);
+  const hasStateMachineConstraint = STATE_MACHINE_RE.test(normalizedPrompt);
+  const hasTerminalStateConstraint = TERMINAL_STATE_RE.test(normalizedPrompt);
+  const hasStructuredMapConstraint = STRUCTURED_MAP_RE.test(normalizedPrompt);
+  const hasForbiddenBehaviorConstraint =
+    FORBIDDEN_BEHAVIOR_RE.test(normalizedPrompt);
   const mutationProtectedPathsArray = [...mutationProtectedPaths];
 
   return {
@@ -240,5 +266,11 @@ export function parsePromptConstraintSummary(
     hasBehaviorPreservationConstraint,
     hasCrossFileRepairConstraint,
     hasCompatibilityAliasConstraint,
+    hasNegativeSpaceConstraint,
+    hasExplicitCompletenessConstraint,
+    hasStateMachineConstraint,
+    hasTerminalStateConstraint,
+    hasStructuredMapConstraint,
+    hasForbiddenBehaviorConstraint,
   };
 }

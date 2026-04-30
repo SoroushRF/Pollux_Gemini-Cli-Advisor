@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { parsePolluxAdvisorRequestTag } from '../../prompts.js';
+import {
+  parsePolluxAdvisorRequestTag,
+  parsePolluxStatusTag,
+} from '../../prompts.js';
 import type { Sensor, SensorInput, SensorSignal } from './base.js';
 import { extractInspectableText } from './selfReport.js';
 
@@ -20,6 +23,9 @@ const TRIVIAL_REASONS = new Set([
   'unsure',
   'help',
 ]);
+
+const STATUS_ADVISOR_HINT_RE =
+  /\b(stuck|unsure|risky|invariant|cannot determine|need review|preserve|terminal|alias|state machine|negative space|compatibility)\b/i;
 
 function isNonTrivialAdvisorReason(
   reason: string | undefined,
@@ -48,9 +54,24 @@ export class AdvisorRequestSensor implements Sensor {
       if (!text) {
         return [];
       }
-      const tag = parsePolluxAdvisorRequestTag(text).find((candidate) =>
-        isNonTrivialAdvisorReason(candidate.reason),
-      );
+      const tag =
+        parsePolluxAdvisorRequestTag(text).find((candidate) =>
+          isNonTrivialAdvisorReason(candidate.reason),
+        ) ??
+        parsePolluxStatusTag(text)
+          .map((status) => {
+            const reason = [status.stuckOn, status.next]
+              .filter((entry): entry is string => typeof entry === 'string')
+              .join(' ');
+            return STATUS_ADVISOR_HINT_RE.test(reason)
+              ? ({
+                  reason,
+                  timing: 'now',
+                  sourceFormat: 'status',
+                } as const)
+              : undefined;
+          })
+          .find((candidate) => isNonTrivialAdvisorReason(candidate?.reason));
       if (!tag?.reason) {
         return [];
       }

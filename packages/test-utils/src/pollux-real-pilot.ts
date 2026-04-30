@@ -102,6 +102,11 @@ export async function runPolluxRealCampaign(params: {
   artifactRoot?: string;
   allowOverwrite?: boolean;
   conditionIds?: RealBenchmarkConditionId[];
+  diagnosticTrace?: {
+    enabled?: boolean;
+    includeAdvisorGuidanceText?: boolean;
+    includeModelThoughts?: 'summary' | 'raw_model_exposed';
+  };
 }) {
   const selectedTasks = getSelectedTasks(params.taskIds);
   const pricingSnapshot = loadPricingSnapshotFromPath(
@@ -175,6 +180,7 @@ export async function runPolluxRealCampaign(params: {
     maxWallClockMs: params.maxWallClockMs,
     maxModelResponsesPerSample: params.maxModelResponsesPerSample,
     fMaxModelResponsesPerSample: params.fMaxModelResponsesPerSample,
+    diagnosticTrace: params.diagnosticTrace,
     repoRoot: POLLUX_REAL_REPO_ROOT,
   });
 
@@ -291,6 +297,17 @@ export async function runPolluxRealPilot() {
     fMaxModelResponsesPerSample: parsePositiveNumberArg(
       '--f-max-model-responses',
     ),
+    diagnosticTrace: {
+      enabled: parseBooleanArg('--pollux-diagnostic-trace', false),
+      includeAdvisorGuidanceText: parseBooleanArg(
+        '--pollux-diagnostic-trace-guidance',
+        false,
+      ),
+      includeModelThoughts:
+        parseArg('--pollux-diagnostic-trace-thoughts') === 'raw_model_exposed'
+          ? 'raw_model_exposed'
+          : 'summary',
+    },
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     conditionIds: parseConditionIdsArg('--condition-ids'),
   });

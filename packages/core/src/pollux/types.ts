@@ -76,6 +76,31 @@ export interface PolluxLongTaskHeuristicConfig {
   readonly anchoredMutation: boolean;
 }
 
+export type PolluxDiagnosticTraceThoughtMode = 'summary' | 'raw_model_exposed';
+
+export type PolluxDiagnosticTraceToolResultMode =
+  | 'none'
+  | 'summary'
+  | 'snippet';
+
+export interface PolluxDiagnosticTraceConfig {
+  readonly enabled: boolean;
+  readonly outputPath: string | null;
+  readonly includeModelThoughts: PolluxDiagnosticTraceThoughtMode;
+  readonly includeAdvisorGuidanceText: boolean;
+  readonly includeExecutorText: boolean;
+  readonly includeToolCalls: boolean;
+  readonly includeToolResults: PolluxDiagnosticTraceToolResultMode;
+  readonly includeObserverSignals: boolean;
+  readonly maxTextCharsPerEvent: number;
+  readonly redactSensitiveText: boolean;
+}
+
+export type AdvisorConsultationMode =
+  | 'compact'
+  | 'constraint_audit'
+  | 'final_audit';
+
 /**
  * Lower bound for merged {@link PolluxDetectorConfig.fusion.sameTurnAbsoluteFloor}.
  * Prevents `0` from silently removing the emphatic same-turn floor (plan §2a.2).
@@ -121,7 +146,9 @@ export const PolluxEscalationReasonCode = {
   HARD_LOOP: 'pollux.escalation.hard_loop',
   SELF_REPORT_STUCK: 'pollux.escalation.self_report_stuck',
   EXECUTOR_ADVISOR_REQUEST: 'pollux.escalation.executor_advisor_request',
+  EXECUTOR_CHECKPOINT_REQUEST: 'pollux.escalation.executor_checkpoint_request',
   PRE_MUTATION_REVIEW: 'pollux.escalation.pre_mutation_review',
+  FINAL_CONSTRAINT_AUDIT: 'pollux.escalation.final_constraint_audit',
   FUSION_COMPOSITE: 'pollux.escalation.fusion_composite',
   FUSION_COMPOSITE_EMPHATIC: 'pollux.escalation.fusion_composite_emphatic',
   FUSION_BUDGET_TARGET: 'pollux.escalation.fusion_budget_target',
@@ -152,7 +179,9 @@ export const POLLUX_ESCALATION_TIMING: Readonly<
   [PolluxEscalationReasonCode.HARD_LOOP]: 'same_turn',
   [PolluxEscalationReasonCode.SELF_REPORT_STUCK]: 'same_turn',
   [PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST]: 'same_turn',
+  [PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST]: 'same_turn',
   [PolluxEscalationReasonCode.PRE_MUTATION_REVIEW]: 'same_turn',
+  [PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT]: 'same_turn',
   [PolluxEscalationReasonCode.FUSION_COMPOSITE]: 'next_turn',
   [PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC]: 'same_turn',
   [PolluxEscalationReasonCode.FUSION_BUDGET_TARGET]: 'next_turn',
@@ -183,6 +212,7 @@ export interface PolluxExperimentalConfig {
   readonly advisorShamEnabled: boolean;
   readonly advisorShamGuidance: string;
   readonly emitAdvisorDebug: boolean;
+  readonly diagnosticTrace: PolluxDiagnosticTraceConfig;
   /**
    * Max time to wait for an advisor model response before fail-open (ms).
    * P1-07; enforced by runtime integration in later phases.
@@ -208,12 +238,14 @@ export type PolluxExperimentalConfigMergeInput = Partial<
     | 'longTaskHeuristic'
     | 'advisorTriggerMode'
     | 'advisorBudgetMode'
+    | 'diagnosticTrace'
   >
 > & {
   advisorTriggerMode?: unknown;
   advisorBudgetMode?: unknown;
   detector?: PolluxDetectorConfigMergeInput;
   longTaskHeuristic?: Partial<PolluxLongTaskHeuristicConfig>;
+  diagnosticTrace?: Partial<PolluxDiagnosticTraceConfig>;
 };
 
 /**
@@ -241,6 +273,18 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   advisorShamGuidance:
     '1. Continue with the best supported plan. 2. Verify with the existing oracle.',
   emitAdvisorDebug: false,
+  diagnosticTrace: {
+    enabled: false,
+    outputPath: null,
+    includeModelThoughts: 'summary',
+    includeAdvisorGuidanceText: false,
+    includeExecutorText: true,
+    includeToolCalls: true,
+    includeToolResults: 'summary',
+    includeObserverSignals: true,
+    maxTextCharsPerEvent: 4000,
+    redactSensitiveText: true,
+  },
   advisorRequestTimeoutMs: 120_000,
   detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
 } as const satisfies PolluxExperimentalConfig;
@@ -361,6 +405,46 @@ function polluxFiniteNumberInRange(
   return bounded;
 }
 
+function mergePolluxDiagnosticTraceConfig(
+  partial: Partial<PolluxDiagnosticTraceConfig> | undefined,
+): PolluxDiagnosticTraceConfig {
+  const d = DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.diagnosticTrace;
+  const includeModelThoughts =
+    partial?.includeModelThoughts === 'raw_model_exposed' ||
+    partial?.includeModelThoughts === 'summary'
+      ? partial.includeModelThoughts
+      : d.includeModelThoughts;
+  const includeToolResults =
+    partial?.includeToolResults === 'none' ||
+    partial?.includeToolResults === 'summary' ||
+    partial?.includeToolResults === 'snippet'
+      ? partial.includeToolResults
+      : d.includeToolResults;
+
+  return {
+    enabled: partial?.enabled ?? d.enabled,
+    outputPath:
+      typeof partial?.outputPath === 'string' &&
+      partial.outputPath.trim().length > 0
+        ? partial.outputPath
+        : d.outputPath,
+    includeModelThoughts,
+    includeAdvisorGuidanceText:
+      partial?.includeAdvisorGuidanceText ?? d.includeAdvisorGuidanceText,
+    includeExecutorText: partial?.includeExecutorText ?? d.includeExecutorText,
+    includeToolCalls: partial?.includeToolCalls ?? d.includeToolCalls,
+    includeToolResults,
+    includeObserverSignals:
+      partial?.includeObserverSignals ?? d.includeObserverSignals,
+    maxTextCharsPerEvent: polluxFiniteNumberInRange(
+      partial?.maxTextCharsPerEvent,
+      d.maxTextCharsPerEvent,
+      { min: 128, max: 64_000 },
+    ),
+    redactSensitiveText: partial?.redactSensitiveText ?? d.redactSensitiveText,
+  };
+}
+
 /**
  * Merge CLI/settings partial values with Pollux defaults (P1-04, P0-03).
  * Unknown / non-finite numeric fields fall back to defaults. Numeric fields
@@ -434,6 +518,7 @@ export function mergePolluxExperimentalConfig(
         ? partial.advisorShamGuidance
         : d.advisorShamGuidance,
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
+    diagnosticTrace: mergePolluxDiagnosticTraceConfig(partial?.diagnosticTrace),
     advisorRequestTimeoutMs: Math.max(
       POLLUX_MIN_ADVISOR_TIMEOUT_MS,
       polluxFiniteNumber(
@@ -479,6 +564,8 @@ export interface AdvisorConsultationInput {
   readonly context: PolluxTurnContext;
   /** Same tool name as scheduler policy match. */
   readonly toolName: typeof ADVISOR_CONSULTATION_TOOL_NAME;
+  /** Prompt contract variant for the stronger advisor. */
+  readonly mode?: AdvisorConsultationMode;
   /** Bounded natural-language or structured summary for the advisor model. */
   readonly body: string;
 }

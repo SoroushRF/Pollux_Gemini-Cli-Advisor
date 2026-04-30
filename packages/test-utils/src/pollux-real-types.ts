@@ -77,13 +77,28 @@ export type RealBenchmarkAdvisorTriggerMode =
   | 'hybrid';
 export type RealBenchmarkAdvisorTriggerSource =
   | 'executor_request'
+  | 'executor_request_status'
+  | 'executor_request_checkpoint'
+  | 'executor_request_checkpoint_default'
   | 'pre_mutation'
+  | 'final_audit'
   | 'risk_gate'
   | 'fusion'
   | 'self_status'
   | 'loop'
   | 'unknown';
 export type RealBenchmarkConfusionExclusion = 'budget_exhausted' | 'fail_open';
+export type RealBenchmarkPolluxFailureCause =
+  | 'oracle_structural_completeness'
+  | 'oracle_behavioral_failure'
+  | 'advisor_not_called'
+  | 'advisor_called_too_late'
+  | 'advisor_guidance_too_generic'
+  | 'advisor_failed_open'
+  | 'executor_ignored_guidance'
+  | 'model_call_ceiling'
+  | 'provider_failure'
+  | 'unknown';
 export type RealBenchmarkConfusionOutcome =
   | 'true_positive'
   | 'false_positive'
@@ -335,6 +350,21 @@ export interface RealBenchmarkRunRecord {
   advisorTriggerSources?: RealBenchmarkAdvisorTriggerSource[];
   advisorInjectionTimings?: RealBenchmarkAdvisorInjectionTiming[];
   firstAdvisorGuidanceInjectionEventIndex?: number | null;
+  advisorTriggerSourceCounts?: Partial<
+    Record<RealBenchmarkAdvisorTriggerSource, number>
+  >;
+  advisorParserOutcomeCounts?: Partial<
+    Record<RealBenchmarkAdvisorParserOutcome, number>
+  >;
+  firstAdvisorBeforeFirstMutation?: boolean | null;
+  firstAdvisorBeforeFinalization?: boolean | null;
+  meanAdvisorGuidanceWords?: number | null;
+  diagnosticTracePath?: string | null;
+  diagnosticTraceEventCount?: number;
+  diagnosticThoughtEventCount?: number;
+  diagnosticObserverDecisionCount?: number;
+  diagnosticAdvisorGuidanceTextCaptured?: boolean;
+  polluxFailureCause?: RealBenchmarkPolluxFailureCause;
   escalationEvents: RealBenchmarkEscalationEvent[];
   escalationTiming: RealBenchmarkEscalationTiming[];
   reasonCodes: string[];
@@ -833,6 +863,17 @@ export interface RealBenchmarkM3ConditionValueSummary {
   advisorGuidanceInjectionCount: number;
   advisorGuidanceInjectionRate: number | null;
   avgAdvisorTokensPerInjectedConsultation: number | null;
+  advisorTriggerSourceCounts?: Partial<
+    Record<RealBenchmarkAdvisorTriggerSource, number>
+  >;
+  advisorParserOutcomeCounts?: Partial<
+    Record<RealBenchmarkAdvisorParserOutcome, number>
+  >;
+  diagnosticTraceSampleCount?: number;
+  diagnosticTraceEventCount?: number;
+  polluxFailureCauseCounts?: Partial<
+    Record<RealBenchmarkPolluxFailureCause, number>
+  >;
   costPerInjectedSuccessfulSampleUsd: number | null;
   costPerPassWithInjectedGuidanceUsd: number | null;
   advisorTokenShare: number | null;
@@ -904,4 +945,9 @@ export interface PolluxRealPilotOptions {
   maxWallClockMs?: number;
   maxModelResponsesPerSample?: number;
   fMaxModelResponsesPerSample?: number;
+  diagnosticTrace?: {
+    enabled?: boolean;
+    includeAdvisorGuidanceText?: boolean;
+    includeModelThoughts?: 'summary' | 'raw_model_exposed';
+  };
 }

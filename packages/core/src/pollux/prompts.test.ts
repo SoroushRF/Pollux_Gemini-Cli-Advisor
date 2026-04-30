@@ -152,20 +152,66 @@ describe('pollux/prompts', () => {
           'x <pollux:advisor_request reason="need alias map before edit" timing="now"/> y <pollux:advisor_request reason="final review" timing="next"/>',
         ),
       ).toEqual([
-        { reason: 'need alias map before edit', timing: 'now' },
-        { reason: 'final review', timing: 'next' },
+        {
+          reason: 'need alias map before edit',
+          timing: 'now',
+          sourceFormat: 'xml',
+        },
+        { reason: 'final review', timing: 'next', sourceFormat: 'xml' },
       ]);
     });
 
     it('tolerates missing attributes and ignores malformed near-misses', () => {
       expect(
         parsePolluxAdvisorRequestTag('<pollux:advisor_request reason="risk"/>'),
-      ).toEqual([{ reason: 'risk', timing: undefined }]);
+      ).toEqual([{ reason: 'risk', timing: undefined, sourceFormat: 'xml' }]);
       expect(
         parsePolluxAdvisorRequestTag(
           '<pollux:advisor_requestreason="not valid"/>',
         ),
       ).toEqual([]);
+    });
+
+    it('accepts forgiving line, bracket, and snake-case request formats', () => {
+      expect(
+        parsePolluxAdvisorRequestTag(
+          [
+            'ADVISOR_REQUEST: check terminal states before editing',
+            '[advisor request: verify alias map]',
+            'consult_advisor next: final invariant review',
+          ].join('\n'),
+        ),
+      ).toEqual([
+        {
+          reason: 'check terminal states before editing',
+          timing: undefined,
+          sourceFormat: 'line',
+        },
+        {
+          reason: 'verify alias map',
+          timing: undefined,
+          sourceFormat: 'bracket',
+        },
+        {
+          reason: 'final invariant review',
+          timing: 'next',
+          sourceFormat: 'snake_case',
+        },
+      ]);
+    });
+
+    it('strips forgiving advisor request formats from visible text', () => {
+      expect(
+        stripPolluxStatusTags(
+          'Before\nADVISOR_REQUEST: check terminal states\nAfter',
+        ),
+      ).toBe('Before After');
+      expect(
+        stripPolluxStatusTags('[advisor request: verify aliases] ok'),
+      ).toBe('ok');
+      expect(stripPolluxStatusTags('consult_advisor: verify aliases\nok')).toBe(
+        'ok',
+      );
     });
   });
 
@@ -223,6 +269,27 @@ describe('pollux/prompts', () => {
       if (!r.ok) expect(r.reason).toBe('schema');
     });
 
+    it('accepts structured constraint-audit checklist fields', () => {
+      const r = parseAdvisorModelResponse(
+        JSON.stringify({
+          guidance: '1. Keep terminal states explicit.',
+          must_include: ['done: []', 'failed: []'],
+          must_forbid: ['implicit terminal defaults'],
+          verify_before_done: ['transition map has all states'],
+          confidence: 8,
+        }),
+      );
+      expect(r).toEqual({
+        ok: true,
+        parserOutcome: 'direct',
+        guidance: '1. Keep terminal states explicit.',
+        mustInclude: ['done: []', 'failed: []'],
+        mustForbid: ['implicit terminal defaults'],
+        verifyBeforeDone: ['transition map has all states'],
+        structuredConfidence: 8,
+      });
+    });
+
     it('strips confidence tags inside guidance string', () => {
       const r = parseAdvisorModelResponse(
         '{"guidance":"<!-- pollux:confidence:6 -->Next step: run tests."}',
@@ -275,6 +342,17 @@ describe('pollux/prompts', () => {
       expect(p).toContain('Context:');
       expect(p).not.toContain('JSON Schema');
       expect(p.endsWith('summarize')).toBe(true);
+    });
+
+    it('uses the constraint-audit contract when requested', () => {
+      const p = buildAdvisorConsultationPrompt({
+        ...minimalInput('preserve terminal states'),
+        mode: 'constraint_audit',
+      });
+      expect(p).toContain('Mode: constraint audit');
+      expect(p).toContain('must_include');
+      expect(p).toContain('verify_before_done');
+      expect(p).toContain('under 160 words');
     });
   });
 

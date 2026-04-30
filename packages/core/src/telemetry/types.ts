@@ -1317,7 +1317,11 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
   advisor_trigger_mode?: 'executor_request' | 'detector' | 'hybrid';
   advisor_trigger_source:
     | 'executor_request'
+    | 'executor_request_status'
+    | 'executor_request_checkpoint'
+    | 'executor_request_checkpoint_default'
     | 'pre_mutation'
+    | 'final_audit'
     | 'risk_gate'
     | 'fusion'
     | 'self_status'
@@ -1337,7 +1341,11 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
     advisorTriggerMode?: 'executor_request' | 'detector' | 'hybrid';
     advisorTriggerSource:
       | 'executor_request'
+      | 'executor_request_status'
+      | 'executor_request_checkpoint'
+      | 'executor_request_checkpoint_default'
       | 'pre_mutation'
+      | 'final_audit'
       | 'risk_gate'
       | 'fusion'
       | 'self_status'

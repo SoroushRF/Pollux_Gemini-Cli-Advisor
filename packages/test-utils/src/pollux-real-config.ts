@@ -218,6 +218,11 @@ export function getPolluxRealConditionsById(
 export function buildRealBenchmarkSettings(
   condition: RealBenchmarkConditionProfile,
   telemetryPath: string,
+  diagnosticTrace?: {
+    outputPath: string;
+    includeAdvisorGuidanceText?: boolean;
+    includeModelThoughts?: 'summary' | 'raw_model_exposed';
+  },
 ): Record<string, unknown> & BenchmarkSettingsOverrides {
   const advisorTriggerMode = condition.settingsOverrides['advisorTriggerMode'];
   const advisorBudgetMode = condition.settingsOverrides['advisorBudgetMode'];
@@ -302,6 +307,17 @@ export function buildRealBenchmarkSettings(
           typeof advisorShamGuidance === 'string'
             ? advisorShamGuidance
             : undefined,
+        diagnosticTrace:
+          diagnosticTrace === undefined
+            ? undefined
+            : {
+                enabled: true,
+                outputPath: diagnosticTrace.outputPath,
+                includeAdvisorGuidanceText:
+                  diagnosticTrace.includeAdvisorGuidanceText === true,
+                includeModelThoughts:
+                  diagnosticTrace.includeModelThoughts ?? 'summary',
+              },
         ...(detector ? { detector } : {}),
       },
     },

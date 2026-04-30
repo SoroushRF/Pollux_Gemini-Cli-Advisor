@@ -45,6 +45,8 @@ import {
 import { ThoughtSensor } from './sensors/thought.js';
 import {
   ToolPatternSensor,
+  TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID,
+  TOOL_FINALIZATION_AUDIT_SIGNAL_ID,
   TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID,
 } from './sensors/toolPattern.js';
 import type { NextTurnIntent, SameTurnIntent } from './types.js';
@@ -149,8 +151,14 @@ function hardPrecisionReasonForSignal(
   if (signalId === SELF_ADVISOR_REQUEST_SIGNAL_ID) {
     return PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST;
   }
+  if (signalId === TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID) {
+    return PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST;
+  }
   if (signalId === TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID) {
     return PolluxEscalationReasonCode.PRE_MUTATION_REVIEW;
+  }
+  if (signalId === TOOL_FINALIZATION_AUDIT_SIGNAL_ID) {
+    return PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT;
   }
   return undefined;
 }
@@ -184,6 +192,13 @@ export interface LiveExecutorObserver {
   noteAdvisorSuccess(
     success: boolean,
     contributingSignalIds?: readonly string[],
+  ): void;
+}
+
+export interface PolluxObserverDiagnosticTraceSink {
+  record(
+    type: 'observer_signals' | 'observer_decision',
+    payload: unknown,
   ): void;
 }
 
@@ -246,6 +261,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
   constructor(
     private readonly experimental: Readonly<PolluxExperimentalConfig>,
     loopDetection?: Pick<LoopDetectionService, 'peekState'>,
+    private readonly traceSink?: PolluxObserverDiagnosticTraceSink,
   ) {
     this.streamSensors = [];
     const triggerMode = this.experimental.advisorTriggerMode;
@@ -267,16 +283,17 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         this.streamSensors.push(new AdvisorRequestSensor());
       }
     }
-    if (
-      detectorTriggersEnabled &&
-      this.experimental.detector.observer.enabled
-    ) {
-      this.streamSensors.push(
-        new ThoughtSensor(),
-        new ToolPatternSensor(),
-        new NegativeSignalsSensor(),
-      );
-      if (loopDetection) {
+    if (this.experimental.detector.observer.enabled) {
+      if (detectorTriggersEnabled) {
+        this.streamSensors.push(
+          new ThoughtSensor(),
+          new NegativeSignalsSensor(),
+        );
+      }
+      if (detectorTriggersEnabled || executorRequestEnabled) {
+        this.streamSensors.push(new ToolPatternSensor());
+      }
+      if (detectorTriggersEnabled && loopDetection) {
         this.loopSensor = new LoopBridgeSensor(loopDetection);
       }
     }
@@ -377,6 +394,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       thoughtWindow: this.thoughtWindow.entries,
       userPromptText: this.userPromptText,
       promptConstraintSummary: this.promptConstraintSummary,
+      advisorTriggerMode: this.experimental.advisorTriggerMode,
       currentTurnTokenCount: this.currentTurnTokenCount,
       sessionMedianSuccessfulTurnTokens: median(
         this.successfulTurnTokenHistory,
@@ -506,6 +524,21 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
   }
 
   private recordSignals(signals: readonly SensorSignal[]): void {
+    if (
+      signals.length > 0 &&
+      this.experimental.diagnosticTrace.includeObserverSignals
+    ) {
+      this.traceSink?.record('observer_signals', {
+        signals: signals.map((signal) => ({
+          id: signal.id,
+          weight: signal.weight,
+          precisionPrior: signal.precisionPrior,
+          category: signal.category,
+          hardPrecision: signal.hardPrecision === true,
+          attribution: signal.attribution,
+        })),
+      });
+    }
     for (const signal of signals) {
       if (this.advisorCooldownSignalIds.has(signal.id)) {
         continue;
@@ -553,6 +586,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
   }
 
   private evaluateFusion(event: ServerGeminiStreamEvent): void {
+    if (this.experimental.advisorTriggerMode === 'executor_request') {
+      return;
+    }
     if (!this.experimental.detector.observer.enabled) {
       return;
     }
@@ -582,7 +618,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       PolluxEscalationReasonCode.HARD_LOOP,
       PolluxEscalationReasonCode.SELF_REPORT_STUCK,
       PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+      PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST,
       PolluxEscalationReasonCode.PRE_MUTATION_REVIEW,
+      PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT,
     ]);
     if (output.escalate && !hardPrecisionReasonCodes.has(output.reasonCode)) {
       if (!this.fusionEscalatedThisTurn) {
@@ -635,6 +673,14 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         contributingSignalAttributions: params.contributingSignalAttributions,
         queuedAtMs,
       };
+      this.traceSink?.record('observer_decision', {
+        timing: 'same_turn',
+        reasonCode: params.reasonCode,
+        netScore: params.netScore,
+        pauseBoundary: params.pauseBoundary,
+        contributingSignalIds: params.contributingSignalIds,
+        contributingSignalAttributions: params.contributingSignalAttributions,
+      });
       return;
     }
 
@@ -653,6 +699,13 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       timing === 'same_turn'
     ) {
       this.pendingNextTurnIntent = nextTurnIntent;
+      this.traceSink?.record('observer_decision', {
+        timing: 'next_turn',
+        reasonCode: params.reasonCode,
+        netScore: params.netScore,
+        contributingSignalIds: params.contributingSignalIds,
+        contributingSignalAttributions: params.contributingSignalAttributions,
+      });
     }
   }
 
@@ -709,6 +762,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
 export function createLiveExecutorObserver(
   experimental: Readonly<PolluxExperimentalConfig>,
   loopDetection?: Pick<LoopDetectionService, 'peekState'>,
+  traceSink?: PolluxObserverDiagnosticTraceSink,
 ): LiveExecutorObserver {
   if (!experimental.enabled) {
     return LIVE_EXECUTOR_OBSERVER_NO_OP;
@@ -719,7 +773,7 @@ export function createLiveExecutorObserver(
   if (!riskOn && !observerOn && !selfReportOn) {
     return LIVE_EXECUTOR_OBSERVER_NO_OP;
   }
-  return new PolluxLiveExecutorObserver(experimental, loopDetection);
+  return new PolluxLiveExecutorObserver(experimental, loopDetection, traceSink);
 }
 
 /**

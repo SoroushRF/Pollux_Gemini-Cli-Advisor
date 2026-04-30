@@ -638,7 +638,11 @@ function parseAdvisorGuidanceTelemetryEvents(
           : null,
       advisorTriggerSource:
         advisorTriggerSource === 'executor_request' ||
+        advisorTriggerSource === 'executor_request_status' ||
+        advisorTriggerSource === 'executor_request_checkpoint' ||
+        advisorTriggerSource === 'executor_request_checkpoint_default' ||
         advisorTriggerSource === 'pre_mutation' ||
+        advisorTriggerSource === 'final_audit' ||
         advisorTriggerSource === 'risk_gate' ||
         advisorTriggerSource === 'fusion' ||
         advisorTriggerSource === 'self_status' ||
@@ -891,6 +895,127 @@ function buildPolluxTimingDiagnostics(params: {
   };
 }
 
+function countDiagnosticTraceEvents(tracePath: string): {
+  eventCount: number;
+  thoughtEventCount: number;
+  observerDecisionCount: number;
+  advisorGuidanceTextCaptured: boolean;
+} {
+  if (!fs.existsSync(tracePath)) {
+    return {
+      eventCount: 0,
+      thoughtEventCount: 0,
+      observerDecisionCount: 0,
+      advisorGuidanceTextCaptured: false,
+    };
+  }
+  const lines = fs
+    .readFileSync(tracePath, 'utf8')
+    .split(/\r?\n/g)
+    .filter((line) => line.trim().length > 0);
+  let thoughtEventCount = 0;
+  let observerDecisionCount = 0;
+  let advisorGuidanceTextCaptured = false;
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line) as { type?: string };
+      if (parsed.type === 'executor_thought') {
+        thoughtEventCount++;
+      }
+      if (parsed.type === 'observer_decision') {
+        observerDecisionCount++;
+      }
+      if (parsed.type === 'advisor_guidance') {
+        advisorGuidanceTextCaptured = true;
+      }
+    } catch {
+      // Keep trace summary fail-open.
+    }
+  }
+  return {
+    eventCount: lines.length,
+    thoughtEventCount,
+    observerDecisionCount,
+    advisorGuidanceTextCaptured,
+  };
+}
+
+function appendDiagnosticTraceOracleResult(
+  tracePath: string,
+  payload: unknown,
+): void {
+  if (!fs.existsSync(tracePath)) {
+    return;
+  }
+  try {
+    fs.appendFileSync(
+      tracePath,
+      `${JSON.stringify({
+        tsMs: Date.now(),
+        type: 'oracle_result',
+        payload,
+      })}\n`,
+    );
+  } catch {
+    // Diagnostic append is fail-open.
+  }
+}
+
+function countByValue<T extends string>(
+  values: readonly T[],
+): Partial<Record<T, number>> {
+  const out: Partial<Record<T, number>> = {};
+  for (const value of values) {
+    out[value] = (out[value] ?? 0) + 1;
+  }
+  return out;
+}
+
+function classifyPolluxFailureCause(params: {
+  oraclePass: boolean;
+  invalidationReason: RealBenchmarkRunRecord['invalidationReason'];
+  advisorCalls: number;
+  advisorGuidanceEvents: readonly RealBenchmarkAdvisorGuidanceRecord[];
+  escalationEvents: readonly RealBenchmarkEscalationEvent[];
+  stderr: string;
+}): RealBenchmarkRunRecord['polluxFailureCause'] {
+  if (params.oraclePass && params.invalidationReason === undefined) {
+    return undefined;
+  }
+  if (params.invalidationReason === 'model_call_ceiling_exceeded') {
+    return 'model_call_ceiling';
+  }
+  if (
+    params.invalidationReason === 'model_capacity_exhausted' ||
+    params.escalationEvents.some((event) =>
+      /capacity|quota|timeout/i.test(event.failureKind ?? ''),
+    )
+  ) {
+    return 'provider_failure';
+  }
+  if (params.advisorCalls === 0) {
+    return 'advisor_not_called';
+  }
+  if (
+    params.escalationEvents.some(
+      (event) => event.outcome === 'fail_open' || event.failureKind !== null,
+    )
+  ) {
+    return 'advisor_failed_open';
+  }
+  if (
+    params.advisorGuidanceEvents.some(
+      (event) => event.guidanceWords > 0 && event.guidanceWords < 10,
+    )
+  ) {
+    return 'advisor_guidance_too_generic';
+  }
+  if (/terminal|done|failed|explicit|regex|pattern/i.test(params.stderr)) {
+    return 'oracle_structural_completeness';
+  }
+  return params.oraclePass ? undefined : 'oracle_behavioral_failure';
+}
+
 function signalClassMatchesReason(
   signalClass: RealBenchmarkTaskSpec['escalationSignalClass'],
   event: RealBenchmarkEscalationEvent,
@@ -1101,6 +1226,7 @@ export class PolluxLiveRunRig {
   private readonly maxWallClockMs: number;
   private readonly maxModelResponsesPerSample: number;
   private readonly fMaxModelResponsesPerSample?: number;
+  private readonly diagnosticTrace?: PolluxRealPilotOptions['diagnosticTrace'];
 
   constructor(options: PolluxRealPilotOptions & { repoRoot: string }) {
     this.repoRoot = options.repoRoot;
@@ -1130,6 +1256,7 @@ export class PolluxLiveRunRig {
             this.maxModelResponsesPerSample,
           )
         : undefined;
+    this.diagnosticTrace = options.diagnosticTrace;
   }
 
   private getMaxModelResponsesForCondition(
@@ -1154,6 +1281,7 @@ export class PolluxLiveRunRig {
     const workspaceDir = path.join(sampleRoot, 'workspace');
     const homeDir = path.join(sampleRoot, 'home');
     const telemetryPath = path.join(homeDir, 'telemetry.log');
+    const diagnosticTracePath = path.join(sampleRoot, 'pollux-trace.jsonl');
     const stdoutPath = path.join(sampleRoot, 'stdout.txt');
     const stderrPath = path.join(sampleRoot, 'stderr.txt');
     const homeGeminiDir = path.join(homeDir, GEMINI_DIR);
@@ -1167,7 +1295,18 @@ export class PolluxLiveRunRig {
     this.seedWorkspaceFiles(task, workspaceDir);
     this.seedAuthFiles(homeGeminiDir);
 
-    const settings = buildRealBenchmarkSettings(condition, telemetryPath);
+    const settings = buildRealBenchmarkSettings(
+      condition,
+      telemetryPath,
+      this.diagnosticTrace?.enabled
+        ? {
+            outputPath: diagnosticTracePath,
+            includeAdvisorGuidanceText:
+              this.diagnosticTrace.includeAdvisorGuidanceText,
+            includeModelThoughts: this.diagnosticTrace.includeModelThoughts,
+          }
+        : undefined,
+    );
     writeJson(path.join(homeGeminiDir, 'settings.json'), settings);
     writeJson(path.join(workspaceGeminiDir, 'settings.json'), settings);
     writeJson(path.join(homeGeminiDir, 'state.json'), {
@@ -1256,6 +1395,45 @@ export class PolluxLiveRunRig {
     const advisorFailureKind = computeAdvisorFailureKind(
       telemetry.escalationEvents,
     );
+    appendDiagnosticTraceOracleResult(diagnosticTracePath, {
+      oraclePass,
+      invalidated: invalidationReason !== undefined,
+      invalidationReason: invalidationReason ?? null,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+    });
+    const diagnosticTraceCounts =
+      countDiagnosticTraceEvents(diagnosticTracePath);
+    const advisorTriggerSourceCounts = countByValue(
+      telemetry.advisorGuidanceEvents.map(
+        (event) => event.advisorTriggerSource,
+      ),
+    );
+    const advisorParserOutcomeCounts = countByValue(
+      telemetry.advisorGuidanceEvents
+        .map((event) => event.parserOutcome)
+        .filter(
+          (outcome): outcome is NonNullable<typeof outcome> => outcome !== null,
+        ),
+    );
+    const meanAdvisorGuidanceWords =
+      telemetry.advisorGuidanceEvents.length === 0
+        ? null
+        : telemetry.advisorGuidanceEvents.reduce(
+            (sum, event) => sum + event.guidanceWords,
+            0,
+          ) / telemetry.advisorGuidanceEvents.length;
+    const polluxFailureCause = classifyPolluxFailureCause({
+      oraclePass,
+      invalidationReason,
+      advisorCalls: Math.max(
+        telemetry.advisorCalls,
+        telemetry.advisorAttempts.length,
+      ),
+      advisorGuidanceEvents: telemetry.advisorGuidanceEvents,
+      escalationEvents: telemetry.escalationEvents,
+      stderr: result.stderr,
+    });
     const desiredOutcome = computeDesiredOutcome({
       benchmarkLane: task.benchmarkLane,
       invalidated: invalidationReason !== undefined,
@@ -1341,6 +1519,27 @@ export class PolluxLiveRunRig {
       ],
       firstAdvisorGuidanceInjectionEventIndex:
         telemetry.advisorGuidanceEvents[0]?.eventIndex ?? null,
+      advisorTriggerSourceCounts,
+      advisorParserOutcomeCounts,
+      firstAdvisorBeforeFirstMutation:
+        polluxTimingDiagnostics.executorResponsesBeforeFirstAdvisor === null
+          ? null
+          : polluxTimingDiagnostics.executorResponsesBeforeFirstAdvisor <= 1,
+      firstAdvisorBeforeFinalization:
+        polluxTimingDiagnostics.firstAdvisorCallModelResponseOrdinal === null
+          ? null
+          : true,
+      meanAdvisorGuidanceWords,
+      diagnosticTracePath: fs.existsSync(diagnosticTracePath)
+        ? diagnosticTracePath
+        : null,
+      diagnosticTraceEventCount: diagnosticTraceCounts.eventCount,
+      diagnosticThoughtEventCount: diagnosticTraceCounts.thoughtEventCount,
+      diagnosticObserverDecisionCount:
+        diagnosticTraceCounts.observerDecisionCount,
+      diagnosticAdvisorGuidanceTextCaptured:
+        diagnosticTraceCounts.advisorGuidanceTextCaptured,
+      polluxFailureCause,
       escalationEvents: telemetry.escalationEvents,
       escalationTiming: [
         ...new Set(

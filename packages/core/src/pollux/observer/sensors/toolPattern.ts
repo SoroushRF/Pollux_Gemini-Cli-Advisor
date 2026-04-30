@@ -32,6 +32,10 @@ export const TOOL_ANCHOR_TEST_FAILURE_SIGNAL_ID =
   'tool.anchor_test_failure' as const;
 export const TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID =
   'tool.pre_mutation_advisor' as const;
+export const TOOL_FINALIZATION_AUDIT_SIGNAL_ID =
+  'tool.finalization_audit' as const;
+export const TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID =
+  'tool.executor_checkpoint_advisor' as const;
 export const LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID =
   'longitudinal.m3_anchor_pressure' as const;
 
@@ -155,9 +159,32 @@ function hasPromptAnchors(input: SensorInput): boolean {
     summary.hasPublicInterfaceConstraint ||
     summary.hasBehaviorPreservationConstraint ||
     summary.hasCompatibilityAliasConstraint ||
+    summary.hasNegativeSpaceConstraint ||
+    summary.hasExplicitCompletenessConstraint ||
+    summary.hasStateMachineConstraint ||
+    summary.hasTerminalStateConstraint ||
+    summary.hasStructuredMapConstraint ||
+    summary.hasForbiddenBehaviorConstraint ||
     summary.mutationProtectedPaths.length > 0 ||
     summary.behaviorAnchorPaths.length > 0 ||
     summary.sourceOfTruthPaths.length > 0
+  );
+}
+
+function hasHighRiskStructuralConstraints(input: SensorInput): boolean {
+  const summary = input.promptConstraintSummary;
+  if (!summary) {
+    return false;
+  }
+  return (
+    summary.hasNegativeSpaceConstraint ||
+    summary.hasExplicitCompletenessConstraint ||
+    summary.hasStateMachineConstraint ||
+    summary.hasTerminalStateConstraint ||
+    summary.hasStructuredMapConstraint ||
+    summary.hasForbiddenBehaviorConstraint ||
+    summary.hasCompatibilityAliasConstraint ||
+    summary.hasBehaviorPreservationConstraint
   );
 }
 
@@ -328,20 +355,58 @@ export class ToolPatternSensor implements Sensor {
               !input.currentTurnAdvisorSuccessWithinTurn &&
               !input.recentAdvisorSuccessWithinTurns
             ) {
-              out.push({
-                id: TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID,
-                weight: 3,
-                precisionPrior: 0.9,
-                category: 'tool',
-                hardPrecision: true,
-                tsMs: nowMs,
-                attribution: `pre-mutation advisor after reads: ${anchorReadPaths.join(', ')}`,
-              });
+              const executorCheckpoint =
+                input.advisorTriggerMode === 'executor_request';
+              if (
+                !executorCheckpoint ||
+                hasHighRiskStructuralConstraints(input)
+              ) {
+                out.push({
+                  id: executorCheckpoint
+                    ? TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID
+                    : TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID,
+                  weight: 3,
+                  precisionPrior: 0.9,
+                  category: 'tool',
+                  hardPrecision: true,
+                  tsMs: nowMs,
+                  attribution: executorCheckpoint
+                    ? `executor checkpoint before risky mutation after reads: ${anchorReadPaths.join(', ')}`
+                    : `pre-mutation advisor after reads: ${anchorReadPaths.join(', ')}`,
+                });
+              }
             }
 
             const mutationPathEntries = mutationRequests.flatMap((entry) =>
               collectRequestPaths(entry),
             );
+            const latestMutationPathsForAudit = collectRequestPaths(latest);
+            const previousSourceMutationPaths =
+              collectAllowedSourceMutationPaths(
+                mutationRequests.slice(0, -1),
+                input,
+              );
+            if (
+              latestMutationPathsForAudit.some(isCompletionMarkerPath) &&
+              previousSourceMutationPaths.length > 0 &&
+              hasHighRiskStructuralConstraints(input)
+            ) {
+              const executorCheckpoint =
+                input.advisorTriggerMode === 'executor_request';
+              out.push({
+                id: executorCheckpoint
+                  ? TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID
+                  : TOOL_FINALIZATION_AUDIT_SIGNAL_ID,
+                weight: 3,
+                precisionPrior: 0.9,
+                category: 'tool',
+                hardPrecision: true,
+                tsMs: nowMs,
+                attribution: executorCheckpoint
+                  ? `executor checkpoint before finalization after source mutations: ${previousSourceMutationPaths.join(', ')}`
+                  : `finalization audit after source mutations: ${previousSourceMutationPaths.join(', ')}`,
+              });
+            }
             const mutationPathCounts = new Map<string, number>();
             for (const path of mutationPathEntries) {
               mutationPathCounts.set(

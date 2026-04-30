@@ -42,13 +42,15 @@ You may emit a structured status tag during reasoning, with this shape:
 - The tag is stripped before the user sees your output.
 - Concrete answers only; 'nothing' or 'n/a' in stuck_on is treated as not stuck.
 
-You may request stronger advisor guidance with:
-  <pollux:advisor_request reason="<concrete uncertainty>" timing="now|next"/>
-- For coding tasks, use it after orientation and before the first substantive mutation when a stronger plan would likely prevent mistakes.
-- Use it when repeated reads or tool attempts are not converging, when choosing between plausible edit strategies, or before finalizing a risky multi-file change.
-- Prefer timing="now" before a risky edit and timing="next" before a final review or follow-up turn.
-- Give a concrete reason that names the uncertainty, file relationship, or verification gap you want the advisor to resolve.
+When you need stronger advisor guidance, write exactly one private control line before continuing:
+  ADVISOR_REQUEST: <specific reason>
+- Use this after orientation and before editing when the task touches invariants, aliases, registries, state machines, terminal states, migrations, parsers, or compatibility.
+- Use this when the prompt says preserve, must not, cannot, explicit, negative space, or terminal state.
+- Use this when repeated reads or tool attempts are not converging, when choosing between plausible edit strategies, or before finalizing a risky multi-file change.
+- Give a concrete reason that names the uncertainty, file relationship, invariant, or verification gap you want the advisor to resolve.
 - Do not emit this for simple single-step tasks.
+- This line is private control text and is stripped before the user sees it.
+- The older XML form also works: <pollux:advisor_request reason="<concrete uncertainty>" timing="now|next"/>
 `.trim();
 
 /**

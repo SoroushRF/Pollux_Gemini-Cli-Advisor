@@ -92,6 +92,7 @@ import {
   PolluxEscalationReasonCode,
   PolluxRuntimeSurface,
   POLLUX_TURN_DIGEST_MAX_CHARS,
+  type AdvisorConsultationMode,
   type PolluxEscalationTiming,
   type PolluxTurnContext,
 } from '../pollux/types.js';
@@ -124,6 +125,12 @@ import {
   PolluxModelRole,
   resolvePolluxModel,
 } from '../pollux/models.js';
+import {
+  createPolluxDiagnosticTraceWriter,
+  type PolluxDiagnosticTraceEventType,
+  type PolluxDiagnosticTraceWriter,
+} from '../pollux/diagnosticTrace.js';
+import { parsePromptConstraintSummary } from '../pollux/observer/promptConstraints.js';
 
 const MAX_TURNS = 100;
 
@@ -236,7 +243,11 @@ type PolluxAdvisorAttemptParserOutcome =
 
 type PolluxAdvisorTriggerSource =
   | 'executor_request'
+  | 'executor_request_status'
+  | 'executor_request_checkpoint'
+  | 'executor_request_checkpoint_default'
   | 'pre_mutation'
+  | 'final_audit'
   | 'risk_gate'
   | 'fusion'
   | 'self_status'
@@ -247,6 +258,10 @@ type PolluxAdvisorInjectionTiming = 'next_turn' | 'same_turn_next_continuation';
 
 interface PolluxAdvisorGuidanceInjection {
   readonly guidance: string;
+  readonly mode?: AdvisorConsultationMode;
+  readonly mustInclude?: readonly string[];
+  readonly mustForbid?: readonly string[];
+  readonly verifyBeforeDone?: readonly string[];
   readonly turnId: string;
   readonly reasonCode?: string;
   readonly escalationTiming?: PolluxEscalationTiming;
@@ -269,6 +284,9 @@ interface PolluxAdvisorAttemptResult {
   readonly failOpenKind?: AdvisorPathFailureKind;
   readonly rawResponse: string;
   readonly guidance?: string;
+  readonly mustInclude?: readonly string[];
+  readonly mustForbid?: readonly string[];
+  readonly verifyBeforeDone?: readonly string[];
   readonly structuredConfidence?: number;
   readonly retryableForRepair: boolean;
   readonly retryableForFallback: boolean;
@@ -364,6 +382,10 @@ export class GeminiClient {
   private polluxActiveObserver: LiveExecutorObserver | undefined;
   private polluxActiveObserverPromptId: string | undefined;
   private polluxActiveUserPromptText = '';
+  private polluxDiagnosticTraceWriter:
+    | PolluxDiagnosticTraceWriter
+    | undefined
+    | null;
   private lastSentIdeContext: IdeContext | undefined;
   private forceFullIdeContext = true;
 
@@ -917,12 +939,92 @@ export class GeminiClient {
     const observer = createLiveExecutorObserver(
       this.config.getPolluxExperimentalConfig(),
       this.loopDetector,
+      {
+        record: (type, payload) => {
+          this.recordPolluxDiagnosticTrace(type, payload);
+        },
+      },
     );
     this.polluxActiveObserver = observer;
     this.polluxActiveObserverPromptId = params.promptId;
     this.polluxActiveUserPromptText = partListUnionToString(params.request);
     observer.beginTurn(this.polluxActiveUserPromptText);
     return observer;
+  }
+
+  private getPolluxDiagnosticTraceWriter():
+    | PolluxDiagnosticTraceWriter
+    | undefined {
+    if (this.polluxDiagnosticTraceWriter === undefined) {
+      this.polluxDiagnosticTraceWriter =
+        createPolluxDiagnosticTraceWriter(
+          this.config.getPolluxExperimentalConfig().diagnosticTrace,
+        ) ?? null;
+    }
+    return this.polluxDiagnosticTraceWriter ?? undefined;
+  }
+
+  private recordPolluxDiagnosticTrace(
+    type: PolluxDiagnosticTraceEventType,
+    payload: unknown,
+  ): void {
+    this.getPolluxDiagnosticTraceWriter()?.record(type, payload);
+  }
+
+  private tracePolluxStreamEvent(event: ServerGeminiStreamEvent): void {
+    const trace = this.config.getPolluxExperimentalConfig().diagnosticTrace;
+    if (!trace.enabled) {
+      return;
+    }
+    switch (event.type) {
+      case GeminiEventType.Content:
+        if (trace.includeExecutorText) {
+          this.recordPolluxDiagnosticTrace('executor_text_delta', {
+            text: event.value,
+          });
+        }
+        break;
+      case GeminiEventType.Thought:
+        if (trace.includeModelThoughts) {
+          this.recordPolluxDiagnosticTrace('executor_thought', {
+            subject: event.value.subject,
+            description:
+              trace.includeModelThoughts === 'raw_model_exposed'
+                ? event.value.description
+                : event.value.description,
+          });
+        }
+        break;
+      case GeminiEventType.ToolCallRequest:
+        if (trace.includeToolCalls) {
+          this.recordPolluxDiagnosticTrace('tool_call_request', {
+            callId: event.value.callId,
+            name: event.value.name,
+            args: event.value.args,
+          });
+        }
+        break;
+      case GeminiEventType.ToolCallResponse:
+        if (trace.includeToolResults !== 'none') {
+          this.recordPolluxDiagnosticTrace('tool_call_result', {
+            callId: event.value.callId,
+            errorType: event.value.errorType,
+            response:
+              trace.includeToolResults === 'snippet'
+                ? partToString(event.value.responseParts)
+                : partToString(event.value.responseParts).slice(0, 500),
+          });
+        }
+        break;
+      case GeminiEventType.Finished:
+        this.recordPolluxDiagnosticTrace('oracle_result', {
+          reason: event.value.reason,
+          usageMetadata: event.value.usageMetadata,
+        });
+        break;
+      default:
+        break;
+    }
   }
 
   private recordPolluxEscalationTelemetry(params: {
@@ -1024,9 +1126,14 @@ export class GeminiClient {
       return { outcome: 'policy_denied' };
     }
 
+    const advisorMode = this.resolvePolluxAdvisorConsultationMode({
+      turnContext,
+      reasonCode: escalationMeta?.reasonCode,
+    });
     const advisorInput = {
       context: turnContext,
       toolName: ADVISOR_CONSULTATION_TOOL_NAME,
+      mode: advisorMode,
       body: requestBody,
     } as const;
     const advisorPrompt = buildAdvisorConsultationPrompt(advisorInput);
@@ -1039,6 +1146,9 @@ export class GeminiClient {
     let winningGuidance:
       | {
           readonly guidance: string;
+          readonly mustInclude?: readonly string[];
+          readonly mustForbid?: readonly string[];
+          readonly verifyBeforeDone?: readonly string[];
           readonly structuredConfidence?: number;
           readonly model: string;
           readonly attemptKind: PolluxAdvisorAttemptKind;
@@ -1076,6 +1186,7 @@ export class GeminiClient {
           attemptKind: 'primary',
           advisorModelId: advisorModel.canonicalModelId,
           advisorPrompt,
+          advisorMode,
           advisorSignal,
           executorModel: experimental.executorModel,
           escalationMeta,
@@ -1085,6 +1196,9 @@ export class GeminiClient {
       if (primaryAttempt.consultationSucceeded && primaryAttempt.guidance) {
         winningGuidance = {
           guidance: primaryAttempt.guidance,
+          mustInclude: primaryAttempt.mustInclude,
+          mustForbid: primaryAttempt.mustForbid,
+          verifyBeforeDone: primaryAttempt.verifyBeforeDone,
           structuredConfidence: primaryAttempt.structuredConfidence,
           model: primaryAttempt.model,
           attemptKind: primaryAttempt.attemptKind,
@@ -1114,6 +1228,7 @@ export class GeminiClient {
             attemptKind: 'repair_retry',
             advisorModelId: advisorModel.canonicalModelId,
             advisorPrompt: repairPrompt,
+            advisorMode,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
@@ -1123,6 +1238,9 @@ export class GeminiClient {
         if (repairAttempt.consultationSucceeded && repairAttempt.guidance) {
           winningGuidance = {
             guidance: repairAttempt.guidance,
+            mustInclude: repairAttempt.mustInclude,
+            mustForbid: repairAttempt.mustForbid,
+            verifyBeforeDone: repairAttempt.verifyBeforeDone,
             structuredConfidence: repairAttempt.structuredConfidence,
             model: repairAttempt.model,
             attemptKind: repairAttempt.attemptKind,
@@ -1141,6 +1259,7 @@ export class GeminiClient {
             attemptKind: 'fallback',
             advisorModelId: fallbackModel,
             advisorPrompt,
+            advisorMode,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
@@ -1150,6 +1269,9 @@ export class GeminiClient {
         if (fallbackAttempt.consultationSucceeded && fallbackAttempt.guidance) {
           winningGuidance = {
             guidance: fallbackAttempt.guidance,
+            mustInclude: fallbackAttempt.mustInclude,
+            mustForbid: fallbackAttempt.mustForbid,
+            verifyBeforeDone: fallbackAttempt.verifyBeforeDone,
             structuredConfidence: fallbackAttempt.structuredConfidence,
             model: fallbackAttempt.model,
             attemptKind: fallbackAttempt.attemptKind,
@@ -1201,6 +1323,10 @@ export class GeminiClient {
     if (winningGuidance) {
       const guidanceInjection = {
         guidance: winningGuidance.guidance,
+        mode: advisorMode,
+        mustInclude: winningGuidance.mustInclude,
+        mustForbid: winningGuidance.mustForbid,
+        verifyBeforeDone: winningGuidance.verifyBeforeDone,
         turnId: turnContext.turnId,
         reasonCode: escalationMeta?.reasonCode,
         escalationTiming: escalationMeta?.escalationTiming,
@@ -1236,6 +1362,10 @@ export class GeminiClient {
 
   private injectPolluxAdvisorGuidance(params: {
     readonly guidance: string;
+    readonly mode?: AdvisorConsultationMode;
+    readonly mustInclude?: readonly string[];
+    readonly mustForbid?: readonly string[];
+    readonly verifyBeforeDone?: readonly string[];
     readonly turnId?: string;
     readonly reasonCode?: string;
     readonly escalationTiming?: PolluxEscalationTiming;
@@ -1251,6 +1381,7 @@ export class GeminiClient {
       '<pollux:advisor_guidance>',
       `reason=${params.reasonCode ?? 'unknown'}`,
       `timing=${params.escalationTiming ?? 'next_turn'}`,
+      params.mode === undefined ? undefined : `mode=${params.mode}`,
       params.confidence === undefined
         ? undefined
         : `confidence=${params.confidence}`,
@@ -1258,13 +1389,46 @@ export class GeminiClient {
       'Use this guidance silently when continuing the task.',
       'Do not mention Pollux, advisor, or this hidden note to the user.',
       '',
+      'Guidance:',
       params.guidance,
+      ...(params.mustInclude && params.mustInclude.length > 0
+        ? [
+            '',
+            'Must include:',
+            ...params.mustInclude.map((item) => `- ${item}`),
+          ]
+        : []),
+      ...(params.mustForbid && params.mustForbid.length > 0
+        ? ['', 'Must forbid:', ...params.mustForbid.map((item) => `- ${item}`)]
+        : []),
+      ...(params.verifyBeforeDone && params.verifyBeforeDone.length > 0
+        ? [
+            '',
+            'Verify before done:',
+            ...params.verifyBeforeDone.map((item) => `- ${item}`),
+          ]
+        : []),
       '</pollux:advisor_guidance>',
     ]
       .filter((line): line is string => line !== undefined)
       .join('\n');
 
     this.getChat().addHistory(createUserContent(text));
+    this.recordPolluxDiagnosticTrace('guidance_injection', {
+      turnId: params.turnId,
+      reasonCode: params.reasonCode,
+      escalationTiming: params.escalationTiming,
+      injectionTiming: params.injectionTiming ?? 'next_turn',
+      mode: params.mode,
+      guidanceChars: params.guidance.length,
+      guidanceWords:
+        params.guidance.trim().length === 0
+          ? 0
+          : params.guidance.trim().split(/\s+/u).length,
+      mustIncludeCount: params.mustInclude?.length ?? 0,
+      mustForbidCount: params.mustForbid?.length ?? 0,
+      verifyBeforeDoneCount: params.verifyBeforeDone?.length ?? 0,
+    });
 
     if (params.turnId) {
       const trimmedGuidance = params.guidance.trim();
@@ -1309,13 +1473,31 @@ export class GeminiClient {
         PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST ||
       signalIds.some((signalId) => signalId === 'self.advisor_request')
     ) {
+      if (signalIds.some((signalId) => signalId === 'self.advisor_request')) {
+        return 'executor_request';
+      }
       return 'executor_request';
+    }
+    if (
+      params.reasonCode ===
+        PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST ||
+      signalIds.some(
+        (signalId) => signalId === 'tool.executor_checkpoint_advisor',
+      )
+    ) {
+      return 'executor_request_checkpoint_default';
     }
     if (
       params.reasonCode === PolluxEscalationReasonCode.PRE_MUTATION_REVIEW ||
       signalIds.some((signalId) => signalId === 'tool.pre_mutation_advisor')
     ) {
       return 'pre_mutation';
+    }
+    if (
+      params.reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT ||
+      signalIds.some((signalId) => signalId === 'tool.finalization_audit')
+    ) {
+      return 'final_audit';
     }
     if (params.reasonCode === PolluxEscalationReasonCode.RISK_GATE_BLOCK) {
       return 'risk_gate';
@@ -1337,12 +1519,36 @@ export class GeminiClient {
     return 'unknown';
   }
 
+  private resolvePolluxAdvisorConsultationMode(params: {
+    readonly turnContext: PolluxTurnContext;
+    readonly reasonCode?: string;
+  }): AdvisorConsultationMode {
+    if (
+      params.reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT
+    ) {
+      return 'final_audit';
+    }
+    const summary = parsePromptConstraintSummary(
+      params.turnContext.userContentDigest,
+    );
+    const hasHighRiskConstraint =
+      summary.hasNegativeSpaceConstraint ||
+      summary.hasExplicitCompletenessConstraint ||
+      summary.hasStateMachineConstraint ||
+      summary.hasTerminalStateConstraint ||
+      summary.hasStructuredMapConstraint ||
+      summary.hasForbiddenBehaviorConstraint ||
+      summary.hasCompatibilityAliasConstraint;
+    return hasHighRiskConstraint ? 'constraint_audit' : 'compact';
+  }
+
   private async attemptPolluxAdvisorConsultationWithModel(params: {
     turnId: string;
     attemptIndex: number;
     attemptKind: PolluxAdvisorAttemptKind;
     advisorModelId: string;
     advisorPrompt: string;
+    advisorMode?: AdvisorConsultationMode;
     advisorSignal: AbortSignal;
     executorModel: string;
     escalationMeta:
@@ -1403,7 +1609,8 @@ export class GeminiClient {
           systemInstructionOverride:
             'You are a concise advisor for an executor model. Return only the requested guidance.',
           generateContentConfigOverride: {
-            maxOutputTokens: 384,
+            maxOutputTokens:
+              (params.advisorMode ?? 'compact') === 'compact' ? 384 : 512,
             temperature: 0.2,
           },
         },
@@ -1480,10 +1687,28 @@ export class GeminiClient {
         consultationSucceeded: true,
         rawResponse: rawAdvisorResponse,
         guidance: parsedResponse.guidance,
+        mustInclude: parsedResponse.mustInclude,
+        mustForbid: parsedResponse.mustForbid,
+        verifyBeforeDone: parsedResponse.verifyBeforeDone,
         structuredConfidence: parsedResponse.structuredConfidence,
         retryableForRepair: false,
         retryableForFallback: false,
       };
+      if (
+        this.config.getPolluxExperimentalConfig().diagnosticTrace
+          .includeAdvisorGuidanceText
+      ) {
+        this.recordPolluxDiagnosticTrace('advisor_guidance', {
+          turnId: params.turnId,
+          model: params.advisorModelId,
+          advisorMode: params.advisorMode,
+          parserOutcome: parsedResponse.parserOutcome,
+          guidance: parsedResponse.guidance,
+          mustInclude: parsedResponse.mustInclude ?? [],
+          mustForbid: parsedResponse.mustForbid ?? [],
+          verifyBeforeDone: parsedResponse.verifyBeforeDone ?? [],
+        });
+      }
       return result;
     } catch (error) {
       if (params.advisorSignal.aborted && isAbortError(error)) {
@@ -1530,6 +1755,18 @@ export class GeminiClient {
         params.escalationMeta.escalationTiming &&
         result
       ) {
+        this.recordPolluxDiagnosticTrace('advisor_attempt', {
+          turnId: params.turnId,
+          reasonCode: params.escalationMeta.reasonCode,
+          escalationTiming: params.escalationMeta.escalationTiming,
+          attemptIndex: result.attemptIndex,
+          attemptKind: result.attemptKind,
+          model: result.model,
+          advisorMode: params.advisorMode,
+          parserOutcome: result.parserOutcome,
+          outcome: result.outcome,
+          failureKind: result.failOpenKind,
+        });
         this.recordPolluxAdvisorAttemptTelemetry({
           turnId: params.turnId,
           reasonCode: params.escalationMeta.reasonCode,
@@ -1749,6 +1986,19 @@ export class GeminiClient {
     // explicitly flags it (single-shot / kill switch / budget) OR the intent
     // carries a canonically same-turn reason code but is being run next-turn
     // (I11 inference so legacy paths still surface downgrades in telemetry).
+    if (
+      intent.reasonCode ===
+      PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST
+    ) {
+      this.recordPolluxDiagnosticTrace('fr_decision_checkpoint', {
+        turnId: turnContext.turnId,
+        reasonCode: intent.reasonCode,
+        outcome: 'checkpoint_default_consult',
+        contributingSignalIds: intent.contributingSignalIds,
+        contributingSignalAttributions: intent.contributingSignalAttributions,
+      });
+    }
+
     const result = await this.executePolluxAdvisorConsultation(
       turnContext,
       advisorRequestBody,
@@ -1780,6 +2030,8 @@ export class GeminiClient {
       (turnContext.pendingToolContext?.trim().length ?? 0) > 0;
     const longReason =
       reasonCode === PolluxEscalationReasonCode.PRE_MUTATION_REVIEW ||
+      reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT ||
+      reasonCode === PolluxEscalationReasonCode.EXECUTOR_CHECKPOINT_REQUEST ||
       reasonCode === PolluxEscalationReasonCode.HARD_LOOP ||
       reasonCode === PolluxEscalationReasonCode.FUSION_COMPOSITE ||
       reasonCode === PolluxEscalationReasonCode.FUSION_COMPOSITE_EMPHATIC ||
@@ -2140,6 +2392,7 @@ export class GeminiClient {
     let loopRecoverResult: { detail?: string } | undefined;
     for await (const event of resultStream) {
       ingestPolluxObserverFailOpen(polluxObserver, event);
+      this.tracePolluxStreamEvent(event);
 
       // F.1.3 pre-tool same-turn handler: route through the generic consult
       // helper so single-shot, kill-switch, and budget guardrails apply

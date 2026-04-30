@@ -195,6 +195,12 @@ export interface BenchmarkSettingsOverrides {
       maxAdvisorCallsLongTask?: number;
       advisorShamEnabled?: boolean;
       advisorShamGuidance?: string;
+      diagnosticTrace?: {
+        enabled?: boolean;
+        outputPath?: string | null;
+        includeModelThoughts?: 'summary' | 'raw_model_exposed';
+        includeAdvisorGuidanceText?: boolean;
+      };
       longTaskHeuristic?: {
         minToolCalls?: number;
         minPromptChars?: number;

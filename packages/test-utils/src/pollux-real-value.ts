@@ -137,6 +137,11 @@ export async function runPolluxRealM3Value(params: {
   conditionIds?: RealBenchmarkConditionId[];
   allowOverwrite?: boolean;
   thresholds?: RealBenchmarkM3ValueThresholds;
+  diagnosticTrace?: {
+    enabled?: boolean;
+    includeAdvisorGuidanceText?: boolean;
+    includeModelThoughts?: 'summary' | 'raw_model_exposed';
+  };
 }) {
   const thresholds =
     params.thresholds ?? POLLUX_REAL_M3_DEFAULT_VALUE_THRESHOLDS;
@@ -169,6 +174,7 @@ export async function runPolluxRealM3Value(params: {
     maxWallClockMs: params.maxWallClockMs,
     maxModelResponsesPerSample: params.maxModelResponsesPerSample,
     fMaxModelResponsesPerSample: params.fMaxModelResponsesPerSample,
+    diagnosticTrace: params.diagnosticTrace,
     artifactRoot: path.join(valueRoot, 'value-campaign'),
     allowOverwrite: false,
   });
@@ -230,6 +236,17 @@ export async function runPolluxRealM3ValueCli() {
     fMaxModelResponsesPerSample: parsePositiveNumberArg(
       '--f-max-model-responses',
     ),
+    diagnosticTrace: {
+      enabled: parseBooleanArg('--pollux-diagnostic-trace', false),
+      includeAdvisorGuidanceText: parseBooleanArg(
+        '--pollux-diagnostic-trace-guidance',
+        false,
+      ),
+      includeModelThoughts:
+        parseArg('--pollux-diagnostic-trace-thoughts') === 'raw_model_exposed'
+          ? 'raw_model_exposed'
+          : 'summary',
+    },
     conditionIds: parseRealBenchmarkConditionIds(parseArg('--condition-ids')),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),
     thresholds,

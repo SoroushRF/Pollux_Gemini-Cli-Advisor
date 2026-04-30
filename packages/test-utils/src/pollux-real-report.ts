@@ -127,6 +127,21 @@ function divideOrNull(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
+function mergeCountRecords<T extends string>(
+  records: Array<Partial<Record<T, number>> | undefined>,
+): Partial<Record<T, number>> {
+  const out: Partial<Record<T, number>> = {};
+  for (const record of records) {
+    if (!record) {
+      continue;
+    }
+    for (const [key, value] of Object.entries(record) as Array<[T, number]>) {
+      out[key] = (out[key] ?? 0) + value;
+    }
+  }
+  return out;
+}
+
 function getAdvisorGuidanceInjectionCount(run: RealBenchmarkRunRecord): number {
   if (typeof run.advisorGuidanceInjectionCount === 'number') {
     return run.advisorGuidanceInjectionCount;
@@ -163,6 +178,15 @@ function hasAdvisorGuidanceInjection(run: RealBenchmarkRunRecord): boolean {
     return run.advisorGuidanceInjected;
   }
   return getAdvisorGuidanceInjectionCount(run) > 0;
+}
+
+function formatCountRecord(record?: Record<string, number> | object): string {
+  if (!record || Object.keys(record).length === 0) {
+    return 'n/a';
+  }
+  return Object.entries(record as Record<string, number>)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(', ');
 }
 
 const M3_VALUE_CONDITION_ORDER: RealBenchmarkConditionId[] = [
@@ -2509,6 +2533,32 @@ function buildM3ConditionValueSummary(
       advisorTokens,
       advisorGuidanceInjectionCount,
     ),
+    advisorTriggerSourceCounts: mergeCountRecords(
+      validRuns.map((run) => run.advisorTriggerSourceCounts),
+    ),
+    advisorParserOutcomeCounts: mergeCountRecords(
+      validRuns.map((run) => run.advisorParserOutcomeCounts),
+    ),
+    diagnosticTraceSampleCount: validRuns.filter(
+      (run) => run.diagnosticTracePath,
+    ).length,
+    diagnosticTraceEventCount: validRuns.reduce(
+      (sum, run) => sum + (run.diagnosticTraceEventCount ?? 0),
+      0,
+    ),
+    polluxFailureCauseCounts: mergeCountRecords(
+      conditionRuns
+        .map((run) =>
+          run.polluxFailureCause
+            ? ({ [run.polluxFailureCause]: 1 } as Partial<
+                Record<NonNullable<typeof run.polluxFailureCause>, number>
+              >)
+            : undefined,
+        )
+        .filter(
+          (entry): entry is NonNullable<typeof entry> => entry !== undefined,
+        ),
+    ),
     costPerInjectedSuccessfulSampleUsd:
       totalCostUsd === null
         ? null
@@ -2910,6 +2960,18 @@ export function renderRealBenchmarkM3ValueReport(
     const all = condition.allSamples;
     lines.push(
       `| ${condition.conditionId} | ${condition.advisorTriggerMode ?? 'n/a'} | ${condition.validSamples} | ${condition.invalidSamples} | ${formatWilsonInterval(condition.passRateWilson95)} | ${formatNullableCurrency(condition.meanCostPerTaskUsd)} | ${formatNullableCurrency(condition.costPerSuccessUsd)} | ${condition.totalTokens} | ${condition.advisorTokens} | ${condition.advisorCallRate === null ? 'n/a' : condition.advisorCallRate.toFixed(2)} | ${condition.advisorGuidanceInjectionCount} | ${formatNullableNumber(condition.avgAdvisorTokensPerInjectedConsultation)} | ${formatNumber(condition.meanWallClockMs)} | ${formatNumber(condition.meanServiceLatencyMs)} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${all.advisorGuidanceInjections} | ${formatNullableCurrency(all.totalCostUsd)} | ${formatNumber(all.meanModelResponses)} |`,
+    );
+  }
+  lines.push('');
+  lines.push('Advisor diagnostics:');
+  lines.push('');
+  lines.push(
+    '| Condition | Trigger sources | Parser outcomes | Trace samples | Trace events | Failure causes |',
+  );
+  lines.push('| --- | --- | --- | ---: | ---: | --- |');
+  for (const condition of summary.conditionValueSummaries) {
+    lines.push(
+      `| ${condition.conditionId} | ${formatCountRecord(condition.advisorTriggerSourceCounts)} | ${formatCountRecord(condition.advisorParserOutcomeCounts)} | ${condition.diagnosticTraceSampleCount ?? 0} | ${condition.diagnosticTraceEventCount ?? 0} | ${formatCountRecord(condition.polluxFailureCauseCounts)} |`,
     );
   }
   lines.push('');

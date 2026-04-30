@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import type { SensorInput, ToolEventRecord } from './base.js';
 import {
   LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
+  TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID,
+  TOOL_FINALIZATION_AUDIT_SIGNAL_ID,
   TOOL_ANCHOR_GUIDED_MUTATION_SIGNAL_ID,
   TOOL_ANCHOR_TEST_FAILURE_SIGNAL_ID,
   TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID,
@@ -17,6 +19,7 @@ import {
   TOOL_IDENTICAL_REPEAT_SIGNAL_ID,
   TOOL_LOCAL_PATCH_RETRY_SIGNAL_ID,
   TOOL_PATTERN_SENSOR_ID,
+  TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID,
   TOOL_SEARCH_WITHOUT_DECIDE_SIGNAL_ID,
   TOOL_TOKEN_BURN_SIGNAL_ID,
   ToolPatternSensor,
@@ -462,6 +465,124 @@ describe('pollux/observer/sensors/toolPattern', () => {
     expect(
       out.some((s) => s.id === TOOL_ANCHOR_GUIDED_MUTATION_SIGNAL_ID),
     ).toBe(true);
+  });
+
+  it('emits constraint-aware pre-mutation advisor signal for detector mode', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'detector',
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'mut-flow',
+            name: 'write_file',
+            args: {
+              file_path: 'src/flow.ts',
+              content: 'export const transitions = {};',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Repair src/flow.ts and tests/flow.test.ts so the state machine transition map preserves terminal-state behavior. The done and failed states must remain explicit entries with empty arrays.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-flow', true, false, {
+            file_path: 'src/flow.ts',
+          }),
+          requestEvent('write_file', 'mut-flow', false, true, {
+            file_path: 'src/flow.ts',
+            content: 'export const transitions = {};',
+          }),
+        ],
+      }),
+    );
+
+    expect(out.some((s) => s.id === TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID)).toBe(
+      true,
+    );
+  });
+
+  it('uses executor checkpoint signal instead of detector pre-mutation in executor-request mode', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'executor_request',
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'mut-flow',
+            name: 'write_file',
+            args: {
+              file_path: 'src/flow.ts',
+              content: 'export const transitions = {};',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Repair src/flow.ts and tests/flow.test.ts so the state machine transition map preserves terminal-state behavior. The done and failed states must remain explicit entries with empty arrays.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-flow', true, false, {
+            file_path: 'src/flow.ts',
+          }),
+          requestEvent('write_file', 'mut-flow', false, true, {
+            file_path: 'src/flow.ts',
+            content: 'export const transitions = {};',
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      out.some((s) => s.id === TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID),
+    ).toBe(true);
+    expect(out.some((s) => s.id === TOOL_PRE_MUTATION_ADVISOR_SIGNAL_ID)).toBe(
+      false,
+    );
+  });
+
+  it('emits finalization audit after high-risk source mutation before m3 marker', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'detector',
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'done',
+            name: 'write_file',
+            args: { file_path: 'm3-done.txt', content: 'done' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        promptConstraintSummary: parsePromptConstraintSummary(
+          'Repair src/flow.ts so the state machine transition map preserves terminal-state behavior. done and failed must remain explicit entries.',
+        ),
+        toolEventWindow: [
+          requestEvent('read_file', 'read-flow', true, false, {
+            file_path: 'src/flow.ts',
+          }),
+          requestEvent('write_file', 'mut-flow', false, true, {
+            file_path: 'src/flow.ts',
+            content: 'export const transitions = { queued: [] };',
+          }),
+          requestEvent('write_file', 'done', false, true, {
+            file_path: 'm3-done.txt',
+            content: 'done',
+          }),
+        ],
+      }),
+    );
+
+    expect(out.some((s) => s.id === TOOL_FINALIZATION_AUDIT_SIGNAL_ID)).toBe(
+      true,
+    );
   });
 
   it('emits anchor test failure after protected anchors are inspected', () => {

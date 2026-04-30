@@ -43,6 +43,12 @@ export interface PromptConstraintSummary {
   readonly hasBehaviorPreservationConstraint: boolean;
   readonly hasCrossFileRepairConstraint: boolean;
   readonly hasCompatibilityAliasConstraint: boolean;
+  readonly hasNegativeSpaceConstraint: boolean;
+  readonly hasExplicitCompletenessConstraint: boolean;
+  readonly hasStateMachineConstraint: boolean;
+  readonly hasTerminalStateConstraint: boolean;
+  readonly hasStructuredMapConstraint: boolean;
+  readonly hasForbiddenBehaviorConstraint: boolean;
 }
 
 /**
@@ -66,6 +72,7 @@ export interface SensorInput {
   readonly turnToolCallCount?: number;
   readonly loopBridgeLoopDetected?: boolean;
   readonly loopBridgeAttribution?: string;
+  readonly advisorTriggerMode?: 'executor_request' | 'detector' | 'hybrid';
 }
 
 export interface SensorSignal {
