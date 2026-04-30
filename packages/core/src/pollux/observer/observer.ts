@@ -181,7 +181,10 @@ export interface LiveExecutorObserver {
   peekSameTurnIntent(): SameTurnIntent | undefined;
   consumeSameTurnIntent(): SameTurnIntent | undefined;
   consumePendingNextTurnIntent(): NextTurnIntent | undefined;
-  noteAdvisorSuccess(success: boolean): void;
+  noteAdvisorSuccess(
+    success: boolean,
+    contributingSignalIds?: readonly string[],
+  ): void;
 }
 
 /**
@@ -238,6 +241,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
   private readonly successfulTurnTokenHistory: number[] = [];
   private readonly distinctSubjectRateHistory: number[] = [];
   private readonly advisorSuccessByTurn: boolean[] = [];
+  private readonly advisorCooldownSignalIds = new Set<string>();
 
   constructor(
     private readonly experimental: Readonly<PolluxExperimentalConfig>,
@@ -293,6 +297,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     this.currentTurnToolCallCount = 0;
     this.currentTurnAdvisorSuccess = false;
     this.fusionEscalatedThisTurn = false;
+    this.advisorCooldownSignalIds.clear();
     this.loopSensor?.resetEdgeTracking();
     for (const sensor of this.streamSensors) {
       sensor.beginTurn?.();
@@ -348,8 +353,20 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     return intent;
   }
 
-  noteAdvisorSuccess(success: boolean): void {
+  noteAdvisorSuccess(
+    success: boolean,
+    contributingSignalIds: readonly string[] = [],
+  ): void {
     this.currentTurnAdvisorSuccess = this.currentTurnAdvisorSuccess || success;
+    if (!success) {
+      return;
+    }
+    for (const signalId of contributingSignalIds) {
+      this.advisorCooldownSignalIds.add(signalId);
+      this.activeSignals.delete(signalId);
+    }
+    this.pendingSameTurnIntent = undefined;
+    this.pendingNextTurnIntent = undefined;
   }
 
   private buildSensorInput(event: ServerGeminiStreamEvent): SensorInput {
@@ -368,6 +385,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
         this.distinctSubjectRateHistory,
       ),
       currentTurnModelOutput: this.currentTurnModelOutput,
+      currentTurnAdvisorSuccessWithinTurn: this.currentTurnAdvisorSuccess,
       recentAdvisorSuccessWithinTurns: this.advisorSuccessByTurn
         .slice(-3)
         .some(Boolean),
@@ -489,6 +507,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
 
   private recordSignals(signals: readonly SensorSignal[]): void {
     for (const signal of signals) {
+      if (this.advisorCooldownSignalIds.has(signal.id)) {
+        continue;
+      }
       this.activeSignals.set(signal.id, signal);
     }
   }
@@ -533,6 +554,9 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
 
   private evaluateFusion(event: ServerGeminiStreamEvent): void {
     if (!this.experimental.detector.observer.enabled) {
+      return;
+    }
+    if (this.currentTurnAdvisorSuccess) {
       return;
     }
     const output = this.fusionLayer.evaluate({

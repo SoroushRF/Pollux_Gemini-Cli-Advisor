@@ -521,6 +521,92 @@ describe('pollux/observer', () => {
     );
   });
 
+  it('suppresses duplicate detector consults after a successful pre-mutation review but still allows later risk-gate blocks', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        detector: {
+          observer: { enabled: true },
+          riskGate: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 1 },
+        },
+      }),
+    );
+    obs.beginTurn(
+      'Fix the transitive import/export mismatch so view.ts uses the canonical createStableLabel implementation through the public index. Do not change src/labels.ts behavior or tests/view.test.ts.',
+    );
+
+    for (const [callId, filePath] of [
+      ['read-0', 'src/index.ts'],
+      ['read-1', 'src/labels.ts'],
+      ['read-2', 'src/view.ts'],
+      ['read-3', 'tests/view.test.ts'],
+    ] as const) {
+      obs.ingest({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId,
+          name: 'read_file',
+          args: { file_path: filePath },
+          isClientInitiated: false,
+          prompt_id: 'prompt-1',
+        },
+      });
+    }
+
+    obs.ingest({
+      type: GeminiEventType.ToolCallRequest,
+      value: {
+        callId: 'mut-1',
+        name: 'replace',
+        args: {
+          file_path: 'src/view.ts',
+          old_string: 'createLabel',
+          new_string: 'createStableLabel',
+        },
+        isClientInitiated: false,
+        prompt_id: 'prompt-1',
+      },
+    });
+
+    const firstIntent = obs.consumeSameTurnIntent();
+    expect(firstIntent).toEqual(
+      expect.objectContaining({
+        reasonCode: PolluxEscalationReasonCode.PRE_MUTATION_REVIEW,
+        contributingSignalIds: expect.arrayContaining([
+          'tool.pre_mutation_advisor',
+        ]),
+      }),
+    );
+
+    obs.noteAdvisorSuccess(true, firstIntent?.contributingSignalIds);
+    obs.ingest({
+      type: GeminiEventType.Content,
+      value: 'Continuing with the repair after consulting the advisor.',
+    });
+
+    expect(obs.peekSameTurnIntent()).toBeUndefined();
+    expect(obs.consumePendingNextTurnIntent()).toBeUndefined();
+
+    obs.ingest({
+      type: GeminiEventType.ToolCallRequest,
+      value: {
+        callId: 'call-risk',
+        name: 'run_shell_command',
+        args: { command: 'rm -rf /tmp/*' },
+        isClientInitiated: false,
+        prompt_id: 'prompt-1',
+      },
+    });
+
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        reasonCode: PolluxEscalationReasonCode.RISK_GATE_BLOCK,
+        pauseBoundary: 'pre_tool',
+      }),
+    );
+  });
+
   it('keeps straightforward refactor controls quiet', () => {
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({

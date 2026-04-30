@@ -61,6 +61,7 @@ export interface SensorInput {
   readonly sessionMedianSuccessfulTurnTokens?: number;
   readonly sessionMedianDistinctSubjectsPerMinute?: number;
   readonly currentTurnModelOutput?: string;
+  readonly currentTurnAdvisorSuccessWithinTurn?: boolean;
   readonly recentAdvisorSuccessWithinTurns?: boolean;
   readonly turnToolCallCount?: number;
   readonly loopBridgeLoopDetected?: boolean;

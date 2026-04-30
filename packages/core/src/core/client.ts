@@ -1895,7 +1895,7 @@ export class GeminiClient {
       );
       if (outcome === 'consulted') {
         this.polluxSameTurnFiredThisTurn = true;
-        polluxObserver.noteAdvisorSuccess(true);
+        polluxObserver.noteAdvisorSuccess(true, intent.contributingSignalIds);
       } else if (outcome === 'budget_exhausted') {
         // Budget went from allowed at pre-check to exhausted during execution
         // (race with parallel surface). Treat as a downgrade so the attempt
@@ -1913,7 +1913,7 @@ export class GeminiClient {
         // still consumes the slot to prevent rapid retries within a turn,
         // mirroring the observer's per-reason cap behavior (§F.1.4).
         this.polluxSameTurnFiredThisTurn = true;
-        polluxObserver.noteAdvisorSuccess(false);
+        polluxObserver.noteAdvisorSuccess(false, intent.contributingSignalIds);
       }
       return outcome;
     } catch (error) {

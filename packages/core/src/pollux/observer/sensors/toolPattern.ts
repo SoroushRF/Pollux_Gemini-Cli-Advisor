@@ -6,7 +6,12 @@
 
 import { GeminiEventType } from '../../../core/turn.js';
 import { SHELL_TOOL_NAME } from '../../../tools/definitions/base-declarations.js';
-import type { Sensor, SensorInput, SensorSignal , ToolEventRecord } from './base.js';
+import type {
+  Sensor,
+  SensorInput,
+  SensorSignal,
+  ToolEventRecord,
+} from './base.js';
 
 /** Tool-pattern sensor slot (Phase D). */
 export const TOOL_PATTERN_SENSOR_ID = 'sensor.tool_pattern' as const;
@@ -320,6 +325,7 @@ export class ToolPatternSensor implements Sensor {
             if (
               firstMeaningfulMutation &&
               anchorReadPaths.length >= 1 &&
+              !input.currentTurnAdvisorSuccessWithinTurn &&
               !input.recentAdvisorSuccessWithinTurns
             ) {
               out.push({
