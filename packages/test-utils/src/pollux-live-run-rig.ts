@@ -62,6 +62,8 @@ const CONSULT_ATTEMPT_OUTCOMES = new Set([
   'deferred_next_turn',
 ]);
 
+export const POLLUX_REAL_DEFAULT_MAX_MODEL_RESPONSES = 15;
+
 function countEscalationAttempts(
   escalationEvents: readonly RealBenchmarkEscalationEvent[],
 ): number {
@@ -1115,8 +1117,11 @@ export class PolluxLiveRunRig {
     );
     this.maxModelResponsesPerSample = positiveNumberOrFallback(
       options.maxModelResponsesPerSample ??
-        Number(process.env['POLLUX_REAL_MAX_MODEL_RESPONSES'] ?? 6),
-      6,
+        Number(
+          process.env['POLLUX_REAL_MAX_MODEL_RESPONSES'] ??
+            POLLUX_REAL_DEFAULT_MAX_MODEL_RESPONSES,
+        ),
+      POLLUX_REAL_DEFAULT_MAX_MODEL_RESPONSES,
     );
     this.fMaxModelResponsesPerSample =
       typeof options.fMaxModelResponsesPerSample === 'number'
