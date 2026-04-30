@@ -180,6 +180,11 @@ advisor responses, and any other utility-model responses captured by telemetry.
 Raw samples record `responseCeiling.ceilingScope = all_model_responses` to make
 this explicit.
 
+Unless a runner is launched with an explicit override, the current official
+default ceiling for real benchmark runs is `15` model responses per sample. The
+default was revised from the earlier pilot value after reviewing historical
+strong-model completion counts on the milestone-3 task slices.
+
 Classifier order matters. Structured capacity/quota evidence such as
 `MODEL_CAPACITY_EXHAUSTED`, `RESOURCE_EXHAUSTED`, or HTTP `429` must be
 recognized before generic OAuth/auth stack text. A capacity outage is not an

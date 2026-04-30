@@ -35,14 +35,19 @@ npm run benchmark:pollux:real:pilot -- --campaign-id pilot-local-001 --repeats 3
 npm run benchmark:pollux:real:acceptance -- --acceptance-id m2-acceptance-001 --pricing-snapshot docs/core/pollux/P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_TEMPLATE.json
 ```
 
+The real benchmark harness now defaults to `15` model responses per sample.
+That default was revised after reviewing the latest pre-track strong-model
+completion envelope on the milestone-3 task slices rather than keeping the
+older conservative pilot constant of `6`.
+
 For targeted debugging, constrain runaway samples explicitly:
 
 ```powershell
-npm run benchmark:pollux:real:pilot -- --campaign-id pilot-debug-001 --repeats 1 --task-ids CAL-BM-04-ESCALATING,PILOT-BM-05-STATUS-WRITE,PILOT-BM-06-YAML-TRANSFORM --max-wall-clock-ms 600000 --max-model-responses 6
+npm run benchmark:pollux:real:pilot -- --campaign-id pilot-debug-001 --repeats 1 --task-ids CAL-BM-04-ESCALATING,PILOT-BM-05-STATUS-WRITE,PILOT-BM-06-YAML-TRANSFORM --max-wall-clock-ms 600000 --max-model-responses 15
 ```
 
 For F-only diagnostic reruns where Pollux may need more response budget than the
-strict A/E calibration ceiling, raise only the F ceiling:
+global default ceiling, raise only the F ceiling:
 
 ```powershell
 npm run benchmark:pollux:real:pilot -- --campaign-id m3-f-diagnostic-ceiling18 --condition-ids F --repeats 3 --entrypoint bundle --f-max-model-responses 18
