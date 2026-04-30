@@ -52,6 +52,8 @@ function buildRun(params: {
   advisorCalls?: number;
   advisorTriggerMode?: RealBenchmarkAdvisorTriggerMode;
   invalidated?: boolean;
+  invalidationReason?: RealBenchmarkRunRecord['invalidationReason'];
+  modelResponseCount?: number;
 }): RealBenchmarkRunRecord {
   const advisorTriggerMode =
     params.advisorTriggerMode ??
@@ -121,11 +123,13 @@ function buildRun(params: {
     },
     oraclePass: params.oraclePass,
     invalidated: params.invalidated ?? false,
-    invalidationReason: params.invalidated ? 'run_timeout' : undefined,
+    invalidationReason: params.invalidated
+      ? (params.invalidationReason ?? 'run_timeout')
+      : undefined,
     structuredErrorEvidence: null,
     exitCode: params.invalidated ? null : 0,
     timedOut: params.invalidated ?? false,
-    modelResponseCount: 1,
+    modelResponseCount: params.modelResponseCount ?? 1,
     expectedEscalation: false,
     predictedEscalation: (params.advisorCalls ?? 0) > 0,
     confusionOutcome: params.invalidated ? 'excluded' : 'true_negative',
@@ -489,6 +493,95 @@ describe('buildRealBenchmarkM3ValueSummary', () => {
     expect(markdown).toContain('Trigger mode');
     expect(markdown).toContain('FR pass');
     expect(markdown).toContain('LFD invalid');
+  });
+
+  it('keeps FR vs FD diagnostic lanes auditable when samples invalidate under the response ceiling', () => {
+    const conditionIds: RealBenchmarkConditionId[] = ['F', 'FR', 'FD'];
+    const summary = buildRealBenchmarkM3ValueSummary({
+      valueBatchId: 'm3-value-unit',
+      selectedTaskSetPath: 'selected-task-set.json',
+      selectedTaskSet,
+      corpusSha: 'corpus',
+      thresholds,
+      conditionIds,
+      runs: [
+        buildRun({
+          conditionId: 'F',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.05,
+          totalTokens: 175,
+          advisorTokens: 20,
+          advisorCalls: 1,
+        }),
+        buildRun({
+          conditionId: 'FR',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.052,
+          totalTokens: 180,
+          invalidated: true,
+          invalidationReason: 'model_call_ceiling_exceeded',
+          modelResponseCount: 16,
+        }),
+        buildRun({
+          conditionId: 'FD',
+          sampleIndex: 1,
+          oraclePass: true,
+          totalCostUsd: 0.048,
+          totalTokens: 170,
+          advisorTokens: 24,
+          advisorCalls: 1,
+          invalidated: true,
+          invalidationReason: 'model_call_ceiling_exceeded',
+          modelResponseCount: 10,
+        }),
+      ],
+    });
+
+    expect(
+      summary.conditionValueSummaries.map((condition) => ({
+        id: condition.conditionId,
+        triggerMode: condition.advisorTriggerMode,
+        validSamples: condition.validSamples,
+        invalidRate: condition.invalidRate,
+        rawOraclePasses: condition.allSamples.rawOraclePasses,
+        allSampleAdvisorCalls: condition.allSamples.advisorCalls,
+      })),
+    ).toEqual([
+      {
+        id: 'F',
+        triggerMode: 'hybrid',
+        validSamples: 1,
+        invalidRate: 0,
+        rawOraclePasses: 1,
+        allSampleAdvisorCalls: 1,
+      },
+      {
+        id: 'FR',
+        triggerMode: 'executor_request',
+        validSamples: 0,
+        invalidRate: 1,
+        rawOraclePasses: 1,
+        allSampleAdvisorCalls: 0,
+      },
+      {
+        id: 'FD',
+        triggerMode: 'detector',
+        validSamples: 0,
+        invalidRate: 1,
+        rawOraclePasses: 1,
+        allSampleAdvisorCalls: 1,
+      },
+    ]);
+
+    const markdown = renderRealBenchmarkM3ValueReport(summary);
+    expect(markdown).toContain('Trigger-Mode Diagnostics');
+    expect(markdown).toContain('| F | hybrid |');
+    expect(markdown).toContain('| FR | executor_request |');
+    expect(markdown).toContain('| FD | detector |');
+    expect(markdown).toContain('FR invalid');
+    expect(markdown).toContain('FD invalid');
   });
 
   it('marks the value suite as diagnostic-only when F has zero advisor evidence', () => {
