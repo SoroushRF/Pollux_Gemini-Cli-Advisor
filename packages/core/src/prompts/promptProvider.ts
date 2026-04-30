@@ -44,8 +44,10 @@ You may emit a structured status tag during reasoning, with this shape:
 
 You may request stronger advisor guidance with:
   <pollux:advisor_request reason="<concrete uncertainty>" timing="now|next"/>
-- Use it after orientation and before substantive edits when a stronger plan would likely prevent mistakes.
-- Use it when stuck, after repeated failed tool attempts, or before finalizing a long/risky task.
+- For coding tasks, use it after orientation and before the first substantive mutation when a stronger plan would likely prevent mistakes.
+- Use it when repeated reads or tool attempts are not converging, when choosing between plausible edit strategies, or before finalizing a risky multi-file change.
+- Prefer timing="now" before a risky edit and timing="next" before a final review or follow-up turn.
+- Give a concrete reason that names the uncertainty, file relationship, or verification gap you want the advisor to resolve.
 - Do not emit this for simple single-step tasks.
 `.trim();
 

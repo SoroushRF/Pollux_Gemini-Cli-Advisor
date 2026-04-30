@@ -183,6 +183,8 @@ describe('Core System Prompt (prompts.ts)', () => {
     const prompt = getCoreSystemPrompt(mockConfig);
     expect(prompt).toContain('# Pollux status channel (experimental)');
     expect(prompt).toContain('<pollux:status stuck_on="');
+    expect(prompt).toContain('before the first substantive mutation');
+    expect(prompt).toContain('timing="now" before a risky edit');
     expect(prompt).toMatchSnapshot();
   });
 
