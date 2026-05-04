@@ -84,6 +84,24 @@ describe('pollux SWE benchmark runner library', () => {
     });
   });
 
+  it('launches Windows command shims through cmd.exe', () => {
+    const binaryPath = 'C:\\Users\\sorou\\AppData\\Roaming\\npm\\gemini.cmd';
+    const entrypoint = resolveCliEntrypoint({
+      repoRoot: 'C:\\repo',
+      entrypoint: 'binary',
+      binaryPath,
+      existsSync: (candidate) => candidate === binaryPath,
+    });
+
+    if (process.platform === 'win32') {
+      expect(entrypoint.command.toLowerCase()).toContain('cmd');
+      expect(entrypoint.initialArgs).toEqual(['/d', '/s', '/c', binaryPath]);
+    } else {
+      expect(entrypoint.command).toBe(binaryPath);
+      expect(entrypoint.initialArgs).toEqual([]);
+    }
+  });
+
   it('resolves bundle, dev_script, and auto entrypoints predictably', () => {
     const repoRoot = path.join('/repo', 'pollux');
     const bundlePath = path.join(repoRoot, 'bundle', 'gemini.js');
@@ -200,6 +218,24 @@ describe('pollux SWE benchmark runner library', () => {
       valid_for_score: false,
       invalidation_reason: 'tool_policy_failure',
       tool_policy_failure: 'non_interactive_confirmation_required',
+      score_bucket: 'invalid',
+    });
+  });
+
+  it('invalidates runs that exceed the model response ceiling', () => {
+    expect(
+      classifyRunResult({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+        timedOut: false,
+        patch: 'diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n',
+        responseCeilingExceeded: true,
+        scorePolicy: 'strict',
+      }),
+    ).toMatchObject({
+      valid_for_score: false,
+      invalidation_reason: 'model_response_ceiling_exceeded',
       score_bucket: 'invalid',
     });
   });

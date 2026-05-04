@@ -142,19 +142,30 @@ function execFile(command, args, options = {}) {
 
 function runGemini(args, options) {
   return new Promise((resolve) => {
-    const child = spawn(
-      options.entrypoint.command,
-      [...options.entrypoint.initialArgs, ...args],
-      {
-        cwd: options.cwd,
-        env: buildCleanGeminiEnv(options.homeDir),
-        shell: false,
-        windowsHide: true,
-      },
-    );
+    let child;
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    try {
+      child = spawn(
+        options.entrypoint.command,
+        [...options.entrypoint.initialArgs, ...args],
+        {
+          cwd: options.cwd,
+          env: buildCleanGeminiEnv(options.homeDir),
+          shell: options.entrypoint.shell === true,
+          windowsHide: true,
+        },
+      );
+    } catch (error) {
+      resolve({
+        code: null,
+        stdout,
+        stderr: `${stderr}\n${error instanceof Error ? error.stack : String(error)}`,
+        timedOut,
+      });
+      return;
+    }
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
@@ -500,6 +511,30 @@ async function collectEntrypointMetadata(cliEntrypoint) {
   });
 }
 
+async function assertFakeResponsesSupported(cliEntrypoint) {
+  if (!args.fakeResponsesPath || cliEntrypoint.kind !== 'binary') {
+    return;
+  }
+  const help = await execFile(
+    cliEntrypoint.command,
+    [...cliEntrypoint.initialArgs, '--help'],
+    {
+      cwd: repoRoot,
+      allowFailure: true,
+    },
+  );
+  const helpText = `${help.stdout}\n${help.stderr}`;
+  if (!/--fake-responses\b/.test(helpText)) {
+    throw new Error(
+      [
+        `External binary does not advertise --fake-responses: ${cliEntrypoint.path}`,
+        'Refusing to run a fake-response canary through this binary because it may spend real model tokens.',
+        'Use the repo bundle/dev_script for fake-response checks, or run external E trials manually without --fake-responses.',
+      ].join('\n'),
+    );
+  }
+}
+
 async function runOne(instance, condition, runDir) {
   const rawDir = path.join(runDir, 'raw', condition.id, instance.instance_id);
   ensureDir(rawDir);
@@ -637,6 +672,10 @@ async function runOne(instance, condition, runDir) {
   }
   fs.writeFileSync(path.join(rawDir, 'model.patch'), patch);
   const telemetry = summarizeTelemetry(telemetryPath);
+  const responseCeilingExceeded =
+    Number.isFinite(args.maxApiResponses) &&
+    args.maxApiResponses >= 0 &&
+    telemetry.apiResponses > args.maxApiResponses;
   const classification = classifyRunResult({
     stdout: result.stdout,
     stderr: result.stderr,
@@ -644,6 +683,7 @@ async function runOne(instance, condition, runDir) {
     exitCode: result.code,
     patch,
     patchCollectionFailed,
+    responseCeilingExceeded,
     scorePolicy: args.scorePolicy,
   });
   const record = {
@@ -668,6 +708,7 @@ const entrypoint = resolveCliEntrypoint({
   entrypoint: args.entrypoint,
   binaryPath: args.binaryPath,
 });
+await assertFakeResponsesSupported(entrypoint);
 const entrypointMetadata = await collectEntrypointMetadata(entrypoint);
 const allInstances = JSON.parse(fs.readFileSync(selectedInstancesPath, 'utf8'));
 const selected = allInstances.slice(

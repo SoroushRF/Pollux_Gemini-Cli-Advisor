@@ -121,10 +121,16 @@ export function resolveCliEntrypoint(options) {
     if (!exists(explicitBinaryPath)) {
       throw new Error(`CLI binary path does not exist: ${explicitBinaryPath}`);
     }
+    const isWindowsCommandShim =
+      process.platform === 'win32' && /\.(bat|cmd)$/i.test(explicitBinaryPath);
     return {
       kind: 'binary',
-      command: explicitBinaryPath,
-      initialArgs: [],
+      command: isWindowsCommandShim
+        ? (process.env['ComSpec'] ?? 'cmd.exe')
+        : explicitBinaryPath,
+      initialArgs: isWindowsCommandShim
+        ? ['/d', '/s', '/c', explicitBinaryPath]
+        : [],
       path: explicitBinaryPath,
       publishableEligible: false,
     };
@@ -325,6 +331,8 @@ export function classifyRunResult(params) {
     invalidationReason = 'tool_policy_failure';
   } else if (params.timedOut) {
     invalidationReason = 'timeout';
+  } else if (params.responseCeilingExceeded) {
+    invalidationReason = 'model_response_ceiling_exceeded';
   } else if (params.patchCollectionFailed) {
     invalidationReason = 'patch_collection_failed';
   } else if (params.exitCode !== 0 && params.exitCode !== undefined) {
