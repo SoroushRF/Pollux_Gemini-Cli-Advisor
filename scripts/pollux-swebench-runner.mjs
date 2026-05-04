@@ -98,6 +98,15 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function resolveRunnerInputPath(inputPath) {
+  if (!inputPath) {
+    return inputPath;
+  }
+  return path.isAbsolute(inputPath)
+    ? inputPath
+    : path.resolve(repoRoot, inputPath);
+}
+
 function execFile(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -597,7 +606,10 @@ async function runOne(instance, condition, runDir) {
     prompt,
   ];
   if (args.fakeResponsesPath) {
-    geminiArgs.push('--fake-responses', args.fakeResponsesPath);
+    geminiArgs.push(
+      '--fake-responses',
+      resolveRunnerInputPath(args.fakeResponsesPath),
+    );
   }
   const result = await runGemini(geminiArgs, {
     cwd: workDir,
@@ -685,7 +697,7 @@ fs.writeFileSync(
       prepareOnly: args.prepareOnly,
       entrypoint: args.entrypoint,
       binaryPath: args.binaryPath ?? null,
-      fakeResponsesPath: args.fakeResponsesPath ?? null,
+      fakeResponsesPath: resolveRunnerInputPath(args.fakeResponsesPath) ?? null,
       fakeResponsesSupport:
         args.fakeResponsesPath === undefined
           ? 'not_requested'

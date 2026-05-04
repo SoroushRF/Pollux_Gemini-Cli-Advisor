@@ -1,0 +1,3 @@
+{"method":"generateContentStream","response":[{"candidates":[{"content":{"role":"model","parts":[{"text":"I will start with a safe shell canary."},{"functionCall":{"name":"run_shell_command","args":{"command":"echo pollux-tool-canary"}}}]},"finishReason":"STOP"}]}]}
+{"method":"generateContentStream","response":[{"candidates":[{"content":{"role":"model","parts":[{"text":"Shell worked. Now I will write a tiny canary file."},{"functionCall":{"name":"write_file","args":{"file_path":"pollux_tool_canary.py","content":"CANARY = True\n"}}}]},"finishReason":"STOP"}]}]}
+{"method":"generateContentStream","response":[{"candidates":[{"content":{"role":"model","parts":[{"text":"Canary complete."}]},"finishReason":"STOP"}]}]}
