@@ -146,6 +146,8 @@ function runGemini(args, options) {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let terminationReason = null;
+    let terminating = false;
     try {
       child = spawn(
         options.entrypoint.command,
@@ -163,13 +165,32 @@ function runGemini(args, options) {
         stdout,
         stderr: `${stderr}\n${error instanceof Error ? error.stack : String(error)}`,
         timedOut,
+        terminationReason,
       });
       return;
     }
-    const timer = setTimeout(() => {
+    function terminateProcessTree(reason) {
       timedOut = true;
+      terminationReason ??= reason;
+      if (terminating) {
+        return;
+      }
+      terminating = true;
+      if (process.platform === 'win32' && child?.pid) {
+        spawn(
+          process.env['ComSpec'] ?? 'cmd.exe',
+          ['/d', '/s', '/c', 'taskkill', '/PID', String(child.pid), '/T', '/F'],
+          {
+            windowsHide: true,
+          },
+        );
+        return;
+      }
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 10_000).unref();
+    }
+    const timer = setTimeout(() => {
+      terminateProcessTree('timeout');
     }, options.timeoutMs);
     const responseLimitTimer =
       Number.isFinite(options.maxApiResponses) && options.maxApiResponses >= 0
@@ -180,9 +201,7 @@ function runGemini(args, options) {
               summarizeTelemetry(options.telemetryPath).apiResponses >=
                 options.maxApiResponses
             ) {
-              timedOut = true;
-              child.kill('SIGTERM');
-              setTimeout(() => child.kill('SIGKILL'), 10_000).unref();
+              terminateProcessTree('model_response_ceiling_exceeded');
             }
           }, 2_000)
         : undefined;
@@ -197,14 +216,20 @@ function runGemini(args, options) {
       if (responseLimitTimer) {
         clearInterval(responseLimitTimer);
       }
-      resolve({ code, stdout, stderr, timedOut });
+      resolve({ code, stdout, stderr, timedOut, terminationReason });
     });
     child.on('error', (error) => {
       clearTimeout(timer);
       if (responseLimitTimer) {
         clearInterval(responseLimitTimer);
       }
-      resolve({ code: null, stdout, stderr: `${stderr}\n${error}`, timedOut });
+      resolve({
+        code: null,
+        stdout,
+        stderr: `${stderr}\n${error}`,
+        timedOut,
+        terminationReason,
+      });
     });
   });
 }
@@ -673,9 +698,10 @@ async function runOne(instance, condition, runDir) {
   fs.writeFileSync(path.join(rawDir, 'model.patch'), patch);
   const telemetry = summarizeTelemetry(telemetryPath);
   const responseCeilingExceeded =
-    Number.isFinite(args.maxApiResponses) &&
-    args.maxApiResponses >= 0 &&
-    telemetry.apiResponses > args.maxApiResponses;
+    result.terminationReason === 'model_response_ceiling_exceeded' ||
+    (Number.isFinite(args.maxApiResponses) &&
+      args.maxApiResponses >= 0 &&
+      telemetry.apiResponses > args.maxApiResponses);
   const classification = classifyRunResult({
     stdout: result.stdout,
     stderr: result.stderr,
@@ -690,6 +716,7 @@ async function runOne(instance, condition, runDir) {
     ...baseRecord,
     model_patch: patch,
     timed_out: result.timedOut,
+    termination_reason: result.terminationReason,
     exit_code: result.code,
     patch_chars: patch.length,
     ...telemetry,

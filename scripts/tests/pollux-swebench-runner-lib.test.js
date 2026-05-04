@@ -238,6 +238,22 @@ describe('pollux SWE benchmark runner library', () => {
       invalidation_reason: 'model_response_ceiling_exceeded',
       score_bucket: 'invalid',
     });
+
+    expect(
+      classifyRunResult({
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+        timedOut: true,
+        patch: 'diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n',
+        responseCeilingExceeded: true,
+        scorePolicy: 'strict',
+      }),
+    ).toMatchObject({
+      valid_for_score: false,
+      invalidation_reason: 'model_response_ceiling_exceeded',
+      score_bucket: 'invalid',
+    });
   });
 
   it('flags reproduction-only patches under strict scoring', () => {

@@ -329,10 +329,10 @@ export function classifyRunResult(params) {
     invalidationReason = 'provider_failure';
   } else if (toolPolicyFailure) {
     invalidationReason = 'tool_policy_failure';
-  } else if (params.timedOut) {
-    invalidationReason = 'timeout';
   } else if (params.responseCeilingExceeded) {
     invalidationReason = 'model_response_ceiling_exceeded';
+  } else if (params.timedOut) {
+    invalidationReason = 'timeout';
   } else if (params.patchCollectionFailed) {
     invalidationReason = 'patch_collection_failed';
   } else if (params.exitCode !== 0 && params.exitCode !== undefined) {
