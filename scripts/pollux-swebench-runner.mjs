@@ -259,12 +259,17 @@ async function ensureBareRepo(instance) {
   if (!fs.existsSync(bareDir)) {
     ensureDir(path.dirname(bareDir));
     await execFile('git', [
+      '-c',
+      'core.longpaths=true',
       'clone',
       '--bare',
       `https://github.com/${instance.repo}.git`,
       bareDir,
     ]);
   }
+  await execFile('git', ['config', 'core.longpaths', 'true'], {
+    cwd: bareDir,
+  });
   await execFile('git', ['fetch', 'origin', instance.base_commit], {
     cwd: bareDir,
     allowFailure: true,
@@ -287,6 +292,8 @@ async function createWorktree(instance, conditionId, runDir) {
   await execFile('git', [
     '-c',
     'core.autocrlf=false',
+    '-c',
+    'core.longpaths=true',
     'clone',
     '--no-checkout',
     bareDir,
@@ -294,12 +301,20 @@ async function createWorktree(instance, conditionId, runDir) {
   ]);
   await execFile(
     'git',
-    ['-c', 'core.autocrlf=false', 'checkout', instance.base_commit],
+    [
+      '-c',
+      'core.autocrlf=false',
+      '-c',
+      'core.longpaths=true',
+      'checkout',
+      instance.base_commit,
+    ],
     {
       cwd: workDir,
     },
   );
   await execFile('git', ['config', 'core.autocrlf', 'false'], { cwd: workDir });
+  await execFile('git', ['config', 'core.longpaths', 'true'], { cwd: workDir });
   await assertUsableCheckout(workDir);
   return workDir;
 }
