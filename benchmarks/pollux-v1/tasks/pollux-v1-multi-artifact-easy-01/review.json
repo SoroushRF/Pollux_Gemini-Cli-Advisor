@@ -1,0 +1,13 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "easy_control",
+  "knownAcceptableSolutionShapes": [
+    "copy service config into source and summary"
+  ],
+  "knownInvalidShortcuts": ["editing input JSON", "updating only one output"],
+  "biasRisk": "low",
+  "biasMitigation": "easy control for multi-artifact consistency"
+}

@@ -1,0 +1,16 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "route normalizer through parseRecord and normalize casing"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding one rendered user",
+    "bypassing parser.mjs"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "selected as hard family slot before final FD run"
+}

@@ -1,0 +1,13 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "export renderShade and preserve formatShade compatibility"
+  ],
+  "knownInvalidShortcuts": ["dropping formatShade", "hardcoding COBALT"],
+  "biasRisk": "medium",
+  "biasMitigation": "tests accept behavior rather than exact alias source shape"
+}

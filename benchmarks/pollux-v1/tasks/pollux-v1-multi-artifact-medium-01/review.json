@@ -1,0 +1,17 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "medium",
+  "knownAcceptableSolutionShapes": [
+    "derive effective config by applying merge rules"
+  ],
+  "knownInvalidShortcuts": [
+    "editing input config",
+    "forgetting feature order",
+    "keeping denylisted features"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "JSON parser checks behavior instead of exact formatting"
+}

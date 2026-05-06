@@ -1,0 +1,17 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "select atlas and propagate it to source, registry, and summary"
+  ],
+  "knownInvalidShortcuts": [
+    "editing candidates",
+    "using highest score without stable/enabled filters",
+    "updating only one artifact"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "multi-output hidden tests require consistent final state"
+}

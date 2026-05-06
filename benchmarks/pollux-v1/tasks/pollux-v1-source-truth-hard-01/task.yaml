@@ -1,0 +1,34 @@
+id: pollux-v1-source-truth-hard-01
+family: source_of_truth_conflict_resolution
+difficulty: hard
+source: rewritten_from_m3_bm_14
+prompt: "Resolve the runtime conflict using rules/precedence.md. Environment overrides plans and plans override docs. Update src/decision.mjs and create decision.txt with the final region, mode, and guard. Do not edit docs, plans, config, or rules."
+timeout_sec: 300
+protected_files:
+  - config/**
+  - docs/**
+  - plans/**
+  - rules/**
+visible_files:
+  - src/**
+  - config/**
+  - docs/**
+  - plans/**
+  - rules/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - source-of-truth
+  - precedence
+  - hidden-tests
+  - deterministic
+

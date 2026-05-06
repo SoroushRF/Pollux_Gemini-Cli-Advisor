@@ -1,0 +1,4 @@
+{
+  "mode": "enforce",
+  "features": ["alpha", "delta"]
+}

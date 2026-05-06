@@ -1,0 +1,30 @@
+id: pollux-v1-multi-artifact-hard-01
+family: multi_artifact_consistency
+difficulty: hard
+source: rewritten_from_m3_bm_21
+prompt: "Apply the selection rule to data/candidates.json, then update src/launch.mjs, registry.json, and launch-summary.txt so they all use the same selected key. Do not edit data/candidates.json or rules/selection.md."
+timeout_sec: 300
+protected_files:
+  - data/**
+  - rules/**
+visible_files:
+  - src/**
+  - data/**
+  - rules/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - multi-artifact
+  - consistency
+  - hidden-tests
+  - deterministic
+

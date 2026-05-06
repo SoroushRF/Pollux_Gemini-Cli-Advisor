@@ -1,0 +1,27 @@
+id: pollux-v1-cross-contract-easy-01
+family: cross_file_contract_repair
+difficulty: easy_control
+source: new_easy_control
+prompt: "Fix the broken import so src/view.mjs uses the existing createLabel implementation through src/index.mjs. Do not edit tests. Preserve behavior."
+timeout_sec: 300
+protected_files:
+  - tests/**
+visible_files:
+  - src/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - cross-file
+  - easy-control
+  - hidden-tests
+  - deterministic
+

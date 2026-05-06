@@ -1,0 +1,27 @@
+id: pollux-v1-guarded-migration-hard-01
+family: guarded_migration_compatibility
+difficulty: hard
+source: rewritten_from_m3_bm_24
+prompt: "Rename the canonical shade formatter to renderShade and update internal source usage to that name, but keep formatShade exported as a compatibility alias. Do not edit tests."
+timeout_sec: 300
+protected_files:
+  - tests/**
+visible_files:
+  - src/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - guarded-migration
+  - alias-preserving
+  - compatibility
+  - hidden-tests
+

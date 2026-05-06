@@ -1,0 +1,15 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": ["stateful quoted-field CSV parser"],
+  "knownInvalidShortcuts": [
+    "hardcoding beta,gamma",
+    "editing README",
+    "returning one fixed fixture"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "hidden tests execute parser on multiple cases"
+}

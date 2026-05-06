@@ -1,0 +1,14 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "medium",
+  "knownAcceptableSolutionShapes": ["rename source gate while preserving docs"],
+  "knownInvalidShortcuts": [
+    "editing compat docs",
+    "leaving registry on legacyGate"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "semantic imports and docs hash checks replace regex oracle"
+}

@@ -1,0 +1,11 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "easy_control",
+  "knownAcceptableSolutionShapes": ["compute tax after subtracting discount"],
+  "knownInvalidShortcuts": ["editing docs", "hardcoding one numeric answer"],
+  "biasRisk": "low",
+  "biasMitigation": "easy control with semantic numeric tests"
+}

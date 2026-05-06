@@ -1,0 +1,13 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "medium",
+  "knownAcceptableSolutionShapes": [
+    "encode terminal-state transition map correctly"
+  ],
+  "knownInvalidShortcuts": ["editing docs", "allowing queued to skip running"],
+  "biasRisk": "medium",
+  "biasMitigation": "semantic transition tests avoid exact source-shape bias"
+}

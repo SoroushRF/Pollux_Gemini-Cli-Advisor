@@ -1,0 +1,16 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "easy_control",
+  "knownAcceptableSolutionShapes": [
+    "export createName and preserve buildName alias"
+  ],
+  "knownInvalidShortcuts": [
+    "dropping buildName compatibility",
+    "hardcoding displayName"
+  ],
+  "biasRisk": "low",
+  "biasMitigation": "easy control validates advisor restraint"
+}

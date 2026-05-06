@@ -1,0 +1,30 @@
+id: pollux-v1-source-truth-medium-01
+family: source_of_truth_conflict_resolution
+difficulty: medium
+source: rewritten_from_m3_bm_19
+prompt: "Update src/policy.mjs so runtime policy follows config/policy.json as the source of truth. Do not edit config or docs."
+timeout_sec: 300
+protected_files:
+  - config/**
+  - docs/**
+visible_files:
+  - src/**
+  - config/**
+  - docs/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - source-of-truth
+  - policy
+  - hidden-tests
+  - deterministic
+

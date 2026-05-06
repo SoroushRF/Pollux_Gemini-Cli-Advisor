@@ -1,0 +1,29 @@
+id: pollux-v1-guarded-migration-medium-01
+family: guarded_migration_compatibility
+difficulty: medium
+source: rewritten_from_m3_bm_20
+prompt: "Rename the source-level gate from legacyGate to stableGate across source files only. Preserve behavior and do not edit compatibility docs."
+timeout_sec: 300
+protected_files:
+  - docs/**
+  - tests/**
+visible_files:
+  - src/**
+  - docs/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - guarded-migration
+  - registry
+  - compatibility
+  - hidden-tests
+

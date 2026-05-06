@@ -1,0 +1,2 @@
+region=north mode=live guard=strict
+

@@ -1,0 +1,5 @@
+{
+  "mode": "enforce",
+  "addFeatures": ["delta"],
+  "disableFeatures": ["beta"]
+}

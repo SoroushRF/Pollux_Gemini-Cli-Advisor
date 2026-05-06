@@ -1,0 +1,28 @@
+id: pollux-v1-multi-artifact-easy-01
+family: multi_artifact_consistency
+difficulty: easy_control
+source: new_easy_control
+prompt: "Read data/service.json and update src/service.mjs and service-summary.txt so both reflect the configured service name and port. Do not edit data/service.json."
+timeout_sec: 300
+protected_files:
+  - data/**
+visible_files:
+  - src/**
+  - data/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - multi-artifact
+  - easy-control
+  - hidden-tests
+  - deterministic
+

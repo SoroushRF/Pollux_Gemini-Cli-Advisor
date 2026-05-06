@@ -1,0 +1,27 @@
+id: pollux-v1-cross-contract-hard-01
+family: cross_file_contract_repair
+difficulty: hard
+source: rewritten_from_m3_bm_13
+prompt: "Repair the cascade contract so parser.mjs remains the canonical raw-record parser, normalizer.mjs uses that parser, and renderer.mjs preserves the render contract. Do not edit tests."
+timeout_sec: 300
+protected_files:
+  - tests/**
+visible_files:
+  - src/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - cross-file
+  - cascade-contract
+  - hidden-tests
+  - deterministic
+

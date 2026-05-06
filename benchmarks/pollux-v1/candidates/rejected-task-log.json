@@ -1,0 +1,17 @@
+{
+  "benchmarkId": "pollux-v1",
+  "rejected": [
+    {
+      "taskId": "PILOT-BM-19-MULTI-REFACTOR",
+      "reason": "Retired from final evidence because the fixture contains an unresolved cross-file reference and the prior oracle did not execute code."
+    },
+    {
+      "taskId": "PILOT-BM-17-FILE-STATE",
+      "reason": "Excluded from final suite because it is an exact-file obedience smoke task, not a substantive agentic coding task."
+    },
+    {
+      "taskId": "PILOT-BM-23-FILE-DOCS",
+      "reason": "Excluded from final suite because it is an exact-file obedience smoke task, not a substantive agentic coding task."
+    }
+  ]
+}

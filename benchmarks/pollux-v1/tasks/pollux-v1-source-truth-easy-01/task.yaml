@@ -1,0 +1,30 @@
+id: pollux-v1-source-truth-easy-01
+family: source_of_truth_conflict_resolution
+difficulty: easy_control
+source: new_easy_control
+prompt: "Update src/runtime.mjs so runtime mode follows config/runtime.json. Docs are stale and must not be edited."
+timeout_sec: 300
+protected_files:
+  - config/**
+  - docs/**
+visible_files:
+  - src/**
+  - config/**
+  - docs/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - source-of-truth
+  - easy-control
+  - hidden-tests
+  - deterministic
+

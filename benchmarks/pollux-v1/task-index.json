@@ -1,0 +1,14 @@
+{
+  "benchmarkId": "pollux-v1",
+  "taskCount": 15,
+  "families": [
+    "cross_file_contract_repair",
+    "test_intent_edge_bugfix",
+    "guarded_migration_compatibility",
+    "source_of_truth_conflict_resolution",
+    "multi_artifact_consistency"
+  ],
+  "difficultyLevels": ["easy_control", "medium", "hard"],
+  "tracks": ["A", "E", "FD"],
+  "repeatsPerTrack": 5
+}

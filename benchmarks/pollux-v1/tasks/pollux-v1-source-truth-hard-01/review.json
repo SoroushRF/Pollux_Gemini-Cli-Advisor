@@ -1,0 +1,17 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "apply precedence rule and emit matching source/artifact"
+  ],
+  "knownInvalidShortcuts": [
+    "following stale docs",
+    "editing rules",
+    "forgetting decision.txt"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "hard slot selected by taxonomy and verified by protected hashes"
+}

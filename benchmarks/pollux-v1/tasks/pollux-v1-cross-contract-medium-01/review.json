@@ -1,0 +1,16 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "medium",
+  "knownAcceptableSolutionShapes": [
+    "rename public re-export and source import to createStableLabel"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding stable:pollux",
+    "adding a fake createLabel wrapper"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "selected as family/difficulty coverage before final FD run"
+}

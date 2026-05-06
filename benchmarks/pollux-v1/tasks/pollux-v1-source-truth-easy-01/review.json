@@ -1,0 +1,11 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "easy_control",
+  "knownAcceptableSolutionShapes": ["update runtimeMode to config value"],
+  "knownInvalidShortcuts": ["editing stale docs", "editing config"],
+  "biasRisk": "low",
+  "biasMitigation": "simple source-of-truth control"
+}

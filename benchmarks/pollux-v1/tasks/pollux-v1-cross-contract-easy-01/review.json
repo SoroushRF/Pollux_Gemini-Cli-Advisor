@@ -1,0 +1,14 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-06",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "easy_control",
+  "knownAcceptableSolutionShapes": ["re-export createLabel from src/index.mjs"],
+  "knownInvalidShortcuts": [
+    "hardcoding label in src/view.mjs",
+    "removing public index usage"
+  ],
+  "biasRisk": "low",
+  "biasMitigation": "easy control where FD should avoid advisor spend"
+}

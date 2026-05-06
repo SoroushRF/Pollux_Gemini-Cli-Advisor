@@ -1,0 +1,5 @@
+[
+  { "key": "zephyr", "score": 91, "enabled": false, "channel": "stable" },
+  { "key": "atlas", "score": 88, "enabled": true, "channel": "stable" },
+  { "key": "ember", "score": 93, "enabled": true, "channel": "experimental" }
+]

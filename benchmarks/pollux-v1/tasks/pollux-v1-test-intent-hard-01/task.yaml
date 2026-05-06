@@ -1,0 +1,29 @@
+id: pollux-v1-test-intent-hard-01
+family: test_intent_edge_bugfix
+difficulty: hard
+source: rewritten_from_m3_bm_18
+prompt: "Fix src/csv.mjs so it satisfies the parser edge cases expressed by the tests. Preserve empty fields and keep commas inside quoted fields. Do not edit tests or README."
+timeout_sec: 300
+protected_files:
+  - README.md
+  - tests/**
+visible_files:
+  - src/**
+  - README.md
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - test-intent
+  - parser-edge
+  - hidden-tests
+  - deterministic
+

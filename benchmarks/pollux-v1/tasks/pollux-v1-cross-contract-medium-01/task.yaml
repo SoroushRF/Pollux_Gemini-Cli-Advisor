@@ -1,0 +1,27 @@
+id: pollux-v1-cross-contract-medium-01
+family: cross_file_contract_repair
+difficulty: medium
+source: rewritten_from_m3_bm_17
+prompt: "Fix the transitive import/export mismatch so src/view.mjs uses the canonical createStableLabel implementation through the public index. Do not change src/labels.mjs behavior or tests."
+timeout_sec: 300
+protected_files:
+  - tests/**
+visible_files:
+  - src/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - cross-file
+  - transitive-import
+  - hidden-tests
+  - deterministic
+

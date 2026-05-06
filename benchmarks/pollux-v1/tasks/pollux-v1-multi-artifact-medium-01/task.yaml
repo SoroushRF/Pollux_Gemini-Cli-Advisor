@@ -1,0 +1,29 @@
+id: pollux-v1-multi-artifact-medium-01
+family: multi_artifact_consistency
+difficulty: medium
+source: rewritten_from_m3_bm_23
+prompt: "Create effective-config.json by applying rules/merge.md to the config files. Preserve the input files."
+timeout_sec: 300
+protected_files:
+  - config/**
+  - rules/**
+visible_files:
+  - config/**
+  - rules/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - multi-artifact
+  - derived-config
+  - hidden-tests
+  - deterministic
+
