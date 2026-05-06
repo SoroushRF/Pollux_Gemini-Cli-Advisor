@@ -1,2 +1,16 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/decision.txt b/decision.txt
+new file mode 100644
+index 0000000..f04a82c
+--- /dev/null
++++ b/decision.txt
+@@ -0,0 +1,2 @@
++region=north mode=live guard=strict
++
+diff --git a/src/decision.mjs b/src/decision.mjs
+index 513c4f0..fbed55d 100644
+--- a/src/decision.mjs
++++ b/src/decision.mjs
+@@ -1,2 +1,2 @@
+-export const runtimeDecision = { region: 'north', mode: 'warmup', guard: 'review' };
++export const runtimeDecision = { region: 'north', mode: 'live', guard: 'strict' };
+ 

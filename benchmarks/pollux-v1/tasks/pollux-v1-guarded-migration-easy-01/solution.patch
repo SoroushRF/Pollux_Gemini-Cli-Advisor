@@ -1,2 +1,23 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/display.mjs b/src/display.mjs
+index b6924d2..d82caee 100644
+--- a/src/display.mjs
++++ b/src/display.mjs
+@@ -1,4 +1,4 @@
+-import { buildName } from './name.mjs';
++import { createName } from './name.mjs';
+ 
+-export const displayName = buildName('POLLUX');
++export const displayName = createName('POLLUX');
+ 
+diff --git a/src/name.mjs b/src/name.mjs
+index 3b9b481..8c54800 100644
+--- a/src/name.mjs
++++ b/src/name.mjs
+@@ -1,4 +1,6 @@
+-export function buildName(value) {
++export function createName(value) {
+   return `name:${value.toLowerCase()}`;
+ }
+ 
++export const buildName = createName;
++

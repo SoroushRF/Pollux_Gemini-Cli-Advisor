@@ -1,2 +1,25 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/csv.mjs b/src/csv.mjs
+index a5f9adf..029bcfe 100644
+--- a/src/csv.mjs
++++ b/src/csv.mjs
+@@ -1,4 +1,19 @@
+ export function parseCsvLine(line) {
+-  return line.split(',');
++  const fields = [];
++  let current = '';
++  let inQuotes = false;
++  for (let index = 0; index < line.length; index += 1) {
++    const char = line[index];
++    if (char === '"') {
++      inQuotes = !inQuotes;
++    } else if (char === ',' && !inQuotes) {
++      fields.push(current);
++      current = '';
++    } else {
++      current += char;
++    }
++  }
++  fields.push(current);
++  return fields;
+ }
+ 

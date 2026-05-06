@@ -1,2 +1,8 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/policy.mjs b/src/policy.mjs
+index 10e9a87..33ea20b 100644
+--- a/src/policy.mjs
++++ b/src/policy.mjs
+@@ -1,2 +1,2 @@
+-export const policy = { mode: 'loose', retentionDays: 7, rollout: 'canary' };
++export const policy = { mode: 'strict', retentionDays: 30, rollout: 'stable' };
+ 

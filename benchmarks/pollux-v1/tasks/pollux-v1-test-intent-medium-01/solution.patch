@@ -1,2 +1,17 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/flow.mjs b/src/flow.mjs
+index 9f3bdb3..fa8646c 100644
+--- a/src/flow.mjs
++++ b/src/flow.mjs
+@@ -1,8 +1,8 @@
+ const allowedTransitions = {
+-  queued: ['running', 'done'],
+-  running: ['done'],
+-  failed: ['running'],
+-  done: ['running'],
++  queued: ['running'],
++  running: ['done', 'failed'],
++  failed: [],
++  done: [],
+ };
+ 
+ export function canTransition(from, to) {

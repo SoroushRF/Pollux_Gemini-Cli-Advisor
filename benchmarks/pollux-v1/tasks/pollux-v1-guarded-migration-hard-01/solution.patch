@@ -1,2 +1,23 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/color.mjs b/src/color.mjs
+index 4f29bfd..9a44c4c 100644
+--- a/src/color.mjs
++++ b/src/color.mjs
+@@ -1,4 +1,6 @@
+-export function formatShade(name) {
++export function renderShade(name) {
+   return `shade:${name.toLowerCase()}`;
+ }
+ 
++export const formatShade = renderShade;
++
+diff --git a/src/theme.mjs b/src/theme.mjs
+index d9ed9fe..bb30dae 100644
+--- a/src/theme.mjs
++++ b/src/theme.mjs
+@@ -1,4 +1,4 @@
+-import { formatShade } from './color.mjs';
++import { renderShade } from './color.mjs';
+ 
+-export const primaryShade = formatShade('COBALT');
++export const primaryShade = renderShade('COBALT');
+ 

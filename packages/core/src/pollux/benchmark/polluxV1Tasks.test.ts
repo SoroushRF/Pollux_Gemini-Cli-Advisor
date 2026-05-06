@@ -127,6 +127,18 @@ describe('pollux-v1 stratified benchmark corpus', () => {
 
       const result = verifyPolluxV1TaskWorkspace(task, workspaceDir);
 
+      if (!result.success) {
+        throw new Error(
+          [
+            `${task.id} reference solution failed`,
+            `failToPass=${result.failToPassPassed}`,
+            `passToPass=${result.passToPassPassed}`,
+            `protectedHashes=${result.protectedHashesPassed}`,
+            result.failToPass.stderr,
+            result.passToPass.stderr,
+          ].join('\n'),
+        );
+      }
       expect(result.success).toBe(true);
       expect(result.failToPassPassed).toBe(true);
       expect(result.passToPassPassed).toBe(true);

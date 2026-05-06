@@ -1,2 +1,19 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/index.mjs b/src/index.mjs
+index 1cd2f73..125acc8 100644
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -1,2 +1,2 @@
+-export { createLabel } from './labels.mjs';
++export { createStableLabel } from './labels.mjs';
+ 
+diff --git a/src/view.mjs b/src/view.mjs
+index 5a0be27..5c3f6f8 100644
+--- a/src/view.mjs
++++ b/src/view.mjs
+@@ -1,4 +1,4 @@
+-import { createLabel } from './index.mjs';
++import { createStableLabel } from './index.mjs';
+ 
+-export const label = createLabel('POLLUX');
++export const label = createStableLabel('POLLUX');
+ 

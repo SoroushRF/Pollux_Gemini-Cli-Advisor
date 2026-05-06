@@ -1,2 +1,31 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/app.mjs b/src/app.mjs
+index 9e60f50..23defd9 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -1,4 +1,4 @@
+ import { gates } from './registry.mjs';
+ 
+-export const enabled = gates.legacyGate({ beta: true });
++export const enabled = gates.stableGate({ beta: true });
+ 
+diff --git a/src/flags.mjs b/src/flags.mjs
+index 29b57b7..8da11d3 100644
+--- a/src/flags.mjs
++++ b/src/flags.mjs
+@@ -1,4 +1,4 @@
+-export function legacyGate(user) {
++export function stableGate(user) {
+   return user.beta === true;
+ }
+ 
+diff --git a/src/registry.mjs b/src/registry.mjs
+index a130607..d091262 100644
+--- a/src/registry.mjs
++++ b/src/registry.mjs
+@@ -1,4 +1,4 @@
+-import { legacyGate } from './flags.mjs';
++import { stableGate } from './flags.mjs';
+ 
+-export const gates = { legacyGate };
++export const gates = { stableGate };
+ 

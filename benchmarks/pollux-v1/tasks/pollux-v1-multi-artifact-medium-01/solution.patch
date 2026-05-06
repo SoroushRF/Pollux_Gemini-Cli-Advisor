@@ -1,2 +1,10 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/effective-config.json b/effective-config.json
+new file mode 100644
+index 0000000..b339723
+--- /dev/null
++++ b/effective-config.json
+@@ -0,0 +1,4 @@
++{
++  "mode": "enforce",
++  "features": ["alpha", "delta"]
++}

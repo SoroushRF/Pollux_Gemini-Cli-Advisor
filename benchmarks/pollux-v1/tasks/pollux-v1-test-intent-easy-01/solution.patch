@@ -1,2 +1,10 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/tax.mjs b/src/tax.mjs
+index 47745b6..2b66864 100644
+--- a/src/tax.mjs
++++ b/src/tax.mjs
+@@ -1,4 +1,4 @@
+ export function totalWithTax(subtotal, discount, taxRate) {
+-  return subtotal + subtotal * taxRate - discount;
++  return (subtotal - discount) * (1 + taxRate);
+ }
+ 

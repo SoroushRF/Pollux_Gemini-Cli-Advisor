@@ -1,2 +1,8 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/runtime.mjs b/src/runtime.mjs
+index 5579eb0..8642784 100644
+--- a/src/runtime.mjs
++++ b/src/runtime.mjs
+@@ -1,2 +1,2 @@
+-export const runtimeMode = 'archive';
++export const runtimeMode = 'live';
+ 

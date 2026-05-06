@@ -1,2 +1,16 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/service-summary.txt b/service-summary.txt
+new file mode 100644
+index 0000000..48500e0
+--- /dev/null
++++ b/service-summary.txt
+@@ -0,0 +1,2 @@
++service=pollux port=8080
++
+diff --git a/src/service.mjs b/src/service.mjs
+index 50efdf0..84636f6 100644
+--- a/src/service.mjs
++++ b/src/service.mjs
+@@ -1,2 +1,2 @@
+-export const service = { name: 'legacy', port: 3000 };
++export const service = { name: 'pollux', port: 8080 };
+ 

@@ -1,2 +1,8 @@
-Reference solution is materialized in solution/. Generate a unified patch at final publication freeze.
-
+diff --git a/src/index.mjs b/src/index.mjs
+index d9c7b67..1cd2f73 100644
+--- a/src/index.mjs
++++ b/src/index.mjs
+@@ -1,2 +1,2 @@
+-// Public exports live here.
++export { createLabel } from './labels.mjs';
+ 
