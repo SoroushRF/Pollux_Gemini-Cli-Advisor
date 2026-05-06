@@ -12,6 +12,7 @@ import {
   REAL_BENCHMARK_SEED_CORPUS,
   getRealBenchmarkTasksByIds,
 } from '../../core/src/pollux/benchmark/realTasks.js';
+import { getPolluxV1BenchmarkTasksByIds } from '../../core/src/pollux/benchmark/polluxV1Tasks.js';
 import {
   POLLUX_REAL_ARTIFACT_ROOT,
   POLLUX_REAL_REPO_ROOT,
@@ -30,6 +31,7 @@ import {
 } from './pollux-real-report.js';
 import type { RealBenchmarkRunRecord } from './pollux-real-types.js';
 import type { RealBenchmarkConditionId } from './pollux-real-types.js';
+import type { RealBenchmarkTaskSpec } from '../../core/src/pollux/benchmark/realTypes.js';
 
 function parseEntrypointPreference(
   value: string | undefined,
@@ -84,8 +86,30 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
-function getSelectedTasks(taskIds: string[]) {
-  return getRealBenchmarkTasksByIds(taskIds);
+function getSelectedTasks(taskIds: string[]): RealBenchmarkTaskSpec[] {
+  const polluxV1TaskIds = taskIds.filter((taskId) =>
+    taskId.startsWith('pollux-v1-'),
+  );
+  const realTaskIds = taskIds.filter(
+    (taskId) => !taskId.startsWith('pollux-v1-'),
+  );
+
+  const selectedTasks = [
+    ...getRealBenchmarkTasksByIds(realTaskIds),
+    ...getPolluxV1BenchmarkTasksByIds(polluxV1TaskIds),
+  ];
+  const tasksById = new Map<string, RealBenchmarkTaskSpec>();
+  for (const task of selectedTasks) {
+    tasksById.set(task.id, task);
+  }
+
+  return taskIds.map((taskId) => {
+    const task = tasksById.get(taskId);
+    if (task === undefined) {
+      throw new Error(`Selected benchmark task not found: ${taskId}`);
+    }
+    return task;
+  });
 }
 
 export async function runPolluxRealCampaign(params: {

@@ -11,6 +11,11 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
 import picomatch from 'picomatch';
+import type { BenchmarkDifficulty } from './tasks.js';
+import type {
+  RealBenchmarkDomain,
+  RealBenchmarkTaskSpec,
+} from './realTypes.js';
 
 export const POLLUX_V1_BENCHMARK_ID = 'pollux-v1';
 
@@ -286,6 +291,94 @@ export function loadPolluxV1Tasks(
 ): PolluxV1TaskSpec[] {
   const selected = loadPolluxV1SelectedTaskSet(rootDir);
   return selected.taskIds.map((taskId) => loadPolluxV1Task(taskId, rootDir));
+}
+
+function readFilesAsBenchmarkMap(rootDir: string): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (const filePath of listFilesRecursive(rootDir)) {
+    const relativePath = normalizeRelativePath(
+      path.relative(rootDir, filePath),
+    );
+    files[relativePath] = fs.readFileSync(filePath, 'utf8');
+  }
+  return files;
+}
+
+function mapPolluxV1Difficulty(
+  difficulty: PolluxV1Difficulty,
+): BenchmarkDifficulty {
+  switch (difficulty) {
+    case 'easy_control':
+      return 'simple';
+    case 'medium':
+      return 'moderate';
+    case 'hard':
+      return 'complex';
+    default:
+      throw new Error(`Unsupported pollux-v1 difficulty: ${difficulty}`);
+  }
+}
+
+function mapPolluxV1Domain(family: PolluxV1TaskFamily): RealBenchmarkDomain {
+  switch (family) {
+    case 'cross_file_contract_repair':
+    case 'test_intent_edge_bugfix':
+    case 'guarded_migration_compatibility':
+      return 'multi_file_refactor';
+    case 'source_of_truth_conflict_resolution':
+      return 'code_search_summarize';
+    case 'multi_artifact_consistency':
+      return 'read_then_write';
+    default:
+      throw new Error(`Unsupported pollux-v1 task family: ${family}`);
+  }
+}
+
+export function adaptPolluxV1TaskToRealBenchmark(
+  task: PolluxV1TaskSpec,
+): RealBenchmarkTaskSpec {
+  return {
+    id: task.id,
+    difficulty: mapPolluxV1Difficulty(task.difficulty),
+    description: `Pollux v1 ${task.difficulty} task in ${task.family}.`,
+    files: readFilesAsBenchmarkMap(task.baseDir),
+    prompt: task.prompt,
+    domain: mapPolluxV1Domain(task.family),
+    provenance: {
+      sourceType: task.source.startsWith('rewritten_') ? 'adapter' : 'writeup',
+      sourceRef: normalizeRelativePath(
+        path.relative(REPO_ROOT, path.join(task.taskDir, 'task.yaml')),
+      ),
+    },
+    escalationSignalClass: task.difficulty === 'hard' ? 'risk_gate' : 'none',
+    expectedEscalationSignalClasses:
+      task.difficulty === 'hard'
+        ? ['risk_gate', 'fusion_composite']
+        : undefined,
+    benchmarkLane: task.difficulty === 'hard' ? 'stress' : 'core',
+    positiveFixturePaths: [
+      normalizeRelativePath(path.relative(REPO_ROOT, task.solutionPatchPath)),
+    ],
+    negativeFixturePaths: [
+      normalizeRelativePath(path.relative(REPO_ROOT, task.baseDir)),
+      normalizeRelativePath(
+        path.relative(REPO_ROOT, path.join(task.testsDir, 'fail_to_pass')),
+      ),
+      normalizeRelativePath(
+        path.relative(REPO_ROOT, path.join(task.testsDir, 'pass_to_pass')),
+      ),
+    ],
+    oracle: async (_stdout, workspaceDir) =>
+      verifyPolluxV1TaskWorkspace(task, workspaceDir).success,
+  };
+}
+
+export function getPolluxV1BenchmarkTasksByIds(
+  taskIds: readonly string[],
+): RealBenchmarkTaskSpec[] {
+  return taskIds.map((taskId) =>
+    adaptPolluxV1TaskToRealBenchmark(loadPolluxV1Task(taskId)),
+  );
 }
 
 function listFilesRecursive(dir: string): string[] {
