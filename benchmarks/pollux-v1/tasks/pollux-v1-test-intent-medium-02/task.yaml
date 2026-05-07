@@ -2,7 +2,7 @@ id: pollux-v1-test-intent-medium-02
 family: test_intent_edge_bugfix
 difficulty: medium
 source: swebench_archetype_state_transition_regression_v1_3
-prompt: "Repair src/flow.mjs and src/summary.mjs so the documented state machine is enforced, terminal states are preserved, and explainTransition(from, to) returns a reasoned result. Do not edit docs or tests_public."
+prompt: "Repair src/flow.mjs and src/summary.mjs so the documented state machine is enforced, retrying and cancelled are handled, terminal/active state summaries are preserved, and explainTransition(from, to) returns { allowed, reason, terminal }. Do not edit docs or tests_public."
 timeout_sec: 300
 protected_files:
   - docs/**

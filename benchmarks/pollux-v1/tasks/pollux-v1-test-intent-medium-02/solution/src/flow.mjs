@@ -1,6 +1,7 @@
 const allowedTransitions = {
   queued: ['running'],
-  running: ['paused', 'done', 'failed'],
+  running: ['paused', 'retrying', 'done', 'failed'],
+  retrying: ['running', 'failed'],
   paused: ['running', 'cancelled'],
   failed: [],
   done: [],
@@ -15,13 +16,13 @@ export function canTransition(from, to) {
 
 export function explainTransition(from, to) {
   if (!Object.hasOwn(allowedTransitions, from)) {
-    return { allowed: false, reason: `Unknown state: ${from}` };
+    return { allowed: false, reason: `Unknown state: ${from}`, terminal: false };
   }
   if (terminalStates.has(from)) {
-    return { allowed: false, reason: `${from} is a terminal state` };
+    return { allowed: false, reason: `${from} is a terminal state`, terminal: true };
   }
   if (canTransition(from, to)) {
-    return { allowed: true, reason: `${from} may transition to ${to}` };
+    return { allowed: true, reason: `${from} may transition to ${to}`, terminal: false };
   }
-  return { allowed: false, reason: `${from} cannot transition to ${to}` };
+  return { allowed: false, reason: `${from} cannot transition to ${to}`, terminal: false };
 }

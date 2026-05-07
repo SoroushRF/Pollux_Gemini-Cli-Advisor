@@ -1,15 +1,16 @@
 ﻿diff --git a/src/flow.mjs b/src/flow.mjs
-index b18507c..7bc5c3d 100644
+index b18507c..d1135e5 100644
 --- a/src/flow.mjs
 +++ b/src/flow.mjs
-@@ -1,14 +1,27 @@
+@@ -1,14 +1,28 @@
  const allowedTransitions = {
 -  queued: ['running', 'done'],
 -  running: ['done', 'failed'],
 -  failed: ['running'],
 -  done: ['running'],
 +  queued: ['running'],
-+  running: ['paused', 'done', 'failed'],
++  running: ['paused', 'retrying', 'done', 'failed'],
++  retrying: ['running', 'failed'],
 +  paused: ['running', 'cancelled'],
 +  failed: [],
 +  done: [],
@@ -25,23 +26,24 @@ index b18507c..7bc5c3d 100644
  export function explainTransition(from, to) {
 -  return canTransition(from, to);
 +  if (!Object.hasOwn(allowedTransitions, from)) {
-+    return { allowed: false, reason: `Unknown state: ${from}` };
++    return { allowed: false, reason: `Unknown state: ${from}`, terminal: false };
 +  }
 +  if (terminalStates.has(from)) {
-+    return { allowed: false, reason: `${from} is a terminal state` };
++    return { allowed: false, reason: `${from} is a terminal state`, terminal: true };
 +  }
 +  if (canTransition(from, to)) {
-+    return { allowed: true, reason: `${from} may transition to ${to}` };
++    return { allowed: true, reason: `${from} may transition to ${to}`, terminal: false };
 +  }
-+  return { allowed: false, reason: `${from} cannot transition to ${to}` };
++  return { allowed: false, reason: `${from} cannot transition to ${to}`, terminal: false };
  }
 diff --git a/src/summary.mjs b/src/summary.mjs
-index 68c5c76..ef68291 100644
+index 68c5c76..e26104e 100644
 --- a/src/summary.mjs
 +++ b/src/summary.mjs
-@@ -1,4 +1,4 @@
+@@ -1,4 +1,5 @@
 -export const terminalStates = ['done', 'failed'];
 +export const terminalStates = ['done', 'failed', 'cancelled'];
++export const activeStates = ['queued', 'running', 'paused', 'retrying'];
  
  export function isTerminal(state) {
    return terminalStates.includes(state);

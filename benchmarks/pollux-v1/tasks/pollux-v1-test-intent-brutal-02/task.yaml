@@ -2,7 +2,7 @@ id: pollux-v1-test-intent-brutal-02
 family: test_intent_edge_bugfix
 difficulty: hard
 source: swebench_archetype_parser_error_model_v1_3
-prompt: "Fix src/records.mjs so parseRecords and parseRecordLine follow docs/record-contract.md, including escaped separators, comments, blank lines, and ParseRecordError line/column reporting. Do not edit docs or tests_public."
+prompt: "Fix src/records.mjs so parseRecords, parseRecordLine, and serializeRecordLine follow docs/record-contract.md, including escaped separators, comments, blank lines, round-tripping, and ParseRecordError line/column reporting. Do not edit docs or tests_public."
 timeout_sec: 300
 protected_files:
   - docs/**

@@ -1,3 +1,4 @@
 Selected launch key: atlas
+Channel/region: stable/east
 Adjusted score: 93
-Reason: selected atlas with adjusted score 93: no penalty
+Reason: selected atlas for stable/east with adjusted score 93: no penalty

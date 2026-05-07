@@ -2,7 +2,7 @@ id: pollux-v1-source-truth-medium-02
 family: source_of_truth_conflict_resolution
 difficulty: medium
 source: swebench_archetype_config_precedence_v1_3
-prompt: "Update src/policy.mjs so exported policy follows config/policy.json with config/defaults.json fallback, and expose resolvePolicy({ policy, defaults }) for the same precedence behavior. Do not edit config, docs, or tests_public."
+prompt: "Update src/policy.mjs so exported policy follows config/policy.json with config/defaults.json fallback and config/environment.json overrides, and expose resolvePolicy({ policy, defaults, environment }) for the same precedence behavior. Do not edit config, docs, or tests_public."
 timeout_sec: 300
 protected_files:
   - config/**

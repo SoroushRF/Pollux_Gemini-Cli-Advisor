@@ -1,3 +1,11 @@
 {
-  "launchKey": "atlas"
+  "launchKey": "atlas",
+  "launchDecision": {
+    "key": "atlas",
+    "adjustedScore": 93,
+    "reason": "no penalty",
+    "channel": "stable",
+    "region": "east",
+    "source": "rules/selection.md"
+  }
 }

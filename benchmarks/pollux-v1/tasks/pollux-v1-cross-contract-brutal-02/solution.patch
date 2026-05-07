@@ -1,11 +1,11 @@
 ﻿diff --git a/src/normalizer.mjs b/src/normalizer.mjs
-index b3d6f1a..7656466 100644
+index b3d6f1a..f36c0f2 100644
 --- a/src/normalizer.mjs
 +++ b/src/normalizer.mjs
 @@ -1,10 +1,11 @@
 -import { parseLine } from './parser.mjs';
 +import { parseRecord } from './parser.mjs';
-+import { resolveKind } from './resolver.mjs';
++import { resolveKind, resolveStatus } from './resolver.mjs';
  
  export function normalizeRecord(raw) {
 -  const record = parseLine(raw);
@@ -17,41 +17,70 @@ index b3d6f1a..7656466 100644
    }
 -  const [kind, id, status] = raw.split(':');
 -  return { kind, id, status };
-+  return { kind, id: record.id, status: record.status, meta: record.meta };
++  return { kind, id: record.id, status: resolveStatus(record.status), meta: record.meta };
  }
 diff --git a/src/parser.mjs b/src/parser.mjs
-index 399cd31..fdd3e8f 100644
+index 399cd31..761d487 100644
 --- a/src/parser.mjs
 +++ b/src/parser.mjs
-@@ -1,4 +1,8 @@
+@@ -1,4 +1,21 @@
++function parseMeta(rawMeta) {
++  if (rawMeta === '') return {};
++  const meta = {};
++  for (const part of rawMeta.split(';')) {
++    const pieces = part.split('=');
++    if (pieces.length !== 2 || pieces[0] === '' || pieces[1] === '') {
++      throw new Error('malformed meta');
++    }
++    meta[pieces[0]] = pieces[1];
++  }
++  return meta;
++}
++
  export function parseRecord(raw) {
 -  const [kind, id, status, meta = ''] = raw.split(':');
+-  return { kind, id, status, meta };
 +  const parts = raw.split(':');
-+  if (parts.length < 3 || parts[0] === '' || parts[1] === '' || parts[2] === '') {
++  if (parts.length < 3 || parts.length > 4 || parts[0] === '' || parts[1] === '' || parts[2] === '') {
 +    throw new Error('malformed record');
 +  }
 +  const [kind, id, status, meta = ''] = parts;
-   return { kind, id, status, meta };
++  return { kind, id, status, meta: parseMeta(meta) };
  }
 diff --git a/src/renderer.mjs b/src/renderer.mjs
-index 71b88d7..aa77303 100644
+index 71b88d7..1eb9970 100644
 --- a/src/renderer.mjs
 +++ b/src/renderer.mjs
-@@ -2,5 +2,5 @@ import { normalizeRecord } from './normalizer.mjs';
+@@ -2,5 +2,6 @@ import { normalizeRecord } from './normalizer.mjs';
  
  export function renderUser(raw) {
    const record = normalizeRecord(raw);
 -  return `user=${record.id} status=${record.status}`;
-+  return `user=${record.id.toUpperCase()} status=${record.status.toLowerCase()}`;
++  const role = record.meta.role ? ` role=${record.meta.role}` : '';
++  return `user=${record.id.toUpperCase()} status=${record.status.toLowerCase()}${role}`;
  }
 diff --git a/src/resolver.mjs b/src/resolver.mjs
-index 22da3de..3e70e34 100644
+index 22da3de..226ea13 100644
 --- a/src/resolver.mjs
 +++ b/src/resolver.mjs
-@@ -4,5 +4,5 @@ const aliases = new Map([
+@@ -1,8 +1,18 @@
+-const aliases = new Map([
++const kindAliases = new Map([
+   ['usr', 'user'],
+   ['member', 'user'],
  ]);
  
++const statusAliases = new Map([
++  ['on', 'ACTIVE'],
++  ['off', 'DISABLED'],
++  ['hold', 'PENDING'],
++]);
++
  export function resolveKind(kind) {
 -  return kind;
-+  return aliases.get(kind) ?? kind;
++  return kindAliases.get(kind) ?? kind;
++}
++
++export function resolveStatus(status) {
++  return statusAliases.get(status.toLowerCase()) ?? status;
  }

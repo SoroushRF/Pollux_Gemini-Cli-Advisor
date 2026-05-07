@@ -51,3 +51,14 @@ export function parseRecords(text) {
   }
   return records;
 }
+
+export function serializeRecordLine(fields) {
+  return fields
+    .map((field) =>
+      String(field)
+        .replaceAll('\\', '\\\\')
+        .replaceAll('\n', '\\n')
+        .replaceAll('|', '\\|'),
+    )
+    .join('|');
+}

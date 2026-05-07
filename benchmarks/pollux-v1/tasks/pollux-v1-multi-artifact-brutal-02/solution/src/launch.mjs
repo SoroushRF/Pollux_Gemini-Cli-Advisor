@@ -18,7 +18,14 @@ export function selectLaunchCandidate(candidates, rollout) {
         reasons.push('migration penalty');
       }
       if (reasons.length === 0) reasons.push('no penalty');
-      return { key: candidate.key, adjustedScore, reason: reasons.join(', ') };
+      return {
+        key: candidate.key,
+        adjustedScore,
+        reason: reasons.join(', '),
+        channel: candidate.channel,
+        region: candidate.region,
+        source: 'rules/selection.md',
+      };
     })
     .sort((a, b) => b.adjustedScore - a.adjustedScore || a.key.localeCompare(b.key));
   if (scored.length === 0) {

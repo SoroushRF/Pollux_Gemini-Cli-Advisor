@@ -1,27 +1,36 @@
 ﻿diff --git a/launch-summary.txt b/launch-summary.txt
-index dfc00f3..393eaa6 100644
+index dfc00f3..21d0cf3 100644
 --- a/launch-summary.txt
 +++ b/launch-summary.txt
-@@ -1,2 +1,3 @@
+@@ -1,2 +1,4 @@
 -Selected launch key: zephyr
 -Reason: highest raw score
 +Selected launch key: atlas
++Channel/region: stable/east
 +Adjusted score: 93
-+Reason: selected atlas with adjusted score 93: no penalty
++Reason: selected atlas for stable/east with adjusted score 93: no penalty
 diff --git a/registry.json b/registry.json
-index df59034..a96286c 100644
+index df59034..fcd31a0 100644
 --- a/registry.json
 +++ b/registry.json
-@@ -1,3 +1,3 @@
+@@ -1,3 +1,11 @@
  {
 -  "launchKey": "zephyr"
-+  "launchKey": "atlas"
++  "launchKey": "atlas",
++  "launchDecision": {
++    "key": "atlas",
++    "adjustedScore": 93,
++    "reason": "no penalty",
++    "channel": "stable",
++    "region": "east",
++    "source": "rules/selection.md"
++  }
  }
 diff --git a/src/launch.mjs b/src/launch.mjs
-index ec6a9d4..c7ba9fe 100644
+index ec6a9d4..1bad0e0 100644
 --- a/src/launch.mjs
 +++ b/src/launch.mjs
-@@ -1,10 +1,33 @@
+@@ -1,10 +1,40 @@
  import { readFileSync } from 'node:fs';
  
 -export function selectLaunchCandidate(candidates) {
@@ -45,7 +54,14 @@ index ec6a9d4..c7ba9fe 100644
 +        reasons.push('migration penalty');
 +      }
 +      if (reasons.length === 0) reasons.push('no penalty');
-+      return { key: candidate.key, adjustedScore, reason: reasons.join(', ') };
++      return {
++        key: candidate.key,
++        adjustedScore,
++        reason: reasons.join(', '),
++        channel: candidate.channel,
++        region: candidate.region,
++        source: 'rules/selection.md',
++      };
 +    })
 +    .sort((a, b) => b.adjustedScore - a.adjustedScore || a.key.localeCompare(b.key));
 +  if (scored.length === 0) {
@@ -60,11 +76,11 @@ index ec6a9d4..c7ba9fe 100644
 +export const launchDecision = selectLaunchCandidate(candidates, rollout);
  export const launchKey = launchDecision.key;
 diff --git a/src/reason.mjs b/src/reason.mjs
-index 404a459..2923a0b 100644
+index 404a459..e5e0d4c 100644
 --- a/src/reason.mjs
 +++ b/src/reason.mjs
 @@ -1,3 +1,3 @@
  export function formatLaunchReason(decision) {
 -  return decision.reason;
-+  return `selected ${decision.key} with adjusted score ${decision.adjustedScore}: ${decision.reason}`;
++  return `selected ${decision.key} for ${decision.channel}/${decision.region} with adjusted score ${decision.adjustedScore}: ${decision.reason}`;
  }

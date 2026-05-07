@@ -1,5 +1,5 @@
 import { parseRecord } from './parser.mjs';
-import { resolveKind } from './resolver.mjs';
+import { resolveKind, resolveStatus } from './resolver.mjs';
 
 export function normalizeRecord(raw) {
   const record = parseRecord(raw);
@@ -7,5 +7,5 @@ export function normalizeRecord(raw) {
   if (kind !== 'user') {
     throw new Error(`unsupported kind: ${record.kind}`);
   }
-  return { kind, id: record.id, status: record.status, meta: record.meta };
+  return { kind, id: record.id, status: resolveStatus(record.status), meta: record.meta };
 }

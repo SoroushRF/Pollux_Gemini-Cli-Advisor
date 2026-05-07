@@ -1,8 +1,8 @@
 ﻿diff --git a/src/records.mjs b/src/records.mjs
-index 008579e..475d186 100644
+index 008579e..80bf24d 100644
 --- a/src/records.mjs
 +++ b/src/records.mjs
-@@ -1,7 +1,53 @@
+@@ -1,7 +1,64 @@
 +export class ParseRecordError extends Error {
 +  constructor(message, line, column) {
 +    super(message);
@@ -57,4 +57,15 @@ index 008579e..475d186 100644
 +    records.push(parseLineInternal(line, index + 1));
 +  }
 +  return records;
++}
++
++export function serializeRecordLine(fields) {
++  return fields
++    .map((field) =>
++      String(field)
++        .replaceAll('\\', '\\\\')
++        .replaceAll('\n', '\\n')
++        .replaceAll('|', '\\|'),
++    )
++    .join('|');
  }
