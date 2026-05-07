@@ -1,0 +1,9 @@
+{
+  "primaryRegion": "east",
+  "channel": "stable",
+  "freezeMigrations": false,
+  "penalty": {
+    "highRisk": 10,
+    "migrationRequired": 3
+  }
+}

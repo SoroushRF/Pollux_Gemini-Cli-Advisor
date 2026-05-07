@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "state-machine parser with ParseRecordError",
+    "equivalent parser preserving escapes and error positions"
+  ],
+  "knownInvalidShortcuts": [
+    "line.split fixture parser",
+    "hardcoding hidden examples",
+    "omitting error line/column"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "Task selected by family/difficulty and calibrated with A/E before any FD final run.",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 4,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the parser has interacting escape/comment/multiline/error-position requirements and hidden alternate fixtures."
+}

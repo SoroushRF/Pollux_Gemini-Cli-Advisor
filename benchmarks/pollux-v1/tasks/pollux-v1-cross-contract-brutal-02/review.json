@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "parser/resolver/normalizer pipeline repair",
+    "equivalent centralized parser and alias contract"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding render outputs",
+    "re-splitting raw input in normalizer",
+    "editing docs or public tests"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "Task selected by family/difficulty and calibrated with A/E before any FD final run.",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 4,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the task requires preserving a nested parser/resolver/normalizer contract with hidden alias and malformed-input fixtures."
+}

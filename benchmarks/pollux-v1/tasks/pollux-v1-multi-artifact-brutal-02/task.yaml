@@ -1,0 +1,33 @@
+id: pollux-v1-multi-artifact-brutal-02
+family: multi_artifact_consistency
+difficulty: hard
+source: swebench_archetype_multi_artifact_selection_v1_3
+prompt: "Apply rules/selection.md to select the launch candidate, then update src/launch.mjs, src/reason.mjs, registry.json, and launch-summary.txt so all outputs agree with the same launch decision. Do not edit data, rules, or tests_public."
+timeout_sec: 300
+protected_files:
+  - data/**
+  - rules/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - data/**
+  - rules/**
+  - tests_public/**
+  - registry.json
+  - launch-summary.txt
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - v1.3
+  - brutal-hard
+  - multi-artifact
+  - selection-rule

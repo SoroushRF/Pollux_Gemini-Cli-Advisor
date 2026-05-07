@@ -1,0 +1,44 @@
+﻿diff --git a/src/color.mjs b/src/color.mjs
+index 2f014be..48a0604 100644
+--- a/src/color.mjs
++++ b/src/color.mjs
+@@ -1,3 +1,5 @@
+-export function formatShade(value) {
++export function renderShade(value) {
+   return `shade:${value.toLowerCase()}`;
+ }
++
++export const formatShade = renderShade;
+diff --git a/src/compatibility.mjs b/src/compatibility.mjs
+index 4b9b170..8ae171e 100644
+--- a/src/compatibility.mjs
++++ b/src/compatibility.mjs
+@@ -1 +1 @@
+-export { formatShade } from './color.mjs';
++export { formatShade, renderShade } from './color.mjs';
+diff --git a/src/registry.mjs b/src/registry.mjs
+index 92f579e..603618b 100644
+--- a/src/registry.mjs
++++ b/src/registry.mjs
+@@ -1,7 +1,8 @@
+-import { formatShade } from './color.mjs';
++import { formatShade, renderShade } from './color.mjs';
+ 
+ export const registry = {
+-  canonical: 'formatShade',
+-  compatibilityAliases: [],
++  canonical: 'renderShade',
++  compatibilityAliases: ['formatShade'],
++  renderShade,
+   formatShade,
+ };
+diff --git a/src/theme.mjs b/src/theme.mjs
+index c79e753..7741856 100644
+--- a/src/theme.mjs
++++ b/src/theme.mjs
+@@ -1,3 +1,3 @@
+-import { formatShade } from './color.mjs';
++import { renderShade } from './color.mjs';
+ 
+-export const primaryShade = formatShade('COBALT');
++export const primaryShade = renderShade('COBALT');

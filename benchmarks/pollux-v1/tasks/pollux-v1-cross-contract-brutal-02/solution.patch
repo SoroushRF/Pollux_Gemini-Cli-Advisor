@@ -1,0 +1,57 @@
+﻿diff --git a/src/normalizer.mjs b/src/normalizer.mjs
+index b3d6f1a..7656466 100644
+--- a/src/normalizer.mjs
++++ b/src/normalizer.mjs
+@@ -1,10 +1,11 @@
+-import { parseLine } from './parser.mjs';
++import { parseRecord } from './parser.mjs';
++import { resolveKind } from './resolver.mjs';
+ 
+ export function normalizeRecord(raw) {
+-  const record = parseLine(raw);
+-  if (record.kind !== 'user') {
++  const record = parseRecord(raw);
++  const kind = resolveKind(record.kind);
++  if (kind !== 'user') {
+     throw new Error(`unsupported kind: ${record.kind}`);
+   }
+-  const [kind, id, status] = raw.split(':');
+-  return { kind, id, status };
++  return { kind, id: record.id, status: record.status, meta: record.meta };
+ }
+diff --git a/src/parser.mjs b/src/parser.mjs
+index 399cd31..fdd3e8f 100644
+--- a/src/parser.mjs
++++ b/src/parser.mjs
+@@ -1,4 +1,8 @@
+ export function parseRecord(raw) {
+-  const [kind, id, status, meta = ''] = raw.split(':');
++  const parts = raw.split(':');
++  if (parts.length < 3 || parts[0] === '' || parts[1] === '' || parts[2] === '') {
++    throw new Error('malformed record');
++  }
++  const [kind, id, status, meta = ''] = parts;
+   return { kind, id, status, meta };
+ }
+diff --git a/src/renderer.mjs b/src/renderer.mjs
+index 71b88d7..aa77303 100644
+--- a/src/renderer.mjs
++++ b/src/renderer.mjs
+@@ -2,5 +2,5 @@ import { normalizeRecord } from './normalizer.mjs';
+ 
+ export function renderUser(raw) {
+   const record = normalizeRecord(raw);
+-  return `user=${record.id} status=${record.status}`;
++  return `user=${record.id.toUpperCase()} status=${record.status.toLowerCase()}`;
+ }
+diff --git a/src/resolver.mjs b/src/resolver.mjs
+index 22da3de..3e70e34 100644
+--- a/src/resolver.mjs
++++ b/src/resolver.mjs
+@@ -4,5 +4,5 @@ const aliases = new Map([
+ ]);
+ 
+ export function resolveKind(kind) {
+-  return kind;
++  return aliases.get(kind) ?? kind;
+ }

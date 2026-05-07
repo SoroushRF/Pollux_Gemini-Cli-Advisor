@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "generic selectLaunchCandidate implementation with synchronized artifacts",
+    "equivalent rule-based selector and reason formatter"
+  ],
+  "knownInvalidShortcuts": [
+    "raw-score selection",
+    "updating only one artifact",
+    "hardcoding repository winning key"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "Task selected by family/difficulty and calibrated with A/E before any FD final run.",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 4,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the task requires a reusable selector, reason formatting, registry/summary/code consistency, and hidden alternate fixtures."
+}

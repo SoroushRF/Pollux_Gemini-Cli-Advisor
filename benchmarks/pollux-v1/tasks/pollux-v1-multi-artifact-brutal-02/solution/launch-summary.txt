@@ -1,0 +1,3 @@
+Selected launch key: atlas
+Adjusted score: 93
+Reason: selected atlas with adjusted score 93: no penalty

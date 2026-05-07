@@ -1,0 +1,70 @@
+﻿diff --git a/launch-summary.txt b/launch-summary.txt
+index dfc00f3..393eaa6 100644
+--- a/launch-summary.txt
++++ b/launch-summary.txt
+@@ -1,2 +1,3 @@
+-Selected launch key: zephyr
+-Reason: highest raw score
++Selected launch key: atlas
++Adjusted score: 93
++Reason: selected atlas with adjusted score 93: no penalty
+diff --git a/registry.json b/registry.json
+index df59034..a96286c 100644
+--- a/registry.json
++++ b/registry.json
+@@ -1,3 +1,3 @@
+ {
+-  "launchKey": "zephyr"
++  "launchKey": "atlas"
+ }
+diff --git a/src/launch.mjs b/src/launch.mjs
+index ec6a9d4..c7ba9fe 100644
+--- a/src/launch.mjs
++++ b/src/launch.mjs
+@@ -1,10 +1,33 @@
+ import { readFileSync } from 'node:fs';
+ 
+-export function selectLaunchCandidate(candidates) {
+-  const top = candidates.filter((candidate) => candidate.enabled).sort((a, b) => b.score - a.score)[0];
+-  return { key: top.key, adjustedScore: top.score, reason: 'highest raw score' };
++export function selectLaunchCandidate(candidates, rollout) {
++  const scored = candidates
++    .filter((candidate) => candidate.enabled)
++    .filter((candidate) => candidate.channel === rollout.channel)
++    .filter((candidate) => candidate.region === rollout.primaryRegion)
++    .filter((candidate) => !(rollout.freezeMigrations && candidate.migration === 'required'))
++    .map((candidate) => {
++      let adjustedScore = candidate.score;
++      const reasons = [];
++      if (candidate.risk === 'high') {
++        adjustedScore -= rollout.penalty.highRisk;
++        reasons.push('high risk penalty');
++      }
++      if (candidate.migration === 'required') {
++        adjustedScore -= rollout.penalty.migrationRequired;
++        reasons.push('migration penalty');
++      }
++      if (reasons.length === 0) reasons.push('no penalty');
++      return { key: candidate.key, adjustedScore, reason: reasons.join(', ') };
++    })
++    .sort((a, b) => b.adjustedScore - a.adjustedScore || a.key.localeCompare(b.key));
++  if (scored.length === 0) {
++    throw new Error('no eligible launch candidate');
++  }
++  return scored[0];
+ }
+ 
+ const candidates = JSON.parse(readFileSync('data/candidates.json', 'utf8'));
+-export const launchDecision = selectLaunchCandidate(candidates);
++const rollout = JSON.parse(readFileSync('data/rollout.json', 'utf8'));
++export const launchDecision = selectLaunchCandidate(candidates, rollout);
+ export const launchKey = launchDecision.key;
+diff --git a/src/reason.mjs b/src/reason.mjs
+index 404a459..2923a0b 100644
+--- a/src/reason.mjs
++++ b/src/reason.mjs
+@@ -1,3 +1,3 @@
+ export function formatLaunchReason(decision) {
+-  return decision.reason;
++  return `selected ${decision.key} with adjusted score ${decision.adjustedScore}: ${decision.reason}`;
+ }

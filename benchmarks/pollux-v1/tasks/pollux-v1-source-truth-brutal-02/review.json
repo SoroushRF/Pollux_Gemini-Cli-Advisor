@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "generic precedence resolver with optional source injection",
+    "runtime decision derived from repository files using the same resolver"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding primary fixture values",
+    "copying stale docs",
+    "editing protected inputs"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "Task selected by family/difficulty and calibrated with A/E before any FD final run.",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 5,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the task requires ignoring stale docs, implementing precedence/fallback over repository and injected sources, and preserving protected inputs."
+}

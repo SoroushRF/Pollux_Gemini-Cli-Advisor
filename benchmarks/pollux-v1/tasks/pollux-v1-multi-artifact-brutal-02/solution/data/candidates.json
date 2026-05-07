@@ -1,0 +1,38 @@
+[
+  {
+    "key": "zephyr",
+    "enabled": true,
+    "channel": "stable",
+    "region": "east",
+    "score": 98,
+    "risk": "high",
+    "migration": "none"
+  },
+  {
+    "key": "atlas",
+    "enabled": true,
+    "channel": "stable",
+    "region": "east",
+    "score": 93,
+    "risk": "low",
+    "migration": "none"
+  },
+  {
+    "key": "ember",
+    "enabled": true,
+    "channel": "beta",
+    "region": "east",
+    "score": 99,
+    "risk": "low",
+    "migration": "none"
+  },
+  {
+    "key": "boreal",
+    "enabled": true,
+    "channel": "stable",
+    "region": "west",
+    "score": 97,
+    "risk": "low",
+    "migration": "none"
+  }
+]

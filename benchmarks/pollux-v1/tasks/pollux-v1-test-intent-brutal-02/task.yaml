@@ -1,0 +1,29 @@
+id: pollux-v1-test-intent-brutal-02
+family: test_intent_edge_bugfix
+difficulty: hard
+source: swebench_archetype_parser_error_model_v1_3
+prompt: "Fix src/records.mjs so parseRecords and parseRecordLine follow docs/record-contract.md, including escaped separators, comments, blank lines, and ParseRecordError line/column reporting. Do not edit docs or tests_public."
+timeout_sec: 300
+protected_files:
+  - docs/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - docs/**
+  - tests_public/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - v1.3
+  - brutal-hard
+  - parser
+  - error-model
