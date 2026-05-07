@@ -1,0 +1,80 @@
+{
+  "version": "pollux-v1.3",
+  "basis": "Latest A-track calibration showed v1.2 medium/hard tasks were too easy or too shallow after infra invalidations were fixed.",
+  "retiredTasks": [
+    {
+      "taskId": "pollux-v1-cross-contract-medium-01",
+      "replacement": "pollux-v1-cross-contract-medium-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "lacks_alternate_hidden_fixture"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-test-intent-medium-01",
+      "replacement": "pollux-v1-test-intent-medium-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "public_fixture_reveals_solution_shape"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-guarded-migration-medium-01",
+      "replacement": "pollux-v1-guarded-migration-medium-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "lacks_alternate_hidden_fixture"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-source-truth-medium-01",
+      "replacement": "pollux-v1-source-truth-medium-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "static_output_without_reusable_logic"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-multi-artifact-medium-01",
+      "replacement": "pollux-v1-multi-artifact-medium-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "static_output_without_reusable_logic"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-cross-contract-brutal-01",
+      "replacement": "pollux-v1-cross-contract-brutal-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "public_fixture_reveals_solution_shape"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-test-intent-brutal-01",
+      "replacement": "pollux-v1-test-intent-brutal-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "public_fixture_reveals_solution_shape"
+      ]
+    },
+    {
+      "taskId": "pollux-v1-guarded-migration-brutal-01",
+      "replacement": "pollux-v1-guarded-migration-brutal-02",
+      "reasons": ["kept_as_concept_but_new_id_required"]
+    },
+    {
+      "taskId": "pollux-v1-source-truth-brutal-01",
+      "replacement": "pollux-v1-source-truth-brutal-02",
+      "reasons": ["kept_as_concept_but_new_id_required"]
+    },
+    {
+      "taskId": "pollux-v1-multi-artifact-brutal-01",
+      "replacement": "pollux-v1-multi-artifact-brutal-02",
+      "reasons": [
+        "too_easy_after_a_calibration",
+        "public_fixture_reveals_solution_shape"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "benchmarkId": "pollux-v1.3",
+  "status": "pending_ae_calibration",
+  "frozenAt": "TBD_AFTER_AE_CALIBRATION",
+  "taskCount": 15,
+  "families": 5,
+  "difficultyLevels": ["easy_control", "medium", "hard"],
+  "tracks": ["A", "E", "FD"],
+  "repeatsPerTrack": 5,
+  "taskIds": [
+    "pollux-v1-cross-contract-easy-01",
+    "pollux-v1-test-intent-easy-01",
+    "pollux-v1-guarded-migration-easy-01",
+    "pollux-v1-source-truth-easy-01",
+    "pollux-v1-multi-artifact-easy-01",
+    "pollux-v1-cross-contract-medium-02",
+    "pollux-v1-test-intent-medium-02",
+    "pollux-v1-guarded-migration-medium-02",
+    "pollux-v1-source-truth-medium-02",
+    "pollux-v1-multi-artifact-medium-02",
+    "pollux-v1-cross-contract-brutal-02",
+    "pollux-v1-test-intent-brutal-02",
+    "pollux-v1-guarded-migration-brutal-02",
+    "pollux-v1-source-truth-brutal-02",
+    "pollux-v1-multi-artifact-brutal-02"
+  ],
+  "freezeNote": "Pollux v1.3 replaces v1.2 medium/hard tasks after A-only calibration showed insufficient Flash separation. FD results were not used to select, relabel, reject, or harden tasks."
+}
