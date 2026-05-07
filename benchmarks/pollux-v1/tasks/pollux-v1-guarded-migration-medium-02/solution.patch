@@ -1,0 +1,30 @@
+﻿diff --git a/src/app.mjs b/src/app.mjs
+index 383d53e..5f730a5 100644
+--- a/src/app.mjs
++++ b/src/app.mjs
+@@ -1,3 +1,3 @@
+ import { gates } from './registry.mjs';
+ 
+-export const enabled = gates.legacyGate({ beta: true });
++export const enabled = gates.stableGate({ beta: true });
+diff --git a/src/flags.mjs b/src/flags.mjs
+index ae41e93..0626b7b 100644
+--- a/src/flags.mjs
++++ b/src/flags.mjs
+@@ -1,3 +1,5 @@
+-export function legacyGate(user) {
++export function stableGate(user) {
+   return user.beta === true;
+ }
++
++export const legacyGate = stableGate;
+diff --git a/src/registry.mjs b/src/registry.mjs
+index ed79699..f5a8d7b 100644
+--- a/src/registry.mjs
++++ b/src/registry.mjs
+@@ -1,3 +1,3 @@
+-import { legacyGate } from './flags.mjs';
++import { stableGate } from './flags.mjs';
+ 
+-export const gates = { legacyGate };
++export const gates = { stableGate };

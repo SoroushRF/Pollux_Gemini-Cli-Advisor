@@ -1,0 +1,32 @@
+id: pollux-v1-multi-artifact-medium-02
+family: multi_artifact_consistency
+difficulty: medium
+source: swebench_archetype_derived_output_regression_v1_3
+prompt: "Repair src/mergeConfig.mjs and effective-config.json so both implement rules/merge.md. Preserve input config files and tests_public."
+timeout_sec: 300
+protected_files:
+  - config/**
+  - rules/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - config/**
+  - rules/**
+  - tests_public/**
+  - effective-config.json
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - v1.3
+  - medium
+  - derived-config
+  - multi-artifact

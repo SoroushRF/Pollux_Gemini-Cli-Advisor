@@ -1,0 +1,42 @@
+﻿diff --git a/effective-config.json b/effective-config.json
+index 2fc4b8a..bdf4ddc 100644
+--- a/effective-config.json
++++ b/effective-config.json
+@@ -1,8 +1,7 @@
+ {
+-  "mode": "observe",
++  "mode": "enforce",
+   "features": [
+     "alpha",
+-    "beta",
+-    "gamma"
++    "delta"
+   ]
+ }
+diff --git a/src/mergeConfig.mjs b/src/mergeConfig.mjs
+index 53aa94d..11f7ec5 100644
+--- a/src/mergeConfig.mjs
++++ b/src/mergeConfig.mjs
+@@ -1,8 +1,19 @@
+ export function mergeConfig(defaults, override, denylist) {
++  const denied = new Set(denylist);
++  const disabled = new Set(override.disableFeatures ?? []);
++  const features = [];
++  for (const feature of defaults.features ?? []) {
++    if (!disabled.has(feature) && !denied.has(feature) && !features.includes(feature)) {
++      features.push(feature);
++    }
++  }
++  for (const feature of override.addFeatures ?? []) {
++    if (!denied.has(feature) && !features.includes(feature)) {
++      features.push(feature);
++    }
++  }
+   return {
+     mode: override.mode ?? defaults.mode,
+-    features: [...defaults.features, ...(override.addFeatures ?? [])].filter(
+-      (feature) => !(override.disableFeatures ?? []).includes(feature),
+-    ),
++    features,
+   };
+ }

@@ -1,0 +1,4 @@
+{
+  "mode": "observe",
+  "features": ["alpha", "beta", "gamma"]
+}

@@ -1,0 +1,16 @@
+﻿diff --git a/src/policy.mjs b/src/policy.mjs
+index 1aa4759..84d321d 100644
+--- a/src/policy.mjs
++++ b/src/policy.mjs
+@@ -1 +1,10 @@
+-export const policy = { mode: 'loose', retentionDays: 7, rollout: 'canary', guard: 'open' };
++import { readFileSync } from 'node:fs';
++
++export function resolvePolicy({ policy, defaults }) {
++  return { ...defaults, ...policy };
++}
++
++const policyConfig = JSON.parse(readFileSync('config/policy.json', 'utf8'));
++const defaultConfig = JSON.parse(readFileSync('config/defaults.json', 'utf8'));
++
++export const policy = resolvePolicy({ policy: policyConfig, defaults: defaultConfig });

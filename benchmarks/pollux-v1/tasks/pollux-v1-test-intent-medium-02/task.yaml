@@ -1,0 +1,29 @@
+id: pollux-v1-test-intent-medium-02
+family: test_intent_edge_bugfix
+difficulty: medium
+source: swebench_archetype_state_transition_regression_v1_3
+prompt: "Repair src/flow.mjs and src/summary.mjs so the documented state machine is enforced, terminal states are preserved, and explainTransition(from, to) returns a reasoned result. Do not edit docs or tests_public."
+timeout_sec: 300
+protected_files:
+  - docs/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - docs/**
+  - tests_public/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - v1.3
+  - medium
+  - state-machine
+  - regression-trap

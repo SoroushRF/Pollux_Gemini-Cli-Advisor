@@ -1,0 +1,29 @@
+id: pollux-v1-cross-contract-medium-02
+family: cross_file_contract_repair
+difficulty: medium
+source: swebench_archetype_inherited_lookup_contract_v1_3
+prompt: "Repair the label contract so createStableLabel is canonical through src/index.mjs, createLabel remains a compatibility alias, and view/audit outputs follow docs/label-contract.md. Do not edit docs or tests_public."
+timeout_sec: 300
+protected_files:
+  - docs/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - docs/**
+  - tests_public/**
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - v1.3
+  - medium
+  - cross-file-contract
+  - compatibility-alias

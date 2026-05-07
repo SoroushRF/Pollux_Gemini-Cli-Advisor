@@ -1,0 +1,6 @@
+{
+  "mode": "observe",
+  "retentionDays": 7,
+  "rollout": "canary",
+  "guard": "audit"
+}

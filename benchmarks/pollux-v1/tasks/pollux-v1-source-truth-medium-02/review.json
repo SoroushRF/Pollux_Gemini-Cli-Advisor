@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "medium",
+  "knownAcceptableSolutionShapes": [
+    "generic resolvePolicy helper over injected objects",
+    "runtime policy derived from config files with defaults fallback"
+  ],
+  "knownInvalidShortcuts": [
+    "copying stale docs",
+    "hardcoding only primary policy values",
+    "editing config/docs/public tests"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "Task selected by family/difficulty and calibrated with A/E before any FD final run.",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 3,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Medium because the task requires resolving a source-of-truth conflict with defaults fallback and hidden injected-source generalization."
+}
