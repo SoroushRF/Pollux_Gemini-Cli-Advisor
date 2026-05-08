@@ -3,7 +3,7 @@
   "reviewDate": "2026-05-07",
   "clarity": "pass",
   "oracleValidity": "pass",
-  "difficultyIntent": "medium",
+  "difficultyIntent": "hard",
   "knownAcceptableSolutionShapes": [
     "transition map with explanation helper",
     "equivalent guarded transition predicate"
@@ -26,5 +26,5 @@
     "solutionSpaceAmbiguity": "low",
     "protectedFileConstraintStrength": "moderate"
   },
-  "difficultyRationale": "Medium because the agent must preserve terminal invariants across flow and summary modules while returning structured explanation data."
+  "difficultyRationale": "Relabeled to hard after A-only calibration passed 0/3 with one response-ceiling invalidation. The terminal explanation contract, retrying state, active-state summary, and protected docs/public tests made this a hard test-intent task in observed calibration. FD results were not used."
 }

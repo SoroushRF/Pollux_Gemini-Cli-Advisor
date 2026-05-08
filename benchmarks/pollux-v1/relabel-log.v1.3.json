@@ -1,6 +1,22 @@
 {
   "version": "pollux-v1.3",
   "basis": "Latest A-track calibration showed v1.2 medium/hard tasks were too easy or too shallow after infra invalidations were fixed.",
+  "calibrationRelabels": [
+    {
+      "taskId": "pollux-v1-cross-contract-brutal-02",
+      "from": "hard",
+      "to": "medium",
+      "basis": "A-only calibration after hardening passed 3/3 with average 7.33 responses, so the task did not provide hard-slice separation.",
+      "fdUsed": false
+    },
+    {
+      "taskId": "pollux-v1-test-intent-medium-02",
+      "from": "medium",
+      "to": "hard",
+      "basis": "A-only calibration after hardening passed 0/3 with average 15.33 responses and one model-call-ceiling invalidation, so the task behaved as hard.",
+      "fdUsed": false
+    }
+  ],
   "retiredTasks": [
     {
       "taskId": "pollux-v1-cross-contract-medium-01",

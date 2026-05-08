@@ -1,6 +1,6 @@
 id: pollux-v1-cross-contract-brutal-02
 family: cross_file_contract_repair
-difficulty: hard
+difficulty: medium
 source: swebench_archetype_nested_contract_repair_v1_3
 prompt: "Repair the nested render contract so parser.mjs remains the canonical raw parser, resolver.mjs owns kind/status aliases, normalizer.mjs uses both parser and resolver, optional meta is parsed, and renderer.mjs follows docs/render-contract.md. Do not edit docs or tests_public."
 timeout_sec: 300
@@ -24,6 +24,6 @@ success:
   requires_protected_hashes: true
 tags:
   - v1.3
-  - brutal-hard
+  - calibrated-medium
   - nested-contract
   - cross-file

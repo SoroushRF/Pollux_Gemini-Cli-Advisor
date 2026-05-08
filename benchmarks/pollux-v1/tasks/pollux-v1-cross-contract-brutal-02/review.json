@@ -3,7 +3,7 @@
   "reviewDate": "2026-05-07",
   "clarity": "pass",
   "oracleValidity": "pass",
-  "difficultyIntent": "hard",
+  "difficultyIntent": "medium",
   "knownAcceptableSolutionShapes": [
     "parser/resolver/normalizer pipeline repair",
     "equivalent centralized parser and alias contract"
@@ -19,12 +19,12 @@
     "primaryFilesOrArtifactsTouched": 4,
     "requiresCrossFileReasoning": true,
     "hasSourceOfTruthConflict": false,
-    "hiddenEdgeCaseDepth": "high",
-    "hasCompatibilityConstraint": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
     "hasRegressionTrap": true,
-    "generalizationRequired": "high",
-    "solutionSpaceAmbiguity": "moderate",
-    "protectedFileConstraintStrength": "high"
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "low"
   },
-  "difficultyRationale": "Hard because the task requires preserving a nested parser/resolver/normalizer contract with hidden alias and malformed-input fixtures."
+  "difficultyRationale": "Relabeled to medium after A-only calibration passed 3/3. The task remains multi-file and generalized, but observed execution showed it behaves as a medium cross-file contract task rather than a hard separation task. FD results were not used."
 }
