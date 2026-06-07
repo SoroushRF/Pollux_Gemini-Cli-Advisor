@@ -64,12 +64,22 @@ Each task has:
 
 The verifier:
 
-1. copies hidden tests into a candidate workspace
-2. runs fail-to-pass tests
-3. runs pass-to-pass tests
-4. compares protected-file hashes against the base fixture
+1. copies the candidate workspace into an isolated verifier workspace
+2. copies hidden tests into the verifier workspace
+3. runs fail-to-pass tests
+4. runs pass-to-pass tests
+5. compares protected-file hashes against the base fixture
 
 A task succeeds only when all three checks pass.
+
+In the live real-run path, hidden tests are injected only into an isolated
+verifier clone. The live agent workspace receives the base files, and early-stop
+oracle polling must not leave `tests/` behind in that workspace.
+
+Difficulty labels are now backed by `benchmarks/pollux-v1/difficulty-rubric.md`
+and per-task `review.json` rubric metadata. A/E outcomes are calibration
+evidence only; FD outcomes are prohibited from task selection, relabeling, or
+hardening decisions.
 
 ## Anti-Bias Rule
 
@@ -95,6 +105,10 @@ publication, regenerate each `solution.patch` from `base/` to `solution/`.
 FD is still marked diagnostic/non-publishable in the existing real-run condition
 configuration. A final value claim should either update that condition policy or
 explicitly describe FD as the detector-only diagnostic track.
+
+`selected-task-set.v1.1.json` records the intended post-calibration freeze. Its
+`frozenAt` field must be finalized only after A/E calibration artifacts are
+reviewed.
 
 ## Validation
 

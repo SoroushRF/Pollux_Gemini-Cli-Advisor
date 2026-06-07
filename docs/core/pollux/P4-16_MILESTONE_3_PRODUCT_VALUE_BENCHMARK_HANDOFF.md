@@ -473,6 +473,16 @@ Hard rule:
 
 Do not define M3 success on the existing sentinel subset alone.
 
+Operational addendum:
+
+After the first staged M3 A-screen and E-only passes, the current evidence
+showed four strong semantic / ceiling-sensitive tasks and several weaker
+exactness-sensitive tasks. That is not enough high-quality task supply for the
+official M3 value claim. Use the hard-task factory guide before spending the
+main F-track quota:
+
+1. [P4-18_MILESTONE_3_HARD_TASK_FACTORY_GUIDE.md](C:\Users\sorou\OneDrive\Desktop\Pollux\docs\core\pollux\P4-18_MILESTONE_3_HARD_TASK_FACTORY_GUIDE.md)
+
 ### Workstream B: Calibration runner
 
 Purpose:

@@ -1,6 +1,6 @@
 # P4-03 Smoke Benchmark Reproducibility Report
 
-Version: 2.0 Generated: 2026-04-23T05:40:46.402Z Status: Done TG mapping: TG-1,
+Version: 2.0 Generated: 2026-04-30T00:49:08.807Z Status: Done TG mapping: TG-1,
 TG-3
 
 ---
@@ -37,9 +37,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=5154.0
+  advisorCalls=0, latencyMs=3668.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=2095.0
+  advisorCalls=0, latencyMs=2298.0
 
 ### CAL-BM-01-SIMPLE / F
 
@@ -48,9 +48,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=3163.0
+  advisorCalls=0, latencyMs=2880.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=3749.0
+  advisorCalls=0, latencyMs=2590.0
 
 ### CAL-BM-01-SIMPLE / E
 
@@ -59,9 +59,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=4453.0
+  advisorCalls=0, latencyMs=2451.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=3626.0
+  advisorCalls=0, latencyMs=2744.0
 
 ### CAL-BM-02-MODERATE / A
 
@@ -70,9 +70,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3994.0
+  advisorCalls=0, latencyMs=2605.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3966.0
+  advisorCalls=0, latencyMs=2696.0
 
 ### CAL-BM-02-MODERATE / F
 
@@ -81,9 +81,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3887.0
+  advisorCalls=0, latencyMs=2485.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3907.0
+  advisorCalls=0, latencyMs=2643.0
 
 ### CAL-BM-02-MODERATE / E
 
@@ -92,9 +92,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3797.0
+  advisorCalls=0, latencyMs=2464.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=262/0/262,
-  advisorCalls=0, latencyMs=3255.0
+  advisorCalls=0, latencyMs=2750.0
 
 ### CAL-BM-04-ESCALATING / A
 
@@ -103,9 +103,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=4108.0
+  advisorCalls=0, latencyMs=2550.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=4053.0
+  advisorCalls=0, latencyMs=2660.0
 
 ### CAL-BM-04-ESCALATING / F
 
@@ -114,9 +114,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 1
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=430/200/230,
-  advisorCalls=1, latencyMs=3918.0
+  advisorCalls=1, latencyMs=2625.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=430/200/230,
-  advisorCalls=1, latencyMs=4028.0
+  advisorCalls=1, latencyMs=2783.0
 
 ### CAL-BM-04-ESCALATING / E
 
@@ -125,9 +125,9 @@ executor path.
 - Stable reproducibility: passed
 - Max observed advisor calls: 0
 - Run 1: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=4239.0
+  advisorCalls=0, latencyMs=3077.0
 - Run 2: valid=true, accuracy=true, tokens(total/advisor/executor)=230/0/230,
-  advisorCalls=0, latencyMs=4055.0
+  advisorCalls=0, latencyMs=2713.0
 
 ## 4) Conclusion
 

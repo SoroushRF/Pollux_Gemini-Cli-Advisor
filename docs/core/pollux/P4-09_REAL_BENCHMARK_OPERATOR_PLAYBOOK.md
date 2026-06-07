@@ -35,10 +35,10 @@ npm run benchmark:pollux:real:pilot -- --campaign-id pilot-local-001 --repeats 3
 npm run benchmark:pollux:real:acceptance -- --acceptance-id m2-acceptance-001 --pricing-snapshot docs/core/pollux/P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_TEMPLATE.json
 ```
 
-The real benchmark harness now defaults to `15` model responses per sample.
-That default was revised after reviewing the latest pre-track strong-model
-completion envelope on the milestone-3 task slices rather than keeping the
-older conservative pilot constant of `6`.
+The real benchmark harness now defaults to `15` model responses per sample. That
+default was revised after reviewing the latest pre-track strong-model completion
+envelope on the milestone-3 task slices rather than keeping the older
+conservative pilot constant of `6`.
 
 For targeted debugging, constrain runaway samples explicitly:
 
@@ -81,10 +81,16 @@ For Milestone 3 product-value work, the operator contract is now staged:
 2. drop only pre-registered `easy` and `flaky` tasks
 3. run a full `E` confirmation pass on the survivors
 4. freeze the selected task set from `A` and `E` evidence only
-5. run a separate final `A` / `E` / `F` value campaign on the frozen subset
+5. run a mandatory `F` smoke on a representative subset of the frozen tasks
+6. run the separate final `A` / `E` / `F` value campaign only after the smoke
+   shows real M3-aligned advisor evidence on the intended subset
 
 Do not reuse calibration-stage `A` or `E` measurements as the final value-suite
 `A` or `E` estimates.
+
+Treat `A/E discriminative` and `F escalation-ready` as separate gates. The first
+asks whether the task set is hard enough to matter. The second asks whether live
+Pollux detector evidence is strong enough to actually consult the advisor.
 
 ---
 
@@ -110,6 +116,9 @@ Run this before every live pilot:
 9. If using `--repeats > 1`, choose a fresh campaign id or pass
    `--allow-overwrite true` deliberately. The runner now fails fast on duplicate
    artifact roots.
+10. For Milestone 3 frozen-task work, run an explicit `F` smoke before the full
+    value campaign. If the smoke shows zero M3-aligned advisor evidence, stop
+    and treat the run as detector-alignment work rather than value evidence.
 
 ---
 
@@ -158,7 +167,12 @@ The model-response ceiling is a benchmark response budget, not provider quota.
 It counts all model responses observed in the sample, including Flash executor
 responses, Pro advisor responses, and other telemetry-visible utility calls. For
 F-only diagnostics, `--f-max-model-responses <n>` overrides the ceiling only for
-condition F.
+condition F. Unless an explicit CLI override is passed, the default real-run
+budget is `15`.
+
+For Milestone 3, a zero-advisor `F` smoke is a stop condition even if the runs
+are otherwise valid. That outcome means the task subset may be discriminative in
+`A/E`, but Pollux is not yet escalation-ready on it.
 
 ---
 
@@ -215,6 +229,14 @@ In `report.md`, always inspect the per-sample diagnostics table before trusting
 the aggregate rates. A `missing_event` timing row is the expected place for
 valid false negatives: it means Pollux should have escalated for the task and
 condition, but no consult-related telemetry appeared.
+
+In Milestone 3 value reports, treat any diagnostic-only banner as a hard stop
+for product-value interpretation. If `F` shows zero M3-aligned advisor evidence
+or zero advisor token share on the frozen selected set, the report is
+detector-miss diagnostic evidence, not valid value evidence. Generic safety
+consults such as destructive shell risk may prove the advisor transport works,
+but they do not satisfy M3 hard-task detector evidence unless the report marks
+the sample as M3-aligned.
 
 Condition, lane, and cell summary fields are valid-only unless they appear under
 All-sample diagnostics. The All-sample fields are the place to explain spend and

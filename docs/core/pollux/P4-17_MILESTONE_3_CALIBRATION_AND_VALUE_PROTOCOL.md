@@ -66,10 +66,21 @@ letting Pollux influence task selection:
 3. run a full `E` confirmation pass on the survivors
 4. assign final calibration labels from `A` and `E` only
 5. freeze the selected task set
-6. run a separate `A` / `E` / `F` value campaign on that frozen set
+6. run a mandatory `F` smoke on a representative subset of the frozen tasks
+7. run the separate `A` / `E` / `F` value campaign only if the smoke shows
+   M3-aligned advisor evidence on the intended subset
 
 Calibration samples are selection evidence. They must not be reused as the final
 `A` or `E` value estimates after the subset is frozen.
+
+This protocol treats `A/E discriminative` and `F escalation-ready` as separate
+gates:
+
+1. `A/E discriminative`
+   - Flash is weak enough and Pro is strong enough for the task set to matter.
+2. `F escalation-ready`
+   - live Pollux detector evidence is strong enough to actually consult the
+     advisor on the same hard-task patterns.
 
 ## A-Screen Survivor Rules
 
@@ -134,6 +145,11 @@ Required value metrics:
 7. advisor calls per valid `F` run
 8. invalidation disclosure
 
+The value report must also surface whether `F` produced M3-aligned advisor
+evidence on the frozen selected set. A zero-advisor or generic-safety-only `F`
+suite is diagnostic-only detector-miss evidence, not valid product-value
+evidence.
+
 ## Artifact Layout
 
 Calibration:
@@ -180,13 +196,21 @@ Reference staged flow:
 2. A-screen filter: remove only pre-registered `easy` and `flaky` tasks
 3. E-confirmation: run the full survivor pool under condition `E`
 4. calibration freeze: keep only final `discriminative` tasks
-5. value campaign: run `A`, `E`, and `F` on the frozen selected task set
+5. F smoke: run `F` on a representative subset of the frozen selected task set
+6. value campaign: run `A`, `E`, and `F` on the frozen selected task set only if
+   the smoke shows real M3-aligned advisor evidence
 
 Current helper names may lag this contract. Treat the staged flow above as the
 normative M3 benchmark logic.
 
 Use small smoke runs before full M3 runs, especially when operating under a
 single Gemini account quota window.
+
+If the `F` smoke shows zero M3-aligned advisor evidence, stop the workflow
+there. That is not a failed value run. It is detector-alignment evidence that
+Pollux is not yet escalation-ready for the frozen hard-task set. A Pro consult
+caused only by generic safety risk, such as destructive shell protection, is
+useful plumbing evidence but does not clear the M3 smoke gate.
 
 Legacy A-only helper output remains provisional if it is used only to narrow a
 candidate pool without the formal staged-calibration artifacts above. Official
@@ -196,6 +220,7 @@ M3 selection still requires:
 2. a recorded A-only survivor filter
 3. a full `E` confirmation pass across those survivors
 4. a frozen selected task set emitted before any `F` run
+5. a recorded `F` smoke result before the final value campaign
 
 ## Third-Party Benchmark Readiness
 

@@ -1,6 +1,6 @@
 # P4-05 Synthetic Harness Self-Test (Tokens / Latency / Accuracy / CIs)
 
-Version: 2.0 Generated: 2026-04-23T05:41:07.342Z Status: Done (synthetic
+Version: 2.0 Generated: 2026-04-30T00:49:25.036Z Status: Done (synthetic
 self-test) TG mapping: TG-1, TG-4
 
 ---
@@ -25,7 +25,7 @@ the harness, not as a model evaluation.
 
 ## 2) Source data
 
-- Source full benchmark timestamp: 2026-04-23T05:41:07.339Z
+- Source full benchmark timestamp: 2026-04-30T00:49:25.035Z
 - Source cells: 12
 - Run samples (initial + resumed): 24
 
@@ -33,9 +33,9 @@ the harness, not as a model evaluation.
 
 | Condition |   N | Accuracy                 | Total tokens mean      | Advisor tokens mean   | Executor tokens mean   | Latency ms mean           | Escalation rate       |
 | --------- | --: | ------------------------ | ---------------------- | --------------------- | ---------------------- | ------------------------- | --------------------- |
-| A         |   8 | 100.0% (67.6% to 100.0%) | 274.5 (220.8 to 328.2) | 0.0 (0.0 to 0.0)      | 274.5 (220.8 to 328.2) | 3810.9 (3030.6 to 4591.1) | 0.0% (0.0% to 32.4%)  |
-| E         |   8 | 100.0% (67.6% to 100.0%) | 274.5 (220.8 to 328.2) | 0.0 (0.0 to 0.0)      | 274.5 (220.8 to 328.2) | 3664.4 (3129.6 to 4199.1) | 0.0% (0.0% to 32.4%)  |
-| F         |   8 | 100.0% (67.6% to 100.0%) | 324.5 (251.6 to 397.4) | 50.0 (-27.4 to 127.4) | 274.5 (220.8 to 328.2) | 3821.6 (3230.5 to 4412.8) | 25.0% (7.1% to 59.1%) |
+| A         |   8 | 100.0% (67.6% to 100.0%) | 274.5 (220.8 to 328.2) | 0.0 (0.0 to 0.0)      | 274.5 (220.8 to 328.2) | 2751.3 (2442.4 to 3060.1) | 0.0% (0.0% to 32.4%)  |
+| E         |   8 | 100.0% (67.6% to 100.0%) | 274.5 (220.8 to 328.2) | 0.0 (0.0 to 0.0)      | 274.5 (220.8 to 328.2) | 2690.8 (2532.5 to 2849.0) | 0.0% (0.0% to 32.4%)  |
+| F         |   8 | 100.0% (67.6% to 100.0%) | 324.5 (251.6 to 397.4) | 50.0 (-27.4 to 127.4) | 274.5 (220.8 to 328.2) | 2672.5 (2515.6 to 2829.4) | 25.0% (7.1% to 59.1%) |
 
 ## 4) Overall accuracy and token reconciliation
 

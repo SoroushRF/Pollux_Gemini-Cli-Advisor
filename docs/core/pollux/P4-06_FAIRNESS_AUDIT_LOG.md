@@ -1,6 +1,6 @@
 # P4-06 Fairness Pin Audit Log
 
-Version: 2.0 Generated: 2026-04-23T05:41:07.280Z Status: Done TG mapping: TG-1
+Version: 2.0 Generated: 2026-04-30T00:49:25.038Z Status: Done TG mapping: TG-1
 
 ---
 
@@ -14,7 +14,7 @@ Cross-run uniqueness for FP-03/FP-05/FP-06 is verified at this audit layer.
 
 ## 2) Source coverage
 
-- Source full benchmark timestamp: 2026-04-23T05:41:07.277Z
+- Source full benchmark timestamp: 2026-04-30T00:49:25.037Z
 - Conditions: 3
 - Cells (task x condition): 12
 - Audited runs (initial + resume): 24
