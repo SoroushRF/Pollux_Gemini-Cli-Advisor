@@ -1,0 +1,39 @@
+diff --git a/src/launch.mjs b/src/launch.mjs
+--- a/src/launch.mjs
++++ b/src/launch.mjs
+@@
+-export function selectLaunchCandidate(candidates) {
+-  return candidates
+-    .filter((candidate) => candidate.enabled)
+-    .sort((a, b) => b.score - a.score)[0].key;
+-}
++function adjustedScore(candidate) {
++  return candidate.score - (candidate.risk === 'high' ? 10 : 0) - (candidate.migration === 'required' ? 3 : 0);
++}
++
++export function selectLaunchCandidate(candidates, rollout) {
++  const primaryRegion = rollout?.primaryRegion ?? JSON.parse(readFileSync('data/rollout.json', 'utf8')).primaryRegion;
++  const eligible = candidates.filter(
++    (candidate) => candidate.enabled && candidate.channel === 'stable' && candidate.region === primaryRegion,
++  );
++  eligible.sort((a, b) => adjustedScore(b) - adjustedScore(a) || a.key.localeCompare(b.key));
++  return eligible[0].key;
++}
+@@
+-export const launchKey = selectLaunchCandidate(candidates);
++const rollout = JSON.parse(readFileSync('data/rollout.json', 'utf8'));
++export const launchKey = selectLaunchCandidate(candidates, rollout);
+diff --git a/registry.json b/registry.json
+--- a/registry.json
++++ b/registry.json
+@@
+-{"launchKey":"zephyr"}
++{"launchKey":"atlas"}
+diff --git a/launch-summary.txt b/launch-summary.txt
+--- a/launch-summary.txt
++++ b/launch-summary.txt
+@@
+-Selected launch key: zephyr
+-Reason: highest raw score
++Selected launch key: atlas
++Reason: highest adjusted stable candidate after risk and migration penalties

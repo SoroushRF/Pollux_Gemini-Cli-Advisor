@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "state-machine CSV parser",
+    "equivalent parser that preserves empty fields and escaped quotes"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding hidden examples",
+    "dropping empty fields",
+    "ignoring malformed quotes"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "hardness comes from documented parser edge classes, not FD behavior",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard because the task requires a generalized parser covering multiple edge classes with malformed-input behavior and regression preservation."
+}

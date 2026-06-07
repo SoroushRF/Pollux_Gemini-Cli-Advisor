@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "use parser.mjs from normalizer and normalize id/status casing",
+    "preserve parser contract while moving normalization into normalizer"
+  ],
+  "knownInvalidShortcuts": [
+    "hardcoding only public examples",
+    "normalizer re-splitting raw input",
+    "editing docs or public tests"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "selected by static rubric and A/E-only calibration before FD",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 3,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard because the repair spans parser, normalizer, and renderer contracts, includes plausible partial fixes, and hidden tests check generalized casing and invalid-kind behavior."
+}

@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "generic precedence resolver with source injection for tests",
+    "runtime decision derived from environment, release, and defaults"
+  ],
+  "knownInvalidShortcuts": [
+    "copying stale docs",
+    "hardcoding only the primary fixture",
+    "editing protected inputs"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "precedence and fallback rules are visible and calibrated with A/E before FD",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 5,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the agent must ignore stale docs, apply visible precedence with fallback, preserve protected inputs, and generalize beyond the primary fixture."
+}

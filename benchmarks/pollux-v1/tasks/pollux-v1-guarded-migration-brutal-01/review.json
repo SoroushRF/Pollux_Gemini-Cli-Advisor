@@ -1,0 +1,30 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "canonical renderShade export plus formatShade alias",
+    "compatibility object and registry exposing both names"
+  ],
+  "knownInvalidShortcuts": [
+    "breaking formatShade",
+    "leaving internal theme imports on the old name",
+    "editing compatibility docs"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "compatibility and registry constraints are static, visible, and calibrated with A/E only",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 4,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard because the migration must update internal sources and registry wiring while preserving the old public alias and protected compatibility docs."
+}

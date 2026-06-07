@@ -1,0 +1,33 @@
+id: pollux-v1-multi-artifact-brutal-01
+family: multi_artifact_consistency
+difficulty: hard
+source: rewritten_from_m3_bm_21_v1_2
+prompt: "Apply rules/selection.md to select the launch candidate, then update src/launch.mjs, registry.json, and launch-summary.txt so all outputs use the same selected key. Do not edit data or rules."
+timeout_sec: 300
+protected_files:
+  - data/**
+  - rules/**
+  - tests_public/**
+visible_files:
+  - src/**
+  - data/**
+  - rules/**
+  - tests_public/**
+  - registry.json
+  - launch-summary.txt
+hidden_tests:
+  fail_to_pass_command:
+    - node
+    - tests/fail_to_pass/check.mjs
+  pass_to_pass_command:
+    - node
+    - tests/pass_to_pass/check.mjs
+success:
+  requires_fail_to_pass: true
+  requires_pass_to_pass: true
+  requires_protected_hashes: true
+tags:
+  - brutal-hard
+  - derived-artifacts
+  - consistency
+  - task-local-npm

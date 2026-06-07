@@ -1,0 +1,31 @@
+{
+  "reviewer": "pollux-benchmark-review",
+  "reviewDate": "2026-05-07",
+  "clarity": "pass",
+  "oracleValidity": "pass",
+  "difficultyIntent": "hard",
+  "knownAcceptableSolutionShapes": [
+    "generic selection function plus synchronized source, registry, and summary outputs",
+    "equivalent adjusted-score implementation with lexicographic tie-breaker"
+  ],
+  "knownInvalidShortcuts": [
+    "choosing raw top score",
+    "updating only one output artifact",
+    "hardcoding only atlas",
+    "editing protected data or rules"
+  ],
+  "biasRisk": "medium",
+  "biasMitigation": "selection rules are visible; acceptance depends on A/E-only calibration and protected artifact checks",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 5,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the task requires rule-based selection, non-obvious penalty logic, tie-breaker generalization, and consistent updates across code, JSON, and text artifacts."
+}

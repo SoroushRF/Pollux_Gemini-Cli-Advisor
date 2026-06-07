@@ -1,0 +1,16 @@
+diff --git a/src/normalizer.mjs b/src/normalizer.mjs
+--- a/src/normalizer.mjs
++++ b/src/normalizer.mjs
+@@
+-import { parseLine } from './parser.mjs';
++import { parseRecord } from './parser.mjs';
+@@
+-  const record = parseLine(raw);
++  const record = parseRecord(raw);
+@@
+-  const [, id, status] = raw.split(':');
+-  return { id, status };
++  return {
++    id: record.id.toUpperCase(),
++    status: record.status.toLowerCase(),
++  };

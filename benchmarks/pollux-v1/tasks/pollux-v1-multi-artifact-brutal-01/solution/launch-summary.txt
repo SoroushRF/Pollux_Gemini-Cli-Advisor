@@ -1,0 +1,2 @@
+Selected launch key: atlas
+Reason: highest adjusted stable candidate after risk and migration penalties
