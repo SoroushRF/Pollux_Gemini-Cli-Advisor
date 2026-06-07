@@ -71,3 +71,16 @@ conductor/
 
 # benchmark artifacts
 artifacts/
+evaluation_results/.venv-*/
+evaluation_results/hf-cache/
+evaluation_results/*/runs/
+evaluation_results/*/evals/
+evaluation_results/*/repos/
+evaluation_results/*/repos-full/
+evaluation_results/pollux-swe-lite-gold-smoke/
+evaluation_results/swebench-py312-site/
+logs/
+pollux-*-diagnostic-eval.json
+
+# Local generated sandbox binaries
+packages/core/src/sandbox/windows/GeminiSandbox.exe
