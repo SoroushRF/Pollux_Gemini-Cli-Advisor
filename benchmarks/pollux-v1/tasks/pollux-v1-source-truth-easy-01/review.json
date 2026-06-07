@@ -7,5 +7,17 @@
   "knownAcceptableSolutionShapes": ["update runtimeMode to config value"],
   "knownInvalidShortcuts": ["editing stale docs", "editing config"],
   "biasRisk": "low",
-  "biasMitigation": "simple source-of-truth control"
+  "biasMitigation": "simple source-of-truth control",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "low",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Easy/control because the source-of-truth rule is direct and the runtime update is local, with docs/config protected against attractive wrong edits."
 }

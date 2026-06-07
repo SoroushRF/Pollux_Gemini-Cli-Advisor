@@ -1,0 +1,28 @@
+{
+  "benchmarkId": "pollux-v1.2",
+  "status": "pending_calibration",
+  "frozenAt": "TBD_AFTER_AE_CALIBRATION",
+  "taskCount": 15,
+  "families": 5,
+  "difficultyLevels": ["easy_control", "medium", "hard"],
+  "repeatsPerTrack": 5,
+  "tracks": ["A", "E", "FD"],
+  "taskIds": [
+    "pollux-v1-cross-contract-easy-01",
+    "pollux-v1-test-intent-easy-01",
+    "pollux-v1-guarded-migration-easy-01",
+    "pollux-v1-source-truth-easy-01",
+    "pollux-v1-multi-artifact-easy-01",
+    "pollux-v1-cross-contract-medium-01",
+    "pollux-v1-test-intent-medium-01",
+    "pollux-v1-guarded-migration-medium-01",
+    "pollux-v1-source-truth-medium-01",
+    "pollux-v1-multi-artifact-medium-01",
+    "pollux-v1-cross-contract-brutal-01",
+    "pollux-v1-test-intent-brutal-01",
+    "pollux-v1-guarded-migration-brutal-01",
+    "pollux-v1-source-truth-brutal-01",
+    "pollux-v1-multi-artifact-brutal-01"
+  ],
+  "freezeNote": "Pollux v1.2 must be frozen only after workspace isolation, task-local validation, hidden-test isolation, and A/E-only difficulty calibration. FD results must not be used to select, relabel, reject, or harden tasks."
+}

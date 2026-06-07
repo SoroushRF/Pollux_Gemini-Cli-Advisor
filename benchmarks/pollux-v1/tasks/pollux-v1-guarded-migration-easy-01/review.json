@@ -12,5 +12,17 @@
     "hardcoding displayName"
   ],
   "biasRisk": "low",
-  "biasMitigation": "easy control validates advisor restraint"
+  "biasMitigation": "easy control validates advisor restraint",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "low",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "low"
+  },
+  "difficultyRationale": "Easy/control because the rename is small and explicit, while the compatibility alias creates a light regression trap."
 }

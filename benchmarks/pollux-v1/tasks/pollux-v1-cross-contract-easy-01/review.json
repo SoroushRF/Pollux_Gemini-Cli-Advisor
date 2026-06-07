@@ -10,5 +10,17 @@
     "removing public index usage"
   ],
   "biasRisk": "low",
-  "biasMitigation": "easy control where FD should avoid advisor spend"
+  "biasMitigation": "easy control where FD should avoid advisor spend",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "low",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "low"
+  },
+  "difficultyRationale": "Easy/control because the fix is an obvious public re-export repair with low hidden edge-case depth and a narrow protected-test constraint."
 }

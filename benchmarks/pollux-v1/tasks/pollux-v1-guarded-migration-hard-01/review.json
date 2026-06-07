@@ -9,5 +9,17 @@
   ],
   "knownInvalidShortcuts": ["dropping formatShade", "hardcoding COBALT"],
   "biasRisk": "medium",
-  "biasMitigation": "tests accept behavior rather than exact alias source shape"
+  "biasMitigation": "tests accept behavior rather than exact alias source shape",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard because the canonical rename must update internal usage while preserving the public alias and avoiding exact-shape assumptions about the alias implementation."
 }

@@ -7,5 +7,17 @@
   "knownAcceptableSolutionShapes": ["compute tax after subtracting discount"],
   "knownInvalidShortcuts": ["editing docs", "hardcoding one numeric answer"],
   "biasRisk": "low",
-  "biasMitigation": "easy control with semantic numeric tests"
+  "biasMitigation": "easy control with semantic numeric tests",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "low",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Easy/control because the prompt directly states the tax-order rule and the implementation is a local arithmetic repair with protected docs/tests."
 }

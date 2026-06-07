@@ -13,5 +13,17 @@
     "updating only one artifact"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "multi-output hidden tests require consistent final state"
+  "biasMitigation": "multi-output hidden tests require consistent final state",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 3,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the selected launch key must be derived from protected candidates/rules and propagated consistently through source, registry, and summary artifacts."
 }

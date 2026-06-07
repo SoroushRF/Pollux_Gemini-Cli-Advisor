@@ -10,5 +10,17 @@
     "leaving registry on legacyGate"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "semantic imports and docs hash checks replace regex oracle"
+  "biasMitigation": "semantic imports and docs hash checks replace regex oracle",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 3,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": true,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Medium because the migration spans flags, registry, and app usage while preserving compatibility documentation and behavior."
 }

@@ -13,5 +13,17 @@
     "forgetting decision.txt"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "hard slot selected by taxonomy and verified by protected hashes"
+  "biasMitigation": "hard slot selected by taxonomy and verified by protected hashes",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "high",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Hard because the task requires applying precedence rules across conflicting environment, plan, and docs inputs while producing consistent code and text artifacts."
 }

@@ -9,5 +9,17 @@
   ],
   "knownInvalidShortcuts": ["editing docs", "allowing queued to skip running"],
   "biasRisk": "medium",
-  "biasMitigation": "semantic transition tests avoid exact source-shape bias"
+  "biasMitigation": "semantic transition tests avoid exact source-shape bias",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Medium because the state-machine repair is local but requires preserving terminal-state and unknown-state invariants across hidden regression cases."
 }

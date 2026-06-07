@@ -11,5 +11,17 @@
     "returning one fixed fixture"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "hidden tests execute parser on multiple cases"
+  "biasMitigation": "hidden tests execute parser on multiple cases",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "high",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "high",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard by rubric intent because a robust CSV parser must generalize across quoted commas and empty-field edge cases, though A/E calibration may still flag it as too easy if the visible prompt exposes enough structure."
 }

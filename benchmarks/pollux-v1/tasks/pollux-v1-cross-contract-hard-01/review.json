@@ -12,5 +12,17 @@
     "bypassing parser.mjs"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "selected as hard family slot before final FD run"
+  "biasMitigation": "selected as hard family slot before final FD run",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 3,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Hard because the correct repair requires coordinating parser, normalizer, and renderer contracts while avoiding hardcoded render outputs or parser bypasses."
 }

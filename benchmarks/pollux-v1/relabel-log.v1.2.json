@@ -1,0 +1,38 @@
+{
+  "version": "pollux-v1.2",
+  "basis": "static rubric plus A/E-only calibration; no FD evidence allowed before freeze",
+  "keptEasyControls": [
+    "pollux-v1-cross-contract-easy-01",
+    "pollux-v1-test-intent-easy-01",
+    "pollux-v1-guarded-migration-easy-01",
+    "pollux-v1-source-truth-easy-01",
+    "pollux-v1-multi-artifact-easy-01"
+  ],
+  "keptMediumCandidates": [
+    "pollux-v1-cross-contract-medium-01",
+    "pollux-v1-test-intent-medium-01",
+    "pollux-v1-guarded-migration-medium-01",
+    "pollux-v1-source-truth-medium-01",
+    "pollux-v1-multi-artifact-medium-01"
+  ],
+  "demotedOrExcludedFromHard": [
+    {
+      "taskId": "pollux-v1-multi-artifact-hard-01",
+      "decision": "exclude_from_hard_slot",
+      "reason": "A and E solved it cheaply in calibration, so it is not credible hard evidence."
+    },
+    {
+      "taskId": "pollux-v1-cross-contract-hard-01",
+      "decision": "replace_with_brutal_rewrite",
+      "replacement": "pollux-v1-cross-contract-brutal-01",
+      "reason": "The hidden oracle expected full casing behavior that was not clearly exposed by the prompt/base contract."
+    }
+  ],
+  "newHardCandidates": [
+    "pollux-v1-cross-contract-brutal-01",
+    "pollux-v1-test-intent-brutal-01",
+    "pollux-v1-guarded-migration-brutal-01",
+    "pollux-v1-source-truth-brutal-01",
+    "pollux-v1-multi-artifact-brutal-01"
+  ]
+}

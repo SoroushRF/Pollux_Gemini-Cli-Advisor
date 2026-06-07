@@ -12,5 +12,17 @@
     "adding a fake createLabel wrapper"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "selected as family/difficulty coverage before final FD run"
+  "biasMitigation": "selected as family/difficulty coverage before final FD run",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": true,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "low"
+  },
+  "difficultyRationale": "Medium because the repair spans public index usage and canonical implementation behavior, with hidden tests checking generalized contract preservation."
 }

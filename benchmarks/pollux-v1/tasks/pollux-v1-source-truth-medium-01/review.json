@@ -7,5 +7,17 @@
   "knownAcceptableSolutionShapes": ["copy runtime policy from config"],
   "knownInvalidShortcuts": ["following stale docs", "editing config"],
   "biasRisk": "medium",
-  "biasMitigation": "protected config/docs and executable runtime checks"
+  "biasMitigation": "protected config/docs and executable runtime checks",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Medium because runtime policy must follow protected config over stale docs across multiple fields, with hidden tests checking semantic values rather than formatting."
 }

@@ -9,5 +9,17 @@
   ],
   "knownInvalidShortcuts": ["editing input JSON", "updating only one output"],
   "biasRisk": "low",
-  "biasMitigation": "easy control for multi-artifact consistency"
+  "biasMitigation": "easy control for multi-artifact consistency",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 2,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": false,
+    "hiddenEdgeCaseDepth": "low",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "low",
+    "solutionSpaceAmbiguity": "low",
+    "protectedFileConstraintStrength": "moderate"
+  },
+  "difficultyRationale": "Easy/control because the task copies two configured values into two outputs, testing consistency without substantial inference."
 }

@@ -13,5 +13,17 @@
     "keeping denylisted features"
   ],
   "biasRisk": "medium",
-  "biasMitigation": "JSON parser checks behavior instead of exact formatting"
+  "biasMitigation": "JSON parser checks behavior instead of exact formatting",
+  "difficultyRubric": {
+    "primaryFilesOrArtifactsTouched": 1,
+    "requiresCrossFileReasoning": false,
+    "hasSourceOfTruthConflict": true,
+    "hiddenEdgeCaseDepth": "moderate",
+    "hasCompatibilityConstraint": false,
+    "hasRegressionTrap": true,
+    "generalizationRequired": "moderate",
+    "solutionSpaceAmbiguity": "moderate",
+    "protectedFileConstraintStrength": "high"
+  },
+  "difficultyRationale": "Medium because the effective config must be derived from multiple protected inputs using merge and denylist rules, with hidden checks on value semantics and order."
 }
