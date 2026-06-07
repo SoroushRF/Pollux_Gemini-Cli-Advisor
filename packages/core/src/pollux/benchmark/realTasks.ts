@@ -745,6 +745,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-01',
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: createMultiFileRefactorOracle({
       fileChecks: [
         {
@@ -787,6 +788,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-02',
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const config = readWorkspaceFile(workspaceDir, 'config/defaults.yaml');
       const validator = readWorkspaceFile(workspaceDir, 'src/validate.ts');
@@ -969,6 +971,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-07',
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const yaml = readWorkspaceFile(workspaceDir, 'pipeline.yaml');
       const marker = readWorkspaceFile(workspaceDir, 'm3-done.txt');
@@ -1005,6 +1008,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-08',
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const implementation = readWorkspaceFile(workspaceDir, 'src/window.ts');
       const test = readWorkspaceFile(workspaceDir, 'tests/window.test.ts');
@@ -1108,6 +1112,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
         'docs/core/pollux/P4-17_MILESTONE_3_CALIBRATION_AND_VALUE_PROTOCOL.md#m3-bm-11',
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const legacyAdapter = readWorkspaceFile(
         workspaceDir,
@@ -1198,6 +1203,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-13`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const parser = readWorkspaceFile(workspaceDir, 'src/parser.ts');
       const normalizer = readWorkspaceFile(workspaceDir, 'src/normalizer.ts');
@@ -1307,6 +1313,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-15`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const flow = readWorkspaceFile(workspaceDir, 'src/flow.ts');
       const test = readWorkspaceFile(workspaceDir, 'tests/flow.test.ts');
@@ -1356,6 +1363,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-16`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const v1 = readWorkspaceFile(workspaceDir, 'src/adapters/v1.ts');
       const v2 = readWorkspaceFile(workspaceDir, 'src/adapters/v2.ts');
@@ -1457,6 +1465,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-18`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const parser = readWorkspaceFile(workspaceDir, 'src/csv.ts');
       const test = readWorkspaceFile(workspaceDir, 'tests/csv.test.ts');
@@ -1546,6 +1555,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-20`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: createMultiFileRefactorOracle({
       fileChecks: [
         {
@@ -1645,6 +1655,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-22`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const tax = readWorkspaceFile(workspaceDir, 'src/tax.ts');
       const test = readWorkspaceFile(workspaceDir, 'tests/tax.test.ts');
@@ -1764,6 +1775,7 @@ const M3_REAL_BENCHMARK_TASK_DEFINITIONS: RealTaskDefinition[] = [
       sourceRef: `${DOC_M3_HARD_TASK_FACTORY}#m3-bm-24`,
     },
     escalationSignalClass: 'risk_gate',
+    expectedEscalationSignalClasses: ['risk_gate', 'fusion_composite'],
     oracle: (_stdout, workspaceDir) => {
       const color = readWorkspaceFile(workspaceDir, 'src/color.ts');
       const theme = readWorkspaceFile(workspaceDir, 'src/theme.ts');

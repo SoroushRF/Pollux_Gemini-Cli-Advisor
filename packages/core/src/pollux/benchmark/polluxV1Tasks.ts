@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load as loadYaml } from 'js-yaml';
@@ -56,6 +57,35 @@ export interface PolluxV1TaskSpec {
   solutionPatchPath: string;
   reviewPath: string;
   notesPath: string;
+}
+
+export type PolluxV1RubricLevel = 'low' | 'moderate' | 'high';
+export type PolluxV1BiasRisk = 'low' | 'medium' | 'high';
+
+export interface PolluxV1DifficultyRubric {
+  primaryFilesOrArtifactsTouched: number;
+  requiresCrossFileReasoning: boolean;
+  hasSourceOfTruthConflict: boolean;
+  hiddenEdgeCaseDepth: PolluxV1RubricLevel;
+  hasCompatibilityConstraint: boolean;
+  hasRegressionTrap: boolean;
+  generalizationRequired: PolluxV1RubricLevel;
+  solutionSpaceAmbiguity: PolluxV1RubricLevel;
+  protectedFileConstraintStrength: PolluxV1RubricLevel;
+}
+
+export interface PolluxV1TaskReview {
+  reviewer: string;
+  reviewDate: string;
+  clarity: 'pass';
+  oracleValidity: 'pass';
+  difficultyIntent: PolluxV1Difficulty;
+  knownAcceptableSolutionShapes: string[];
+  knownInvalidShortcuts: string[];
+  biasRisk: PolluxV1BiasRisk;
+  biasMitigation: string;
+  difficultyRubric: PolluxV1DifficultyRubric;
+  difficultyRationale: string;
 }
 
 export interface PolluxV1SelectedTaskSet {
@@ -199,6 +229,187 @@ function assertRequiredPath(filePath: string, label: string): void {
   }
 }
 
+function readJsonRecord(filePath: string): Record<string, unknown> {
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error(`pollux-v1 JSON file must contain an object: ${filePath}`);
+  }
+  return parsed;
+}
+
+function assertRubricLevel(value: unknown, field: string): PolluxV1RubricLevel {
+  if (value === 'low' || value === 'moderate' || value === 'high') {
+    return value;
+  }
+  throw new Error(`pollux-v1 review field ${field} has invalid level`);
+}
+
+function assertBiasRisk(value: unknown, field: string): PolluxV1BiasRisk {
+  if (value === 'low' || value === 'medium' || value === 'high') {
+    return value;
+  }
+  throw new Error(`pollux-v1 review field ${field} has invalid bias risk`);
+}
+
+function assertBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') {
+    throw new Error(`pollux-v1 review field ${field} must be boolean`);
+  }
+  return value;
+}
+
+function assertPositiveInteger(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+    throw new Error(
+      `pollux-v1 review field ${field} must be a positive integer`,
+    );
+  }
+  return value;
+}
+
+function assertPass(value: unknown, field: string): 'pass' {
+  if (value !== 'pass') {
+    throw new Error(`pollux-v1 review field ${field} must be pass`);
+  }
+  return 'pass';
+}
+
+function rubricLevelScore(level: PolluxV1RubricLevel): number {
+  switch (level) {
+    case 'high':
+      return 2;
+    case 'moderate':
+      return 1;
+    case 'low':
+      return 0;
+    default:
+      throw new Error(`Unsupported pollux-v1 rubric level: ${level}`);
+  }
+}
+
+function difficultyRubricScore(rubric: PolluxV1DifficultyRubric): number {
+  return (
+    Math.max(0, rubric.primaryFilesOrArtifactsTouched - 1) +
+    (rubric.requiresCrossFileReasoning ? 1 : 0) +
+    (rubric.hasSourceOfTruthConflict ? 1 : 0) +
+    rubricLevelScore(rubric.hiddenEdgeCaseDepth) +
+    (rubric.hasCompatibilityConstraint ? 1 : 0) +
+    (rubric.hasRegressionTrap ? 1 : 0) +
+    rubricLevelScore(rubric.generalizationRequired) +
+    rubricLevelScore(rubric.solutionSpaceAmbiguity) +
+    rubricLevelScore(rubric.protectedFileConstraintStrength)
+  );
+}
+
+function assertRubricConsistentWithDifficulty(
+  taskId: string,
+  difficulty: PolluxV1Difficulty,
+  rubric: PolluxV1DifficultyRubric,
+): void {
+  const score = difficultyRubricScore(rubric);
+  if (difficulty === 'easy_control' && score > 4) {
+    throw new Error(
+      `pollux-v1 review rubric over-scores easy task ${taskId}: ${score}`,
+    );
+  }
+  if (difficulty === 'medium' && (score < 2 || score > 7)) {
+    throw new Error(
+      `pollux-v1 review rubric mis-scores medium task ${taskId}: ${score}`,
+    );
+  }
+  if (difficulty === 'hard' && score < 5) {
+    throw new Error(
+      `pollux-v1 review rubric under-scores hard task ${taskId}: ${score}`,
+    );
+  }
+}
+
+export function loadPolluxV1TaskReview(
+  task: Pick<PolluxV1TaskSpec, 'id' | 'difficulty' | 'reviewPath'>,
+): PolluxV1TaskReview {
+  const raw = readJsonRecord(task.reviewPath);
+  const rubricRaw = raw['difficultyRubric'];
+  if (!isRecord(rubricRaw)) {
+    throw new Error(
+      `pollux-v1 review missing difficultyRubric for task ${task.id}`,
+    );
+  }
+
+  const difficultyRubric: PolluxV1DifficultyRubric = {
+    primaryFilesOrArtifactsTouched: assertPositiveInteger(
+      rubricRaw['primaryFilesOrArtifactsTouched'],
+      'difficultyRubric.primaryFilesOrArtifactsTouched',
+    ),
+    requiresCrossFileReasoning: assertBoolean(
+      rubricRaw['requiresCrossFileReasoning'],
+      'difficultyRubric.requiresCrossFileReasoning',
+    ),
+    hasSourceOfTruthConflict: assertBoolean(
+      rubricRaw['hasSourceOfTruthConflict'],
+      'difficultyRubric.hasSourceOfTruthConflict',
+    ),
+    hiddenEdgeCaseDepth: assertRubricLevel(
+      rubricRaw['hiddenEdgeCaseDepth'],
+      'difficultyRubric.hiddenEdgeCaseDepth',
+    ),
+    hasCompatibilityConstraint: assertBoolean(
+      rubricRaw['hasCompatibilityConstraint'],
+      'difficultyRubric.hasCompatibilityConstraint',
+    ),
+    hasRegressionTrap: assertBoolean(
+      rubricRaw['hasRegressionTrap'],
+      'difficultyRubric.hasRegressionTrap',
+    ),
+    generalizationRequired: assertRubricLevel(
+      rubricRaw['generalizationRequired'],
+      'difficultyRubric.generalizationRequired',
+    ),
+    solutionSpaceAmbiguity: assertRubricLevel(
+      rubricRaw['solutionSpaceAmbiguity'],
+      'difficultyRubric.solutionSpaceAmbiguity',
+    ),
+    protectedFileConstraintStrength: assertRubricLevel(
+      rubricRaw['protectedFileConstraintStrength'],
+      'difficultyRubric.protectedFileConstraintStrength',
+    ),
+  };
+
+  const difficultyIntent = assertDifficulty(raw['difficultyIntent']);
+  if (difficultyIntent !== task.difficulty) {
+    throw new Error(
+      `pollux-v1 review difficultyIntent mismatch for ${task.id}: ${difficultyIntent}`,
+    );
+  }
+  assertRubricConsistentWithDifficulty(
+    task.id,
+    difficultyIntent,
+    difficultyRubric,
+  );
+
+  return {
+    reviewer: assertString(raw['reviewer'], 'reviewer'),
+    reviewDate: assertString(raw['reviewDate'], 'reviewDate'),
+    clarity: assertPass(raw['clarity'], 'clarity'),
+    oracleValidity: assertPass(raw['oracleValidity'], 'oracleValidity'),
+    difficultyIntent,
+    knownAcceptableSolutionShapes: assertStringArray(
+      raw['knownAcceptableSolutionShapes'],
+      'knownAcceptableSolutionShapes',
+    ),
+    knownInvalidShortcuts: assertStringArray(
+      raw['knownInvalidShortcuts'],
+      'knownInvalidShortcuts',
+    ),
+    biasRisk: assertBiasRisk(raw['biasRisk'], 'biasRisk'),
+    biasMitigation: assertString(raw['biasMitigation'], 'biasMitigation'),
+    difficultyRubric,
+    difficultyRationale: assertString(
+      raw['difficultyRationale'],
+      'difficultyRationale',
+    ),
+  };
+}
+
 export function loadPolluxV1Task(
   taskId: string,
   rootDir = DEFAULT_POLLUX_V1_ROOT,
@@ -234,7 +445,7 @@ export function loadPolluxV1Task(
     throw new Error('pollux-v1 task timeout_sec must be a positive number');
   }
 
-  return {
+  const task = {
     id,
     family: assertTaskFamily(raw.family),
     difficulty: assertDifficulty(raw.difficulty),
@@ -254,6 +465,8 @@ export function loadPolluxV1Task(
     reviewPath,
     notesPath,
   };
+  loadPolluxV1TaskReview(task);
+  return task;
 }
 
 export function loadPolluxV1SelectedTaskSet(
@@ -344,6 +557,7 @@ export function adaptPolluxV1TaskToRealBenchmark(
     files: readFilesAsBenchmarkMap(task.baseDir),
     prompt: task.prompt,
     domain: mapPolluxV1Domain(task.family),
+    escalates: task.difficulty === 'hard',
     provenance: {
       sourceType: task.source.startsWith('rewritten_') ? 'adapter' : 'writeup',
       sourceRef: normalizeRelativePath(
@@ -369,7 +583,7 @@ export function adaptPolluxV1TaskToRealBenchmark(
       ),
     ],
     oracle: async (_stdout, workspaceDir) =>
-      verifyPolluxV1TaskWorkspace(task, workspaceDir).success,
+      verifyPolluxV1TaskWorkspaceIsolated(task, workspaceDir).success,
   };
 }
 
@@ -535,4 +749,20 @@ export function verifyPolluxV1TaskWorkspace(
     stdoutPath,
     stderrPath,
   };
+}
+
+export function verifyPolluxV1TaskWorkspaceIsolated(
+  task: PolluxV1TaskSpec,
+  candidateWorkspaceDir: string,
+  outputDir?: string,
+): PolluxV1VerifierResult {
+  const verifierWorkspaceDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), `${task.id}-verify-`),
+  );
+  try {
+    copyDirectoryContents(candidateWorkspaceDir, verifierWorkspaceDir);
+    return verifyPolluxV1TaskWorkspace(task, verifierWorkspaceDir, outputDir);
+  } finally {
+    fs.rmSync(verifierWorkspaceDir, { recursive: true, force: true });
+  }
 }

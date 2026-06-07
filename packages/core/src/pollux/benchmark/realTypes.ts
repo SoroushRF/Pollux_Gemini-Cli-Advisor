@@ -38,6 +38,7 @@ export interface RealBenchmarkTaskSpec extends BenchmarkTask {
   domain: RealBenchmarkDomain;
   provenance: RealBenchmarkTaskProvenance;
   escalationSignalClass: RealBenchmarkEscalationSignalClass;
+  expectedEscalationSignalClasses?: readonly RealBenchmarkEscalationSignalClass[];
   benchmarkLane: RealBenchmarkLane;
   positiveFixturePaths: string[];
   negativeFixturePaths: string[];

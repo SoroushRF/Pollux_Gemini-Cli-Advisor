@@ -29,6 +29,7 @@ import type {
   ToolCallResponseInfo,
 } from '../../scheduler/types.js';
 import { createLiveExecutorObserver } from './observer.js';
+import { parsePromptConstraintSummary } from './promptConstraints.js';
 import type { PolluxSensorSignalCategory } from './types.js';
 import type { Sensor, SensorInput, ToolEventRecord } from './sensors/base.js';
 import { NegativeSignalsSensor } from './sensors/negatives.js';
@@ -295,6 +296,8 @@ export function runCalibrationTrace(
     { name: string; argsHash: string; readOnly: boolean; mutation: boolean }
   >();
   let turnStartedAtMs = baseNowMs;
+  let currentPromptText = entry.userPrompt;
+  let promptConstraintSummary = parsePromptConstraintSummary(entry.userPrompt);
   let currentTurnTokenCount = 0;
   let currentTurnModelOutput = '';
   let turnToolCallCount = 0;
@@ -314,6 +317,9 @@ export function runCalibrationTrace(
       switch (step.kind) {
         case 'begin_turn': {
           observer.beginTurn(step.userPromptText ?? entry.userPrompt);
+          currentPromptText = step.userPromptText ?? entry.userPrompt;
+          promptConstraintSummary =
+            parsePromptConstraintSummary(currentPromptText);
           thoughtWindow = [];
           toolEventWindow = [];
           pendingToolRequests.clear();
@@ -429,7 +435,8 @@ export function runCalibrationTrace(
             turnElapsedMs: Math.max(0, nowMs - turnStartedAtMs),
             toolEventWindow,
             thoughtWindow,
-            userPromptText: entry.userPrompt,
+            userPromptText: currentPromptText,
+            promptConstraintSummary,
             currentTurnTokenCount,
             // Provide stable baselines so signals like `tool.token_burn` and
             // `thought.entropy_spike` can trigger deterministically.
