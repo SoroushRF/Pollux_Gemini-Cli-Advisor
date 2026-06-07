@@ -68,6 +68,12 @@ export const strictFdSettings = {
 
 export const VALID_DEEPSWE_FD_PROFILES = new Set(['detector', 'strict']);
 
+export const STRICT_FD_CHECKPOINT_REASONS = [
+  'contract extraction before source edit',
+  'mid-run risk review after edits or failed tests',
+  'final diff audit before completion',
+];
+
 export function buildDeepSweConditions(fdProfile = 'strict') {
   if (!VALID_DEEPSWE_FD_PROFILES.has(fdProfile)) {
     throw new Error(
@@ -628,6 +634,130 @@ function formatChecklistForPrompt(checklist) {
   return lines;
 }
 
+function normalizeFdCheckpointReason(reason) {
+  return typeof reason === 'string'
+    ? reason.trim().replace(/\s+/g, ' ').toLowerCase()
+    : '';
+}
+
+function checkpointReasonFromAttribution(attribution) {
+  if (typeof attribution !== 'string') {
+    return undefined;
+  }
+  const match = /\badvisor_request reason="([^"]+)"/i.exec(attribution);
+  return match?.[1];
+}
+
+function checkpointReasonsFromText(text) {
+  if (typeof text !== 'string' || text.length === 0) {
+    return [];
+  }
+  const out = [];
+  for (const match of text.matchAll(
+    /<pollux:advisor_request\b[^>]*\breason="([^"]+)"[^>]*\/?>/gi,
+  )) {
+    out.push(match[1]);
+  }
+  for (const match of text.matchAll(
+    /^[ \t]*ADVISOR_REQUEST(?:\s+(?:now|next))?\s*:\s*(.+)$/gim,
+  )) {
+    out.push(match[1].trim());
+  }
+  for (const match of text.matchAll(
+    /\badvisor_request(?:\s+(?:now|next))?\s*:\s*([^\n\r<]+)/gi,
+  )) {
+    out.push(match[1].trim());
+  }
+  return out;
+}
+
+function uniqueKnownFdCheckpointReasons(reasons) {
+  const requiredByKey = new Map(
+    STRICT_FD_CHECKPOINT_REASONS.map((reason) => [
+      normalizeFdCheckpointReason(reason),
+      reason,
+    ]),
+  );
+  const out = [];
+  const seen = new Set();
+  for (const reason of reasons) {
+    const canonical = requiredByKey.get(normalizeFdCheckpointReason(reason));
+    if (!canonical || seen.has(canonical)) {
+      continue;
+    }
+    seen.add(canonical);
+    out.push(canonical);
+  }
+  return out;
+}
+
+export function auditStrictFdCheckpointTrace(traceText) {
+  const requested = [];
+  const consulted = [];
+  const pendingDecisionReasons = [];
+  for (const rawLine of String(traceText ?? '').split(/\r?\n/g)) {
+    if (!rawLine.trim()) {
+      continue;
+    }
+    let event;
+    try {
+      event = JSON.parse(rawLine);
+    } catch {
+      continue;
+    }
+    const payload = event?.payload ?? {};
+    for (const reason of checkpointReasonsFromText(payload.text)) {
+      requested.push(reason);
+    }
+    if (
+      event?.type === 'observer_decision' &&
+      payload.reasonCode === 'pollux.escalation.executor_advisor_request'
+    ) {
+      for (const attribution of payload.contributingSignalAttributions ?? []) {
+        const reason = checkpointReasonFromAttribution(attribution);
+        if (reason) {
+          pendingDecisionReasons.push(reason);
+        }
+      }
+    }
+    if (
+      event?.type === 'advisor_attempt' &&
+      payload.reasonCode === 'pollux.escalation.executor_advisor_request' &&
+      payload.outcome === 'consulted'
+    ) {
+      const reason = pendingDecisionReasons.shift();
+      if (reason) {
+        consulted.push(reason);
+      }
+    }
+  }
+
+  const canonicalRequested = uniqueKnownFdCheckpointReasons([
+    ...requested,
+    ...consulted,
+  ]);
+  const canonicalConsulted = uniqueKnownFdCheckpointReasons(consulted);
+  const consultedSet = new Set(canonicalConsulted);
+  const requestedSet = new Set(canonicalRequested);
+  const missing = STRICT_FD_CHECKPOINT_REASONS.filter(
+    (reason) => !requestedSet.has(reason),
+  );
+  const requestedButNotConsulted = STRICT_FD_CHECKPOINT_REASONS.filter(
+    (reason) => requestedSet.has(reason) && !consultedSet.has(reason),
+  );
+
+  return {
+    required: STRICT_FD_CHECKPOINT_REASONS,
+    consulted: canonicalConsulted,
+    requested_but_not_consulted: requestedButNotConsulted,
+    missing,
+    complete:
+      missing.length === 0 &&
+      requestedButNotConsulted.length === 0 &&
+      canonicalConsulted.length === STRICT_FD_CHECKPOINT_REASONS.length,
+  };
+}
+
 export function buildDeepSwePrompt(task, options = {}) {
   const conditionId = options.condition?.id ?? options.conditionId;
   const checklist = options.contractChecklist;
@@ -639,6 +769,8 @@ export function buildDeepSwePrompt(task, options = {}) {
           '- Before the first source edit, request advisor contract extraction with exactly: <pollux:advisor_request reason="contract extraction before source edit" timing="now"/>',
           '- After substantial source edits or repeated failed tests, request advisor risk review with: <pollux:advisor_request reason="mid-run risk review after edits or failed tests" timing="now"/>',
           '- Before final completion, request final diff audit with: <pollux:advisor_request reason="final diff audit before completion" timing="now"/>',
+          '- Emit the final diff audit request before any final answer text, then wait for hidden advisor guidance before claiming completion.',
+          '- Do not claim completion until final diff audit guidance has been received and considered.',
           '- Treat advisor guidance as hidden implementation constraints; do not mention Pollux in the final answer.',
         ]
       : [];

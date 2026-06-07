@@ -17,6 +17,7 @@ import {
 } from './pollux-swebench-runner-lib.mjs';
 import {
   analyzeContractChecklistHazards,
+  auditStrictFdCheckpointTrace,
   buildDeepSweConditions,
   buildDeepSweContractChecklist,
   buildDeepSwePrompt,
@@ -869,6 +870,26 @@ function firstLine(text) {
   );
 }
 
+function strictFdCheckpointAuditForTrace(tracePath, condition, args) {
+  if (condition.id !== 'FD' || args.fdProfile !== 'strict') {
+    return null;
+  }
+  const traceText = fs.existsSync(tracePath)
+    ? fs.readFileSync(tracePath, 'utf8')
+    : '';
+  return auditStrictFdCheckpointTrace(traceText);
+}
+
+function mergeWarnings(...warningLists) {
+  return [
+    ...new Set(
+      warningLists
+        .flat()
+        .filter((warning) => typeof warning === 'string' && warning.length > 0),
+    ),
+  ];
+}
+
 async function runOne(params) {
   const { args, condition, entrypoint, runDir, taskEntry, task } = params;
   const sampleId = [
@@ -1044,6 +1065,17 @@ async function runOne(params) {
       ]),
     ];
   }
+  const fdCheckpointAudit = strictFdCheckpointAuditForTrace(
+    tracePath,
+    condition,
+    args,
+  );
+  if (fdCheckpointAudit && !fdCheckpointAudit.complete) {
+    classification.warnings = mergeWarnings(
+      classification.warnings ?? [],
+      ['fd_checkpoint_incomplete'],
+    );
+  }
 
   let verifier = null;
   let verifierClassification = {};
@@ -1080,6 +1112,7 @@ async function runOne(params) {
     patch_chars: patch.length,
     contract_checklist: contractChecklist,
     contract_hazards: contractHazards,
+    ...(fdCheckpointAudit ? { fd_checkpoint_audit: fdCheckpointAudit } : {}),
     ...telemetry,
     ...classification,
     verifier_exit_code: verifier?.result.code ?? null,
@@ -1127,6 +1160,18 @@ async function rescoreOne(params) {
   const sourcePatchPath = path.join(sourceRawDir, 'model.patch');
   const sourceStdoutPath = path.join(sourceRawDir, 'stdout.txt');
   const sourceStderrPath = path.join(sourceRawDir, 'stderr.txt');
+  const sourceTracePath = path.join(sourceRawDir, 'pollux-trace.jsonl');
+  const fdCheckpointAudit = strictFdCheckpointAuditForTrace(
+    sourceTracePath,
+    condition,
+    args,
+  );
+  const sourceWarnings = mergeWarnings(
+    sourceRecord.warnings ?? [],
+    fdCheckpointAudit && !fdCheckpointAudit.complete
+      ? ['fd_checkpoint_incomplete']
+      : [],
+  );
   const sourceStdout = fs.existsSync(sourceStdoutPath)
     ? fs.readFileSync(sourceStdoutPath, 'utf8')
     : '';
@@ -1181,7 +1226,8 @@ async function rescoreOne(params) {
       invalidation_reason: 'patch_missing',
       score_bucket: 'invalid',
       patch_stats: patchStats,
-      warnings: sourceRecord.warnings ?? [],
+      warnings: sourceWarnings,
+      ...(fdCheckpointAudit ? { fd_checkpoint_audit: fdCheckpointAudit } : {}),
       verifier_exit_code: null,
       verifier_skipped: true,
       resolved: false,
@@ -1221,7 +1267,8 @@ async function rescoreOne(params) {
       invalidation_reason: 'patch_apply_failed',
       score_bucket: 'invalid',
       patch_stats: patchStats,
-      warnings: sourceRecord.warnings ?? [],
+      warnings: sourceWarnings,
+      ...(fdCheckpointAudit ? { fd_checkpoint_audit: fdCheckpointAudit } : {}),
       verifier_exit_code: null,
       verifier_skipped: true,
       resolved: false,
@@ -1244,13 +1291,11 @@ async function rescoreOne(params) {
     responseCeilingExceeded: false,
     scorePolicy: args.scorePolicy,
   });
-  const mergedWarnings = [
-    ...new Set([
-      ...(sourceRecord.warnings ?? []),
-      ...(classification.warnings ?? []),
-      ...(contractHazards.length > 0 ? ['contract_forbidden_pattern'] : []),
-    ]),
-  ];
+  const mergedWarnings = mergeWarnings(
+    sourceWarnings,
+    classification.warnings ?? [],
+    contractHazards.length > 0 ? ['contract_forbidden_pattern'] : [],
+  );
   const verifier = classification.valid_for_score
     ? await runVerifier(task, workDir, rawDir, args, {
         dependencyPreflightFailed: dependencyPreflightFailed(
@@ -1275,6 +1320,7 @@ async function rescoreOne(params) {
     patch_chars: patch.length,
     contract_checklist: contractChecklist,
     contract_hazards: contractHazards,
+    ...(fdCheckpointAudit ? { fd_checkpoint_audit: fdCheckpointAudit } : {}),
     ...classification,
     warnings: mergedWarnings,
     verifier_exit_code: verifier?.result.code ?? null,
