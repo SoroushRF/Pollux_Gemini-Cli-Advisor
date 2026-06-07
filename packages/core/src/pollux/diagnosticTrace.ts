@@ -11,6 +11,7 @@ import type { PolluxDiagnosticTraceConfig } from './types.js';
 export type PolluxDiagnosticTraceEventType =
   | 'executor_text_delta'
   | 'executor_thought'
+  | 'advisor_thought'
   | 'tool_call_request'
   | 'tool_call_result'
   | 'observer_signals'
@@ -149,7 +150,7 @@ export class PolluxDiagnosticTraceWriter {
       };
       fs.appendFileSync(this.config.outputPath, `${JSON.stringify(event)}\n`);
       this.eventCount++;
-      if (type === 'executor_thought') {
+      if (type === 'executor_thought' || type === 'advisor_thought') {
         this.thoughtEventCount++;
       }
       if (type === 'observer_decision') {

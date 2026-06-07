@@ -8,6 +8,10 @@ import { describe, expect, it } from 'vitest';
 import { PolluxEscalationReasonCode } from '../types.js';
 import { LOOP_HARD_CONFIRMED_SIGNAL_ID } from './sensors/loopBridge.js';
 import { RISK_PRE_TOOL_HIGH_SIGNAL_ID } from './sensors/riskGate.js';
+import {
+  LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
+  TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID,
+} from './sensors/toolPattern.js';
 import { FusionLayer, type FusionConfig } from './fusion.js';
 import type { SensorSignal } from './sensors/base.js';
 
@@ -129,6 +133,46 @@ describe('pollux/observer/fusion', () => {
       nowMs: Date.now(),
     });
     expect(out.escalate).toBe(false);
+  });
+
+  it('escalates M3 anchored tool evidence only when paired with anchor pressure', () => {
+    const fusion = new FusionLayer();
+    const toolOnly = fusion.evaluate({
+      signals: [
+        signal({
+          id: TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID,
+          category: 'tool',
+          weight: 2,
+          precisionPrior: 0.7,
+        }),
+      ],
+      config: BASE_CONFIG,
+      nowMs: Date.now(),
+    });
+    expect(toolOnly.escalate).toBe(false);
+
+    const composite = fusion.evaluate({
+      signals: [
+        signal({
+          id: TOOL_CROSS_SURFACE_DRIFT_SIGNAL_ID,
+          category: 'tool',
+          weight: 2,
+          precisionPrior: 0.7,
+        }),
+        signal({
+          id: LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
+          category: 'longitudinal',
+          weight: 1.5,
+          precisionPrior: 0.75,
+        }),
+      ],
+      config: BASE_CONFIG,
+      nowMs: Date.now(),
+    });
+    expect(composite.escalate).toBe(true);
+    expect(composite.reasonCode).toBe(
+      PolluxEscalationReasonCode.FUSION_COMPOSITE,
+    );
   });
 
   it('decays old signals and blocks escalation when score falls below threshold', () => {

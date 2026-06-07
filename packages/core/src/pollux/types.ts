@@ -70,6 +70,8 @@ export type PolluxAdvisorTriggerMode =
 
 export type PolluxAdvisorBudgetMode = 'fixed' | 'adaptive';
 
+export type PolluxAdvisorExecutorProfile = 'default' | 'flash_lite';
+
 export interface PolluxLongTaskHeuristicConfig {
   readonly minToolCalls: number;
   readonly minPromptChars: number;
@@ -202,6 +204,7 @@ export interface PolluxExperimentalConfig {
   readonly executorModel: string;
   readonly advisorModel: string;
   readonly advisorFallbackModel: string | null;
+  readonly advisorExecutorProfile: PolluxAdvisorExecutorProfile;
   readonly maxAdvisorCallsPerTurn: number;
   readonly maxAdvisorCallsPerSession: number;
   readonly advisorTriggerMode: PolluxAdvisorTriggerMode;
@@ -238,11 +241,13 @@ export type PolluxExperimentalConfigMergeInput = Partial<
     | 'longTaskHeuristic'
     | 'advisorTriggerMode'
     | 'advisorBudgetMode'
+    | 'advisorExecutorProfile'
     | 'diagnosticTrace'
   >
 > & {
   advisorTriggerMode?: unknown;
   advisorBudgetMode?: unknown;
+  advisorExecutorProfile?: unknown;
   detector?: PolluxDetectorConfigMergeInput;
   longTaskHeuristic?: Partial<PolluxLongTaskHeuristicConfig>;
   diagnosticTrace?: Partial<PolluxDiagnosticTraceConfig>;
@@ -258,6 +263,7 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
   executorModel: 'gemini-2.5-flash',
   advisorModel: 'gemini-3.1-pro-preview',
   advisorFallbackModel: 'gemini-2.5-pro',
+  advisorExecutorProfile: 'default',
   maxAdvisorCallsPerTurn: 2,
   maxAdvisorCallsPerSession: 20,
   advisorTriggerMode: 'hybrid',
@@ -456,15 +462,24 @@ export function mergePolluxExperimentalConfig(
   partial?: PolluxExperimentalConfigMergeInput | undefined,
 ): PolluxExperimentalConfig {
   const d = DEFAULT_POLLUX_EXPERIMENTAL_CONFIG;
+  const executorModel = partial?.executorModel ?? d.executorModel;
+  const advisorExecutorProfile =
+    partial?.advisorExecutorProfile === 'default' ||
+    partial?.advisorExecutorProfile === 'flash_lite'
+      ? partial.advisorExecutorProfile
+      : executorModel.toLowerCase().includes('flash-lite')
+        ? 'flash_lite'
+        : d.advisorExecutorProfile;
 
   return {
     enabled: partial?.enabled ?? d.enabled,
-    executorModel: partial?.executorModel ?? d.executorModel,
+    executorModel,
     advisorModel: partial?.advisorModel ?? d.advisorModel,
     advisorFallbackModel:
       partial?.advisorFallbackModel === undefined
         ? d.advisorFallbackModel
         : partial.advisorFallbackModel,
+    advisorExecutorProfile,
     maxAdvisorCallsPerTurn: polluxFiniteNumberInRange(
       partial?.maxAdvisorCallsPerTurn,
       d.maxAdvisorCallsPerTurn,
@@ -566,6 +581,8 @@ export interface AdvisorConsultationInput {
   readonly toolName: typeof ADVISOR_CONSULTATION_TOOL_NAME;
   /** Prompt contract variant for the stronger advisor. */
   readonly mode?: AdvisorConsultationMode;
+  /** Executor-specific contract variant for shaping advisor output. */
+  readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
   /** Bounded natural-language or structured summary for the advisor model. */
   readonly body: string;
 }

@@ -1238,6 +1238,12 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
     | 'capacity_exhausted'
     | 'quota_exhausted';
   failure_kind?: string;
+  advisor_executor_profile?: 'default' | 'flash_lite';
+  output_finish_reason?: string;
+  visible_output_tokens?: number;
+  thought_tokens?: number;
+  truncated?: boolean;
+  guidance_too_short?: boolean;
 
   constructor(params: {
     turnId: string;
@@ -1266,6 +1272,12 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
       | 'capacity_exhausted'
       | 'quota_exhausted';
     failureKind?: string;
+    advisorExecutorProfile?: 'default' | 'flash_lite';
+    outputFinishReason?: string;
+    visibleOutputTokens?: number;
+    thoughtTokens?: number;
+    truncated?: boolean;
+    guidanceTooShort?: boolean;
   }) {
     this['event.name'] = 'pollux_advisor_attempt';
     this['event.timestamp'] = new Date().toISOString();
@@ -1278,6 +1290,12 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
     this.parser_outcome = params.parserOutcome;
     this.outcome = params.outcome;
     this.failure_kind = params.failureKind;
+    this.advisor_executor_profile = params.advisorExecutorProfile;
+    this.output_finish_reason = params.outputFinishReason;
+    this.visible_output_tokens = params.visibleOutputTokens;
+    this.thought_tokens = params.thoughtTokens;
+    this.truncated = params.truncated;
+    this.guidance_too_short = params.guidanceTooShort;
   }
 
   toOpenTelemetryAttributes(config: Config): LogAttributes {
@@ -1294,6 +1312,12 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
       parser_outcome: this.parser_outcome,
       outcome: this.outcome,
       failure_kind: this.failure_kind,
+      advisor_executor_profile: this.advisor_executor_profile,
+      output_finish_reason: this.output_finish_reason,
+      visible_output_tokens: this.visible_output_tokens,
+      thought_tokens: this.thought_tokens,
+      truncated: this.truncated,
+      guidance_too_short: this.guidance_too_short,
     };
   }
 
@@ -1329,6 +1353,14 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
     | 'unknown';
   model?: string;
   attempt_kind?: 'primary' | 'repair_retry' | 'fallback';
+  advisor_executor_profile?: 'default' | 'flash_lite';
+  guidance_quality?:
+    | 'none'
+    | 'capacity_failed'
+    | 'truncated'
+    | 'too_short'
+    | 'structured'
+    | 'fallback_structured';
 
   constructor(params: {
     turnId: string;
@@ -1353,6 +1385,14 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
       | 'unknown';
     model?: string;
     attemptKind?: 'primary' | 'repair_retry' | 'fallback';
+    advisorExecutorProfile?: 'default' | 'flash_lite';
+    guidanceQuality?:
+      | 'none'
+      | 'capacity_failed'
+      | 'truncated'
+      | 'too_short'
+      | 'structured'
+      | 'fallback_structured';
   }) {
     this['event.name'] = 'pollux_advisor_guidance';
     this['event.timestamp'] = new Date().toISOString();
@@ -1367,6 +1407,8 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
     this.advisor_trigger_source = params.advisorTriggerSource;
     this.model = params.model;
     this.attempt_kind = params.attemptKind;
+    this.advisor_executor_profile = params.advisorExecutorProfile;
+    this.guidance_quality = params.guidanceQuality;
   }
 
   toOpenTelemetryAttributes(config: Config): LogAttributes {
@@ -1385,6 +1427,8 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
       advisor_trigger_source: this.advisor_trigger_source,
       model: this.model,
       attempt_kind: this.attempt_kind,
+      advisor_executor_profile: this.advisor_executor_profile,
+      guidance_quality: this.guidance_quality,
     };
   }
 

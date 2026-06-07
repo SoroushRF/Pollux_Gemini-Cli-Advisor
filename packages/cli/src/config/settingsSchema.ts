@@ -2301,6 +2301,16 @@ const SETTINGS_SCHEMA = {
               'Controls whether Pollux uses fixed per-turn advisor caps or adaptive short/long task caps.',
             showInDialog: false,
           },
+          advisorExecutorProfile: {
+            type: 'string',
+            label: 'Advisor executor profile',
+            category: 'Experimental',
+            requiresRestart: true,
+            default: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorExecutorProfile,
+            description:
+              'Shapes advisor output for the executor model; flash_lite uses more explicit guidance.',
+            showInDialog: false,
+          },
           maxAdvisorCallsShortTask: {
             type: 'number',
             label: 'Max advisor calls for short tasks',

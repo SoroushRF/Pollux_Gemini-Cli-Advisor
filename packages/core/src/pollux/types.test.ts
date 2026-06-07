@@ -68,6 +68,34 @@ describe('pollux/types', () => {
       ).toBeNull();
     });
 
+    it('auto-selects flash_lite advisor profile for Flash-Lite executors', () => {
+      expect(
+        mergePolluxExperimentalConfig({
+          executorModel: 'gemini-3.1-flash-lite-preview',
+        }).advisorExecutorProfile,
+      ).toBe('flash_lite');
+      expect(
+        mergePolluxExperimentalConfig({
+          executorModel: 'gemini-3-flash-preview',
+        }).advisorExecutorProfile,
+      ).toBe('default');
+    });
+
+    it('preserves explicit advisorExecutorProfile overrides', () => {
+      expect(
+        mergePolluxExperimentalConfig({
+          executorModel: 'gemini-3.1-flash-lite-preview',
+          advisorExecutorProfile: 'default',
+        }).advisorExecutorProfile,
+      ).toBe('default');
+      expect(
+        mergePolluxExperimentalConfig({
+          executorModel: 'gemini-3-flash-preview',
+          advisorExecutorProfile: 'flash_lite',
+        }).advisorExecutorProfile,
+      ).toBe('flash_lite');
+    });
+
     it('supports explicit sham advisor controls', () => {
       const merged = mergePolluxExperimentalConfig({
         advisorShamEnabled: true,
@@ -129,6 +157,7 @@ describe('pollux/types', () => {
       expect(cfg.executorModel).toBe('gemini-2.5-flash');
       expect(cfg.advisorModel).toBe('gemini-3.1-pro-preview');
       expect(cfg.advisorFallbackModel).toBe('gemini-2.5-pro');
+      expect(cfg.advisorExecutorProfile).toBe('default');
       expect(cfg.maxAdvisorCallsPerTurn).toBe(2);
       expect(cfg.maxAdvisorCallsPerSession).toBe(20);
       expect(cfg.advisorShamEnabled).toBe(false);
@@ -165,7 +194,9 @@ describe('pollux/types', () => {
           "pollux.escalation.config_disabled": "next_turn",
           "pollux.escalation.deferred_surface": "next_turn",
           "pollux.escalation.executor_advisor_request": "same_turn",
+          "pollux.escalation.executor_checkpoint_request": "same_turn",
           "pollux.escalation.fail_open": "next_turn",
+          "pollux.escalation.final_constraint_audit": "same_turn",
           "pollux.escalation.fusion_budget_target": "next_turn",
           "pollux.escalation.fusion_composite": "next_turn",
           "pollux.escalation.fusion_composite_emphatic": "same_turn",

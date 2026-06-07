@@ -354,6 +354,20 @@ describe('pollux/prompts', () => {
       expect(p).toContain('verify_before_done');
       expect(p).toContain('under 160 words');
     });
+
+    it('uses structured patch-level guidance for Flash-Lite executors', () => {
+      const p = buildAdvisorConsultationPrompt({
+        ...minimalInput('Fix src/flow.ts and do not edit tests/flow.test.ts.'),
+        mode: 'constraint_audit',
+        advisorExecutorProfile: 'flash_lite',
+      });
+      expect(p).toContain('Flash-Lite executor');
+      expect(p).toContain('must_include');
+      expect(p).toContain('must_forbid');
+      expect(p).toContain('verify_before_done');
+      expect(p).toContain('120-220 words');
+      expect(p).toContain('protected tests/docs/readmes');
+    });
   });
 
   describe('buildAdvisorConsultationRepairPrompt', () => {

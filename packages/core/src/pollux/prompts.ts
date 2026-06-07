@@ -13,6 +13,7 @@ import type { AnySchema } from 'ajv';
 import type {
   AdvisorConsultationInput,
   AdvisorConsultationMode,
+  PolluxAdvisorExecutorProfile,
 } from './types.js';
 import { ADVISOR_CONSULTATION_TOOL_NAME } from './types.js';
 import { SchemaValidator } from '../utils/schemaValidator.js';
@@ -536,7 +537,26 @@ export function parseAdvisorModelResponse(
   };
 }
 
-function buildAdvisorContractLines(mode: AdvisorConsultationMode | undefined) {
+function buildAdvisorContractLines(
+  mode: AdvisorConsultationMode | undefined,
+  advisorExecutorProfile: PolluxAdvisorExecutorProfile = 'default',
+) {
+  if (advisorExecutorProfile === 'flash_lite') {
+    const label =
+      mode === 'final_audit'
+        ? 'final constraint audit'
+        : mode === 'constraint_audit'
+          ? 'constraint audit'
+          : 'flash-lite execution audit';
+    return [
+      `Mode: ${label}`,
+      'You are the stronger advisor for a weaker Flash-Lite executor. Give patch-level, executor-safe strategy.',
+      'Return strict JSON: {"guidance":"1. ... 2. ...","must_include":["..."],"must_forbid":["..."],"verify_before_done":["..."],"confidence":1-10}',
+      'Target 120-220 words. Use concrete file names, required invariants, and exact forbidden edits/patterns from the task.',
+      'Prefer direct implementation constraints over abstract advice. Mention protected tests/docs/readmes and negative constraints explicitly.',
+      'No markdown. No user-facing prose. No code block unless an exact one-line pattern is essential.',
+    ];
+  }
   if (mode === 'constraint_audit' || mode === 'final_audit') {
     const label =
       mode === 'final_audit' ? 'final constraint audit' : 'constraint audit';
@@ -566,7 +586,7 @@ export function buildAdvisorConsultationPrompt(
 ): string {
   const lines = [
     `Tool: ${ADVISOR_CONSULTATION_TOOL_NAME}`,
-    ...buildAdvisorContractLines(input.mode),
+    ...buildAdvisorContractLines(input.mode, input.advisorExecutorProfile),
     '',
     'Context:',
     input.body,

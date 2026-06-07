@@ -32,6 +32,9 @@ describe('pollux/diagnosticTrace', () => {
     writer.record('executor_thought', {
       text: 'token=secret-value '.repeat(10),
     });
+    writer.record('advisor_thought', {
+      text: 'advisor considered the invariant',
+    });
     writer.record('advisor_guidance', {
       guidance: 'Use explicit terminal states.',
     });
@@ -42,14 +45,15 @@ describe('pollux/diagnosticTrace', () => {
       .split(/\r?\n/g)
       .map((line) => JSON.parse(line) as { type: string; payload: unknown });
 
-    expect(lines).toHaveLength(2);
+    expect(lines).toHaveLength(3);
     expect(lines[0].type).toBe('executor_thought');
+    expect(lines[1].type).toBe('advisor_thought');
     expect(JSON.stringify(lines[0].payload)).toContain(
       '[REDACTED_SECRET_ASSIGNMENT]',
     );
     expect(writer.counts).toMatchObject({
-      eventCount: 2,
-      thoughtEventCount: 1,
+      eventCount: 3,
+      thoughtEventCount: 2,
       advisorGuidanceTextCaptured: true,
     });
   });

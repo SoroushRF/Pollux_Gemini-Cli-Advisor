@@ -542,6 +542,7 @@ describe('SettingsSchema', () => {
       expect(pollux.properties.advisorModel?.default).toBe(
         'gemini-3.1-pro-preview',
       );
+      expect(pollux.properties.advisorExecutorProfile?.default).toBe('default');
       expect(pollux.properties.maxAdvisorCallsPerTurn?.default).toBe(2);
       expect(pollux.properties.maxAdvisorCallsPerSession?.default).toBe(20);
       expect(pollux.properties.emitAdvisorDebug?.default).toBe(false);

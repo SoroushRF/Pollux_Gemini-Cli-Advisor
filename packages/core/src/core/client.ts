@@ -93,6 +93,7 @@ import {
   PolluxRuntimeSurface,
   POLLUX_TURN_DIGEST_MAX_CHARS,
   type AdvisorConsultationMode,
+  type PolluxAdvisorExecutorProfile,
   type PolluxEscalationTiming,
   type PolluxTurnContext,
 } from '../pollux/types.js';
@@ -272,6 +273,14 @@ interface PolluxAdvisorGuidanceInjection {
   readonly triggerSource: PolluxAdvisorTriggerSource;
   readonly model?: string;
   readonly attemptKind?: PolluxAdvisorAttemptKind;
+  readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
+  readonly guidanceQuality?:
+    | 'none'
+    | 'capacity_failed'
+    | 'truncated'
+    | 'too_short'
+    | 'structured'
+    | 'fallback_structured';
 }
 
 interface PolluxAdvisorAttemptResult {
@@ -288,6 +297,12 @@ interface PolluxAdvisorAttemptResult {
   readonly mustForbid?: readonly string[];
   readonly verifyBeforeDone?: readonly string[];
   readonly structuredConfidence?: number;
+  readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
+  readonly outputFinishReason?: string;
+  readonly visibleOutputTokens?: number;
+  readonly thoughtTokens?: number;
+  readonly truncated?: boolean;
+  readonly guidanceTooShort?: boolean;
   readonly retryableForRepair: boolean;
   readonly retryableForFallback: boolean;
 }
@@ -304,6 +319,104 @@ type PolluxAdvisorConsultationResult =
       readonly outcome: 'policy_denied' | 'fail_open';
       readonly failureKind?: AdvisorPathFailureKind;
     };
+
+function resolvePolluxAdvisorExecutorProfile(
+  experimental: Readonly<{
+    executorModel: string;
+    advisorExecutorProfile?: string;
+  }>,
+): PolluxAdvisorExecutorProfile {
+  return experimental.advisorExecutorProfile === 'flash_lite' ||
+    experimental.executorModel.toLowerCase().includes('flash-lite')
+    ? 'flash_lite'
+    : 'default';
+}
+
+function countWords(value: string): number {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length;
+}
+
+function isTruncatedAdvisorResponse(params: {
+  readonly finishReason?: string;
+  readonly rawResponse: string;
+}): boolean {
+  if (/max[_\s-]?tokens/i.test(params.finishReason ?? '')) {
+    return true;
+  }
+  const trimmed = params.rawResponse.trim();
+  return (
+    trimmed.startsWith('{') &&
+    !trimmed.endsWith('}') &&
+    (trimmed.includes('"guidance"') || trimmed.includes('guidance'))
+  );
+}
+
+function isFlashLiteGuidanceTooShort(params: {
+  readonly advisorExecutorProfile: PolluxAdvisorExecutorProfile;
+  readonly guidance: string;
+  readonly mustInclude?: readonly string[];
+  readonly verifyBeforeDone?: readonly string[];
+}): boolean {
+  if (params.advisorExecutorProfile !== 'flash_lite') {
+    return false;
+  }
+  if (
+    (params.mustInclude?.length ?? 0) > 0 ||
+    (params.verifyBeforeDone?.length ?? 0) > 0
+  ) {
+    return false;
+  }
+  return countWords(params.guidance) < 20;
+}
+
+function extractThoughtPartsFromGenerateContentResponse(
+  response: GenerateContentResponse,
+): Array<{
+  readonly candidateIndex: number;
+  readonly partIndex: number;
+  readonly text: string;
+  readonly thoughtSignaturePresent: boolean;
+}> {
+  const thoughts: Array<{
+    readonly candidateIndex: number;
+    readonly partIndex: number;
+    readonly text: string;
+    readonly thoughtSignaturePresent: boolean;
+  }> = [];
+
+  for (const [candidateIndex, candidate] of (
+    response.candidates ?? []
+  ).entries()) {
+    for (const [partIndex, rawPart] of (
+      candidate.content?.parts ?? []
+    ).entries()) {
+      const part = rawPart as {
+        thought?: boolean;
+        text?: string;
+        thoughtSignature?: string;
+      };
+      if (part.thought !== true) {
+        continue;
+      }
+      const text = typeof part.text === 'string' ? part.text : '';
+      const thoughtSignaturePresent =
+        typeof part.thoughtSignature === 'string' &&
+        part.thoughtSignature.length > 0;
+      if (text.trim().length === 0 && !thoughtSignaturePresent) {
+        continue;
+      }
+      thoughts.push({
+        candidateIndex,
+        partIndex,
+        text,
+        thoughtSignaturePresent,
+      });
+    }
+  }
+
+  return thoughts;
+}
 
 /**
  * Phase F §F.1.4: build a `NextTurnIntent` from a same-turn intent that was
@@ -1027,6 +1140,45 @@ export class GeminiClient {
     }
   }
 
+  private tracePolluxAdvisorThoughts(
+    advisorResponse: GenerateContentResponse,
+    params: {
+      readonly turnId: string;
+      readonly attemptIndex: number;
+      readonly attemptKind: PolluxAdvisorAttemptKind;
+      readonly model: string;
+      readonly advisorMode?: AdvisorConsultationMode;
+      readonly reasonCode?: string;
+      readonly escalationTiming?: PolluxEscalationTiming;
+    },
+  ): void {
+    const trace = this.config.getPolluxExperimentalConfig().diagnosticTrace;
+    if (!trace.enabled || !trace.includeModelThoughts) {
+      return;
+    }
+
+    for (const thought of extractThoughtPartsFromGenerateContentResponse(
+      advisorResponse,
+    )) {
+      this.recordPolluxDiagnosticTrace('advisor_thought', {
+        turnId: params.turnId,
+        reasonCode: params.reasonCode,
+        escalationTiming: params.escalationTiming,
+        attemptIndex: params.attemptIndex,
+        attemptKind: params.attemptKind,
+        model: params.model,
+        advisorMode: params.advisorMode,
+        candidateIndex: thought.candidateIndex,
+        partIndex: thought.partIndex,
+        text:
+          trace.includeModelThoughts === 'raw_model_exposed'
+            ? thought.text
+            : thought.text.slice(0, 240),
+        thoughtSignaturePresent: thought.thoughtSignaturePresent,
+      });
+    }
+  }
+
   private recordPolluxEscalationTelemetry(params: {
     turnId: string;
     reasonCode: string;
@@ -1064,6 +1216,12 @@ export class GeminiClient {
     parserOutcome: PolluxAdvisorAttemptParserOutcome;
     outcome: PolluxAdvisorAttemptOutcome;
     failureKind?: string;
+    advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
+    outputFinishReason?: string;
+    visibleOutputTokens?: number;
+    thoughtTokens?: number;
+    truncated?: boolean;
+    guidanceTooShort?: boolean;
   }): void {
     logPolluxAdvisorAttempt(
       this.config,
@@ -1077,6 +1235,12 @@ export class GeminiClient {
         parserOutcome: params.parserOutcome,
         outcome: params.outcome,
         failureKind: params.failureKind,
+        advisorExecutorProfile: params.advisorExecutorProfile,
+        outputFinishReason: params.outputFinishReason,
+        visibleOutputTokens: params.visibleOutputTokens,
+        thoughtTokens: params.thoughtTokens,
+        truncated: params.truncated,
+        guidanceTooShort: params.guidanceTooShort,
       }),
     );
   }
@@ -1126,14 +1290,18 @@ export class GeminiClient {
       return { outcome: 'policy_denied' };
     }
 
+    const advisorExecutorProfile =
+      resolvePolluxAdvisorExecutorProfile(experimental);
     const advisorMode = this.resolvePolluxAdvisorConsultationMode({
       turnContext,
       reasonCode: escalationMeta?.reasonCode,
+      advisorExecutorProfile,
     });
     const advisorInput = {
       context: turnContext,
       toolName: ADVISOR_CONSULTATION_TOOL_NAME,
       mode: advisorMode,
+      advisorExecutorProfile,
       body: requestBody,
     } as const;
     const advisorPrompt = buildAdvisorConsultationPrompt(advisorInput);
@@ -1153,6 +1321,8 @@ export class GeminiClient {
           readonly model: string;
           readonly attemptKind: PolluxAdvisorAttemptKind;
           readonly parserOutcome: PolluxAdvisorAttemptParserOutcome;
+          readonly guidanceTooShort?: boolean;
+          readonly truncated?: boolean;
         }
       | undefined;
 
@@ -1187,6 +1357,7 @@ export class GeminiClient {
           advisorModelId: advisorModel.canonicalModelId,
           advisorPrompt,
           advisorMode,
+          advisorExecutorProfile,
           advisorSignal,
           executorModel: experimental.executorModel,
           escalationMeta,
@@ -1203,6 +1374,8 @@ export class GeminiClient {
           model: primaryAttempt.model,
           attemptKind: primaryAttempt.attemptKind,
           parserOutcome: primaryAttempt.parserOutcome,
+          guidanceTooShort: primaryAttempt.guidanceTooShort,
+          truncated: primaryAttempt.truncated,
         };
       }
 
@@ -1229,6 +1402,7 @@ export class GeminiClient {
             advisorModelId: advisorModel.canonicalModelId,
             advisorPrompt: repairPrompt,
             advisorMode,
+            advisorExecutorProfile,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
@@ -1245,6 +1419,8 @@ export class GeminiClient {
             model: repairAttempt.model,
             attemptKind: repairAttempt.attemptKind,
             parserOutcome: repairAttempt.parserOutcome,
+            guidanceTooShort: repairAttempt.guidanceTooShort,
+            truncated: repairAttempt.truncated,
           };
         }
       } else if (
@@ -1260,6 +1436,7 @@ export class GeminiClient {
             advisorModelId: fallbackModel,
             advisorPrompt,
             advisorMode,
+            advisorExecutorProfile,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
@@ -1276,6 +1453,8 @@ export class GeminiClient {
             model: fallbackAttempt.model,
             attemptKind: fallbackAttempt.attemptKind,
             parserOutcome: fallbackAttempt.parserOutcome,
+            guidanceTooShort: fallbackAttempt.guidanceTooShort,
+            truncated: fallbackAttempt.truncated,
           };
         }
       }
@@ -1343,6 +1522,15 @@ export class GeminiClient {
         }),
         model: winningGuidance.model,
         attemptKind: winningGuidance.attemptKind,
+        advisorExecutorProfile,
+        guidanceQuality:
+          winningGuidance.truncated === true
+            ? 'truncated'
+            : winningGuidance.guidanceTooShort === true
+              ? 'too_short'
+              : winningGuidance.attemptKind === 'fallback'
+                ? 'fallback_structured'
+                : 'structured',
       } satisfies PolluxAdvisorGuidanceInjection;
       if (escalationMeta?.escalationTiming === 'same_turn') {
         this.polluxPendingAdvisorGuidance = guidanceInjection;
@@ -1376,6 +1564,14 @@ export class GeminiClient {
     readonly triggerSource?: PolluxAdvisorTriggerSource;
     readonly model?: string;
     readonly attemptKind?: PolluxAdvisorAttemptKind;
+    readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
+    readonly guidanceQuality?:
+      | 'none'
+      | 'capacity_failed'
+      | 'truncated'
+      | 'too_short'
+      | 'structured'
+      | 'fallback_structured';
   }): void {
     const text = [
       '<pollux:advisor_guidance>',
@@ -1449,6 +1645,8 @@ export class GeminiClient {
           advisorTriggerSource: params.triggerSource ?? 'unknown',
           model: params.model,
           attemptKind: params.attemptKind,
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          guidanceQuality: params.guidanceQuality,
         }),
       );
     }
@@ -1522,6 +1720,7 @@ export class GeminiClient {
   private resolvePolluxAdvisorConsultationMode(params: {
     readonly turnContext: PolluxTurnContext;
     readonly reasonCode?: string;
+    readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
   }): AdvisorConsultationMode {
     if (
       params.reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT
@@ -1539,6 +1738,15 @@ export class GeminiClient {
       summary.hasStructuredMapConstraint ||
       summary.hasForbiddenBehaviorConstraint ||
       summary.hasCompatibilityAliasConstraint;
+    const userDigest = params.turnContext.userContentDigest ?? '';
+    const isM3BenchmarkTask =
+      /\bM3-BM-\d+\b/i.test(userDigest) || /\bm3-done\.txt\b/i.test(userDigest);
+    if (
+      params.advisorExecutorProfile === 'flash_lite' &&
+      (hasHighRiskConstraint || isM3BenchmarkTask)
+    ) {
+      return 'constraint_audit';
+    }
     return hasHighRiskConstraint ? 'constraint_audit' : 'compact';
   }
 
@@ -1549,6 +1757,7 @@ export class GeminiClient {
     advisorModelId: string;
     advisorPrompt: string;
     advisorMode?: AdvisorConsultationMode;
+    advisorExecutorProfile: PolluxAdvisorExecutorProfile;
     advisorSignal: AbortSignal;
     executorModel: string;
     escalationMeta:
@@ -1590,6 +1799,12 @@ export class GeminiClient {
           rawResponse,
           guidance: experimental.advisorShamGuidance,
           structuredConfidence: 5,
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          outputFinishReason: 'STOP',
+          visibleOutputTokens: countWords(experimental.advisorShamGuidance),
+          thoughtTokens: 0,
+          truncated: false,
+          guidanceTooShort: false,
           retryableForRepair: false,
           retryableForFallback: false,
         };
@@ -1610,15 +1825,40 @@ export class GeminiClient {
             'You are a concise advisor for an executor model. Return only the requested guidance.',
           generateContentConfigOverride: {
             maxOutputTokens:
-              (params.advisorMode ?? 'compact') === 'compact' ? 384 : 512,
+              params.advisorExecutorProfile === 'flash_lite'
+                ? (params.advisorMode ?? 'compact') === 'compact'
+                  ? 1024
+                  : 1536
+                : (params.advisorMode ?? 'compact') === 'compact'
+                  ? 384
+                  : 512,
             temperature: 0.2,
           },
         },
       );
       // eslint-disable-next-line no-console
       console.log(`[Pollux] Advisor consultation finished.`);
+      this.tracePolluxAdvisorThoughts(advisorResponse, {
+        turnId: params.turnId,
+        attemptIndex: params.attemptIndex,
+        attemptKind: params.attemptKind,
+        model: params.advisorModelId,
+        advisorMode: params.advisorMode,
+        reasonCode: params.escalationMeta?.reasonCode,
+        escalationTiming: params.escalationMeta?.escalationTiming,
+      });
 
       const rawAdvisorResponse = getResponseText(advisorResponse) ?? '';
+      const outputFinishReason =
+        advisorResponse.candidates?.[0]?.finishReason?.toString();
+      const visibleOutputTokens =
+        advisorResponse.usageMetadata?.candidatesTokenCount ?? 0;
+      const thoughtTokens =
+        advisorResponse.usageMetadata?.thoughtsTokenCount ?? 0;
+      const truncated = isTruncatedAdvisorResponse({
+        finishReason: outputFinishReason,
+        rawResponse: rawAdvisorResponse,
+      });
       const classifiedRawFailure =
         rawAdvisorResponse.trim().length > 0
           ? this.classifyPolluxAdvisorFailure(new Error(rawAdvisorResponse))
@@ -1633,6 +1873,11 @@ export class GeminiClient {
           consultationSucceeded: false,
           failOpenKind: classifiedRawFailure,
           rawResponse: rawAdvisorResponse,
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          outputFinishReason,
+          visibleOutputTokens,
+          thoughtTokens,
+          truncated,
           retryableForRepair: false,
           retryableForFallback:
             params.attemptKind === 'primary' &&
@@ -1662,11 +1907,52 @@ export class GeminiClient {
           consultationSucceeded: false,
           failOpenKind,
           rawResponse: rawAdvisorResponse,
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          outputFinishReason,
+          visibleOutputTokens,
+          thoughtTokens,
+          truncated,
           retryableForRepair:
             params.attemptKind === 'primary' &&
             (parsedResponse.reason === 'empty_response' ||
               parsedResponse.reason === 'malformed_json' ||
-              parsedResponse.reason === 'schema'),
+              parsedResponse.reason === 'schema' ||
+              truncated),
+          retryableForFallback: false,
+        };
+        return result;
+      }
+      const guidanceTooShort = isFlashLiteGuidanceTooShort({
+        advisorExecutorProfile: params.advisorExecutorProfile,
+        guidance: parsedResponse.guidance,
+        mustInclude: parsedResponse.mustInclude,
+        verifyBeforeDone: parsedResponse.verifyBeforeDone,
+      });
+      if (
+        params.advisorExecutorProfile === 'flash_lite' &&
+        (truncated || guidanceTooShort)
+      ) {
+        result = {
+          attemptIndex: params.attemptIndex,
+          attemptKind: params.attemptKind,
+          model: params.advisorModelId,
+          parserOutcome: 'parse_error',
+          outcome: 'parse_error',
+          consultationSucceeded: false,
+          failOpenKind: 'parse_error',
+          rawResponse: rawAdvisorResponse,
+          guidance: parsedResponse.guidance,
+          mustInclude: parsedResponse.mustInclude,
+          mustForbid: parsedResponse.mustForbid,
+          verifyBeforeDone: parsedResponse.verifyBeforeDone,
+          structuredConfidence: parsedResponse.structuredConfidence,
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          outputFinishReason,
+          visibleOutputTokens,
+          thoughtTokens,
+          truncated,
+          guidanceTooShort,
+          retryableForRepair: params.attemptKind === 'primary',
           retryableForFallback: false,
         };
         return result;
@@ -1691,6 +1977,12 @@ export class GeminiClient {
         mustForbid: parsedResponse.mustForbid,
         verifyBeforeDone: parsedResponse.verifyBeforeDone,
         structuredConfidence: parsedResponse.structuredConfidence,
+        advisorExecutorProfile: params.advisorExecutorProfile,
+        outputFinishReason,
+        visibleOutputTokens,
+        thoughtTokens,
+        truncated,
+        guidanceTooShort,
         retryableForRepair: false,
         retryableForFallback: false,
       };
@@ -1721,6 +2013,11 @@ export class GeminiClient {
           consultationSucceeded: false,
           failOpenKind: 'timeout',
           rawResponse: '',
+          advisorExecutorProfile: params.advisorExecutorProfile,
+          outputFinishReason: 'timeout',
+          visibleOutputTokens: 0,
+          thoughtTokens: 0,
+          truncated: false,
           retryableForRepair: false,
           retryableForFallback: params.attemptKind === 'primary',
         };
@@ -1738,6 +2035,10 @@ export class GeminiClient {
         consultationSucceeded: false,
         failOpenKind,
         rawResponse: '',
+        advisorExecutorProfile: params.advisorExecutorProfile,
+        visibleOutputTokens: 0,
+        thoughtTokens: 0,
+        truncated: false,
         retryableForRepair: false,
         retryableForFallback:
           params.attemptKind === 'primary' &&
@@ -1766,6 +2067,12 @@ export class GeminiClient {
           parserOutcome: result.parserOutcome,
           outcome: result.outcome,
           failureKind: result.failOpenKind,
+          advisorExecutorProfile: result.advisorExecutorProfile,
+          outputFinishReason: result.outputFinishReason,
+          visibleOutputTokens: result.visibleOutputTokens,
+          thoughtTokens: result.thoughtTokens,
+          truncated: result.truncated,
+          guidanceTooShort: result.guidanceTooShort,
         });
         this.recordPolluxAdvisorAttemptTelemetry({
           turnId: params.turnId,
@@ -1777,6 +2084,12 @@ export class GeminiClient {
           parserOutcome: result.parserOutcome,
           outcome: result.outcome,
           failureKind: result.failOpenKind,
+          advisorExecutorProfile: result.advisorExecutorProfile,
+          outputFinishReason: result.outputFinishReason,
+          visibleOutputTokens: result.visibleOutputTokens,
+          thoughtTokens: result.thoughtTokens,
+          truncated: result.truncated,
+          guidanceTooShort: result.guidanceTooShort,
         });
       }
     }

@@ -7294,6 +7294,8 @@ ${JSON.stringify(
         attemptKind: 'primary',
         advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
         advisorPrompt: 'advisor prompt',
+        advisorExecutorProfile:
+          DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorExecutorProfile,
         advisorSignal: new AbortController().signal,
         executorModel: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
         escalationMeta: undefined,
@@ -7305,6 +7307,106 @@ ${JSON.stringify(
         guidance: 'this is not valid advisor json',
         retryableForFallback: false,
       });
+    });
+
+    it('rejects tiny plaintext advisor responses for flash-lite executors', async () => {
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'edit the parser' }],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+        usageMetadata: {
+          promptTokenCount: 20,
+          candidatesTokenCount: 3,
+          thoughtsTokenCount: 7,
+          totalTokenCount: 30,
+        },
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorExecutorProfile: 'flash_lite',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3.1-flash-lite-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        parserOutcome: 'parse_error',
+        outcome: 'parse_error',
+        failOpenKind: 'parse_error',
+        guidanceTooShort: true,
+        retryableForRepair: true,
+        retryableForFallback: false,
+        outputFinishReason: FinishReason.STOP,
+        visibleOutputTokens: 3,
+        thoughtTokens: 7,
+      });
+    });
+
+    it('uses larger advisor output budgets for flash-lite executors', async () => {
+      const generateSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockResolvedValue({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      guidance:
+                        '1. Inspect the named file. 2. Apply the exact invariant-preserving repair. 3. Verify the protected tests remain untouched.',
+                      must_include: ['src/state.ts'],
+                      must_forbid: ['editing tests'],
+                      verify_before_done: ['npm test -- state'],
+                      confidence: 8,
+                    }),
+                  },
+                ],
+              },
+              finishReason: FinishReason.STOP,
+            },
+          ],
+        } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'constraint_audit',
+        advisorExecutorProfile: 'flash_lite',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3.1-flash-lite-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: true,
+        parserOutcome: 'direct',
+        guidanceTooShort: false,
+      });
+      expect(generateSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          generateContentConfigOverride: expect.objectContaining({
+            maxOutputTokens: 1536,
+          }),
+        }),
+      );
     });
 
     it('classifies quota-looking advisor response text as quota_exhausted', async () => {
@@ -7328,6 +7430,8 @@ ${JSON.stringify(
         attemptKind: 'primary',
         advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
         advisorPrompt: 'advisor prompt',
+        advisorExecutorProfile:
+          DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorExecutorProfile,
         advisorSignal: new AbortController().signal,
         executorModel: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorModel,
         escalationMeta: undefined,
