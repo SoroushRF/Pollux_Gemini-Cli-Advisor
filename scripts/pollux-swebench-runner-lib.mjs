@@ -230,18 +230,18 @@ export function buildSweBenchmarkSettings(
 export function classifyProviderFailure(stdout, stderr) {
   const text = `${stdout}\n${stderr}`;
   if (
-    /QUOTA_EXHAUSTED|QUOTA_EXCEEDED|exhausted your capacity|quota will reset/i.test(
-      text,
-    )
-  ) {
-    return 'quota_exhausted';
-  }
-  if (
     /MODEL_CAPACITY_EXHAUSTED|No capacity available|RESOURCE_EXHAUSTED/i.test(
       text,
     )
   ) {
     return 'model_capacity_exhausted';
+  }
+  if (
+    /QUOTA_EXHAUSTED|QUOTA_EXCEEDED|exhausted your capacity|quota will reset/i.test(
+      text,
+    )
+  ) {
+    return 'quota_exhausted';
   }
   if (
     /rateLimitExceeded|RATE_LIMIT_EXCEEDED|too many requests|status\s*[:=]\s*429|code["']?\s*:\s*429|\b429\b/i.test(
@@ -260,6 +260,15 @@ export function classifyToolPolicyFailure(stdout, stderr) {
   )
     ? 'non_interactive_confirmation_required'
     : null;
+}
+
+function hasUsablePatch(params, patchStats) {
+  return (
+    !params.patchCollectionFailed &&
+    typeof params.patch === 'string' &&
+    params.patch.trim().length > 0 &&
+    patchStats.files.length > 0
+  );
 }
 
 export function analyzePatch(patchText) {
@@ -314,16 +323,38 @@ export function analyzePatch(patchText) {
 }
 
 export function classifyRunResult(params) {
-  const providerFailureKind = classifyProviderFailure(
+  const rawProviderFailureKind = classifyProviderFailure(
     params.stdout ?? '',
     params.stderr ?? '',
   );
-  const toolPolicyFailure = classifyToolPolicyFailure(
+  const rawToolPolicyFailure = classifyToolPolicyFailure(
     params.stdout ?? '',
     params.stderr ?? '',
   );
   const patchStats = params.patchStats ?? analyzePatch(params.patch ?? '');
+  const usablePatch = hasUsablePatch(params, patchStats);
+  const runCompleted =
+    params.exitCode === 0 &&
+    !params.timedOut &&
+    !params.responseCeilingExceeded &&
+    !params.patchCollectionFailed;
+  const warnings = [];
   let invalidationReason = null;
+  let providerFailureKind = rawProviderFailureKind;
+  let toolPolicyFailure = rawToolPolicyFailure;
+
+  if (rawProviderFailureKind && runCompleted && usablePatch) {
+    warnings.push(
+      rawProviderFailureKind === 'model_capacity_exhausted'
+        ? 'model_capacity_retry'
+        : `${rawProviderFailureKind}_recovered`,
+    );
+    providerFailureKind = null;
+  }
+  if (rawToolPolicyFailure && runCompleted && usablePatch) {
+    warnings.push('tool_policy_confirmation_recovered');
+    toolPolicyFailure = null;
+  }
 
   if (providerFailureKind) {
     invalidationReason = 'provider_failure';
@@ -353,7 +384,12 @@ export function classifyRunResult(params) {
     valid_for_score: validForScore,
     invalidation_reason: invalidationReason,
     provider_failure_kind: providerFailureKind,
+    provider_failure_warning: providerFailureKind
+      ? null
+      : (rawProviderFailureKind ?? null),
     tool_policy_failure: toolPolicyFailure,
+    tool_policy_warning: toolPolicyFailure ? null : (rawToolPolicyFailure ?? null),
+    warnings,
     score_bucket: scoreBucket,
     patch_stats: patchStats,
   };

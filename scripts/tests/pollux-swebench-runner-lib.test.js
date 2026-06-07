@@ -175,6 +175,12 @@ describe('pollux SWE benchmark runner library', () => {
     expect(classifyProviderFailure('', 'QUOTA_EXHAUSTED')).toBe(
       'quota_exhausted',
     );
+    expect(
+      classifyProviderFailure(
+        '',
+        'You have exhausted your capacity. MODEL_CAPACITY_EXHAUSTED. No capacity available for model gemini-3-flash-preview on the server.',
+      ),
+    ).toBe('model_capacity_exhausted');
     expect(classifyProviderFailure('No capacity available', '')).toBe(
       'model_capacity_exhausted',
     );
@@ -219,6 +225,68 @@ describe('pollux SWE benchmark runner library', () => {
       invalidation_reason: 'tool_policy_failure',
       tool_policy_failure: 'non_interactive_confirmation_required',
       score_bucket: 'invalid',
+    });
+  });
+
+  it('keeps recovered provider retry text scoreable when a patch exists', () => {
+    const patch = [
+      'diff --git a/src/file.ts b/src/file.ts',
+      '--- a/src/file.ts',
+      '+++ b/src/file.ts',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+      '',
+    ].join('\n');
+
+    expect(
+      classifyRunResult({
+        stdout: '',
+        stderr:
+          'Attempt 1 failed: You have exhausted your capacity. MODEL_CAPACITY_EXHAUSTED. No capacity available for model gemini-3-flash-preview on the server.',
+        exitCode: 0,
+        timedOut: false,
+        patch,
+        scorePolicy: 'strict',
+      }),
+    ).toMatchObject({
+      valid_for_score: true,
+      invalidation_reason: null,
+      provider_failure_kind: null,
+      provider_failure_warning: 'model_capacity_exhausted',
+      warnings: ['model_capacity_retry'],
+      score_bucket: 'unresolved',
+    });
+  });
+
+  it('keeps recovered tool policy text scoreable when a patch exists', () => {
+    const patch = [
+      'diff --git a/src/file.ts b/src/file.ts',
+      '--- a/src/file.ts',
+      '+++ b/src/file.ts',
+      '@@ -1 +1 @@',
+      '-old',
+      '+new',
+      '',
+    ].join('\n');
+
+    expect(
+      classifyRunResult({
+        stdout: '',
+        stderr:
+          'Tool execution for "Shell" requires user confirmation, which is not supported in non-interactive mode.',
+        exitCode: 0,
+        timedOut: false,
+        patch,
+        scorePolicy: 'strict',
+      }),
+    ).toMatchObject({
+      valid_for_score: true,
+      invalidation_reason: null,
+      tool_policy_failure: null,
+      tool_policy_warning: 'non_interactive_confirmation_required',
+      warnings: ['tool_policy_confirmation_recovered'],
+      score_bucket: 'unresolved',
     });
   });
 
