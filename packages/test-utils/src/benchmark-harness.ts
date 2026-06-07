@@ -189,6 +189,7 @@ export interface BenchmarkSettingsOverrides {
       executorModel: string;
       advisorModel?: string;
       advisorFallbackModel?: string | null;
+      advisorExecutorProfile?: 'default' | 'flash_lite';
       advisorTriggerMode?: 'executor_request' | 'detector' | 'hybrid';
       advisorBudgetMode?: 'fixed' | 'adaptive';
       maxAdvisorCallsShortTask?: number;

@@ -26,7 +26,10 @@ import {
   renderRealBenchmarkPreflightReport,
 } from './pollux-real-preflight.js';
 import {
+  buildRealBenchmarkPolluxV1CalibrationSummary,
   buildRealBenchmarkCampaignSummary,
+  buildRealBenchmarkPolluxV1LabelReview,
+  renderRealBenchmarkPolluxV1CalibrationReport,
   renderRealBenchmarkCampaignReport,
 } from './pollux-real-report.js';
 import type { RealBenchmarkRunRecord } from './pollux-real-types.js';
@@ -86,6 +89,19 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
+function isPolluxV1AeCalibrationRun(params: {
+  taskIds: readonly string[];
+  conditionIds: readonly RealBenchmarkConditionId[];
+}): boolean {
+  return (
+    params.taskIds.length > 0 &&
+    params.taskIds.every((taskId) => taskId.startsWith('pollux-v1-')) &&
+    params.conditionIds.length === 2 &&
+    params.conditionIds.includes('A') &&
+    params.conditionIds.includes('E')
+  );
+}
+
 function getSelectedTasks(taskIds: string[]): RealBenchmarkTaskSpec[] {
   const polluxV1TaskIds = taskIds.filter((taskId) =>
     taskId.startsWith('pollux-v1-'),
@@ -124,6 +140,7 @@ export async function runPolluxRealCampaign(params: {
   maxModelResponsesPerSample?: number;
   fMaxModelResponsesPerSample?: number;
   artifactRoot?: string;
+  scratchRoot?: string;
   allowOverwrite?: boolean;
   conditionIds?: RealBenchmarkConditionId[];
   diagnosticTrace?: {
@@ -197,6 +214,7 @@ export async function runPolluxRealCampaign(params: {
     manifest,
     tasks: selectedTasks,
     artifactRoot,
+    scratchRoot: params.scratchRoot,
     pricingSnapshot,
     binaryPath: params.binaryPath,
     entrypointPreference: params.entrypointPreference,
@@ -263,6 +281,32 @@ export async function runPolluxRealCampaign(params: {
     renderRealBenchmarkCampaignReport(summary),
   );
 
+  if (
+    isPolluxV1AeCalibrationRun({
+      taskIds: params.taskIds,
+      conditionIds: manifest.conditions.map((condition) => condition.id),
+    })
+  ) {
+    const polluxV1Calibration = buildRealBenchmarkPolluxV1CalibrationSummary({
+      calibrationId: params.campaignId,
+      corpusSha,
+      taskIds: params.taskIds,
+      runs,
+    });
+    writeJson(
+      path.join(artifactRoot, 'pollux-v1-calibration-summary.json'),
+      polluxV1Calibration,
+    );
+    fs.writeFileSync(
+      path.join(artifactRoot, 'pollux-v1-calibration-report.md'),
+      renderRealBenchmarkPolluxV1CalibrationReport(polluxV1Calibration),
+    );
+    writeJson(
+      path.join(artifactRoot, 'pollux-v1-label-review.json'),
+      buildRealBenchmarkPolluxV1LabelReview(polluxV1Calibration),
+    );
+  }
+
   if (params.repeats > 1) {
     const repeatsRoot = path.join(artifactRoot, 'repeats');
     fs.mkdirSync(repeatsRoot, { recursive: true });
@@ -316,6 +360,7 @@ export async function runPolluxRealPilot() {
     binaryPath: parseArg('--binary-path'),
     entrypointPreference: parseEntrypointPreference(parseArg('--entrypoint')),
     keepScratchDirectories: parseBooleanArg('--keep-scratch-directories', true),
+    scratchRoot: parseArg('--scratch-root'),
     maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
     fMaxModelResponsesPerSample: parsePositiveNumberArg(

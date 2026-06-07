@@ -172,6 +172,12 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           model: 'gemini-3-pro-preview',
           parser_outcome: 'direct',
           outcome: 'consulted',
+          advisor_executor_profile: 'flash_lite',
+          output_finish_reason: 'MAX_TOKENS',
+          visible_output_tokens: 12,
+          thought_tokens: 68,
+          truncated: true,
+          guidance_too_short: true,
         },
       },
       {
@@ -188,6 +194,8 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           advisor_trigger_source: 'self_status',
           model: 'gemini-3-pro-preview',
           attempt_kind: 'primary',
+          advisor_executor_profile: 'flash_lite',
+          guidance_quality: 'too_short',
         },
       },
     ]);
@@ -202,6 +210,12 @@ describe('summarizeRealBenchmarkTelemetry', () => {
           attemptKind: 'primary',
           parserOutcome: 'direct',
           outcome: 'consulted',
+          advisorExecutorProfile: 'flash_lite',
+          outputFinishReason: 'MAX_TOKENS',
+          visibleOutputTokens: 12,
+          thoughtTokens: 68,
+          truncated: true,
+          guidanceTooShort: true,
         }),
       ]),
     );
@@ -247,8 +261,51 @@ describe('summarizeRealBenchmarkTelemetry', () => {
         advisorTriggerMode: 'hybrid',
         advisorTriggerSource: 'self_status',
         injectionTiming: 'same_turn_next_continuation',
+        advisorExecutorProfile: 'flash_lite',
+        guidanceQuality: 'too_short',
       }),
     ]);
+  });
+
+  it('reports official estimated cost with thinking tokens while preserving legacy cost', () => {
+    const summary = summarizeRealBenchmarkTelemetry(
+      [
+        {
+          attributes: {
+            'event.name': 'gemini_cli.api_response',
+            prompt_id: 'prompt-1',
+            model: 'gemini-3.1-flash-lite-preview',
+            role: 'main',
+            duration_ms: 120,
+            total_token_count: 200,
+            input_token_count: 100,
+            output_token_count: 40,
+            thoughts_token_count: 60,
+            cached_content_token_count: 0,
+          },
+        },
+      ],
+      {
+        id: 'unit-lite-pricing',
+        capturedAt: '2026-04-30T00:00:00.000Z',
+        sourceUrl: 'https://ai.google.dev/gemini-api/docs/pricing',
+        models: {
+          'gemini-3.1-flash-lite-preview': {
+            inputUsdPerMillion: 0.25,
+            outputUsdPerMillion: 1.5,
+            cachedInputUsdPerMillion: 0.025,
+          },
+        },
+      },
+    );
+
+    expect(summary.costUsd.total).toBeCloseTo(0.000175, 12);
+    expect(summary.costUsd.executor).toBeCloseTo(0.000175, 12);
+    expect(summary.costUsd.benchmarkLegacyTotal).toBeCloseTo(0.000085, 12);
+    expect(summary.costUsd.officialEstimatedTotal).toBeCloseTo(
+      summary.costUsd.total ?? 0,
+      12,
+    );
   });
 });
 
@@ -300,7 +357,7 @@ describe('Pollux real benchmark trigger-mode diagnostics', () => {
         id: 'LFR',
         executorModel: 'gemini-3.1-flash-lite-preview',
         advisorModel: 'gemini-3.1-pro-preview',
-        advisorFallbackModel: null,
+        advisorFallbackModel: 'gemini-3-flash-preview',
         polluxEnabled: true,
         publishableEligible: false,
       }),
@@ -308,7 +365,7 @@ describe('Pollux real benchmark trigger-mode diagnostics', () => {
         id: 'LFD',
         executorModel: 'gemini-3.1-flash-lite-preview',
         advisorModel: 'gemini-3.1-pro-preview',
-        advisorFallbackModel: null,
+        advisorFallbackModel: 'gemini-3-flash-preview',
         polluxEnabled: true,
         publishableEligible: false,
       }),
@@ -321,6 +378,13 @@ describe('Pollux real benchmark trigger-mode diagnostics', () => {
             .pollux.advisorTriggerMode,
       ),
     ).toEqual(['executor_request', 'detector', 'executor_request', 'detector']);
+    expect(
+      conditions.map(
+        (condition) =>
+          buildRealBenchmarkSettings(condition, 'telemetry.jsonl').experimental
+            .pollux.advisorExecutorProfile,
+      ),
+    ).toEqual([undefined, undefined, 'flash_lite', 'flash_lite']);
   });
 
   it('keeps trigger-mode diagnostics out of the default manifest', () => {

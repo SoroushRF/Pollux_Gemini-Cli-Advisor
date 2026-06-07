@@ -7,6 +7,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRealBenchmarkSeedTask } from '../../core/src/pollux/benchmark/realTasks.js';
+import {
+  loadPolluxV1Task,
+  loadPolluxV1TaskReview,
+} from '../../core/src/pollux/benchmark/polluxV1Tasks.js';
 import type {
   RealBenchmarkAdvisorConsultOutcome,
   RealBenchmarkAdvisorAttemptRecord,
@@ -33,6 +37,9 @@ import type {
   RealBenchmarkM3ValueSummary,
   RealBenchmarkM3ValueThresholds,
   RealBenchmarkNumericStats,
+  RealBenchmarkPolluxV1CalibrationSummary,
+  RealBenchmarkPolluxV1CalibrationVerdict,
+  RealBenchmarkPolluxV1TaskCalibrationSummary,
   RealBenchmarkRateInterval,
   RealBenchmarkRepeatSummary,
   RealBenchmarkRunRecord,
@@ -279,9 +286,46 @@ function buildAllSampleUsageSummary(runs: RealBenchmarkRunRecord[]) {
     ceilingInvalidations: runs.filter(
       (run) => run.invalidationReason === 'model_call_ceiling_exceeded',
     ).length,
+    capabilityInvalidations: runs.filter(
+      (run) =>
+        classifyInvalidationBucket(run.invalidationReason) === 'capability',
+    ).length,
+    infraInvalidations: runs.filter(
+      (run) => classifyInvalidationBucket(run.invalidationReason) === 'infra',
+    ).length,
+    runtimeInvalidations: runs.filter(
+      (run) => classifyInvalidationBucket(run.invalidationReason) === 'runtime',
+    ).length,
     meanModelResponses: mean(runs.map((run) => run.modelResponseCount)),
     meanWallClockMs: mean(runs.map((run) => run.wallClockMs)),
   };
+}
+
+function classifyInvalidationBucket(
+  reason: RealBenchmarkRunRecord['invalidationReason'],
+): 'capability' | 'infra' | 'runtime' | null {
+  if (reason === undefined) {
+    return null;
+  }
+  if (
+    reason === 'missing_telemetry' ||
+    reason === 'missing_prompt_id' ||
+    reason === 'missing_response_id' ||
+    reason === 'early_stop_telemetry_flush_missing' ||
+    reason === 'workspace_package_escape' ||
+    reason === 'fairness_pin_failure'
+  ) {
+    return 'infra';
+  }
+  if (
+    reason === 'run_timeout' ||
+    reason === 'auth_failure' ||
+    reason === 'rate_limit_contamination' ||
+    reason === 'model_capacity_exhausted'
+  ) {
+    return 'runtime';
+  }
+  return 'capability';
 }
 
 function getEscalationEvents(run: RealBenchmarkRunRecord) {
@@ -1645,15 +1689,15 @@ function appendLaneSection(
   lines.push('All-sample lane diagnostics include invalidated samples.');
   lines.push('');
   lines.push(
-    '| Condition | Raw oracle passes | Ceiling invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
+    '| Condition | Raw oracle passes | Ceiling invalidations | Capability invalidations | Infra invalidations | Runtime invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
   );
   lines.push(
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   );
   for (const entry of laneRows) {
     const all = entry.allSamples;
     lines.push(
-      `| ${entry.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
+      `| ${entry.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.capabilityInvalidations} | ${all.infraInvalidations} | ${all.runtimeInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
     );
   }
   lines.push('');
@@ -1790,15 +1834,15 @@ export function renderRealBenchmarkCampaignReport(
   lines.push('### All-sample condition diagnostics');
   lines.push('');
   lines.push(
-    '| Condition | Raw oracle passes | Ceiling invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
+    '| Condition | Raw oracle passes | Ceiling invalidations | Capability invalidations | Infra invalidations | Runtime invalidations | All tokens | All advisor tokens | All cost | All advisor calls | All escalation attempts | Mean responses | Mean wall ms |',
   );
   lines.push(
-    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
   );
   for (const condition of summary.conditionSummaries) {
     const all = condition.allSamples;
     lines.push(
-      `| ${condition.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
+      `| ${condition.conditionId} | ${all.rawOraclePasses} | ${all.ceilingInvalidations} | ${all.capabilityInvalidations} | ${all.infraInvalidations} | ${all.runtimeInvalidations} | ${all.totalTokens} | ${all.advisorTokens} | ${formatNullableCurrency(all.totalCostUsd)} | ${all.advisorCalls} | ${all.escalationAttempts} | ${formatNumber(all.meanModelResponses)} | ${formatNumber(all.meanWallClockMs)} |`,
     );
   }
   lines.push('');
@@ -1973,6 +2017,231 @@ function buildM3ConditionTaskStats(
     meanWallClockMs: mean(validRuns.map((run) => run.wallClockMs)),
     totalTokens: validRuns.reduce((sum, run) => sum + run.tokens.total, 0),
   };
+}
+
+const POLLUX_V1_CALIBRATION_VERDICTS: RealBenchmarkPolluxV1CalibrationVerdict[] =
+  ['label_confirmed', 'too_easy', 'too_hard_or_ambiguous', 'flaky_or_invalid'];
+
+function meanValidModelResponses(
+  taskId: string,
+  conditionId: RealBenchmarkConditionId,
+  runs: RealBenchmarkRunRecord[],
+): number {
+  const validRuns = runs.filter(
+    (run) =>
+      run.taskId === taskId &&
+      run.conditionId === conditionId &&
+      !run.invalidated,
+  );
+  return mean(validRuns.map((run) => run.modelResponseCount));
+}
+
+function meanValidTokens(
+  taskId: string,
+  conditionId: RealBenchmarkConditionId,
+  runs: RealBenchmarkRunRecord[],
+): number {
+  const validRuns = runs.filter(
+    (run) =>
+      run.taskId === taskId &&
+      run.conditionId === conditionId &&
+      !run.invalidated,
+  );
+  return mean(validRuns.map((run) => run.tokens.total));
+}
+
+function assertPolluxV1CalibrationInputs(
+  taskIds: readonly string[],
+  runs: readonly RealBenchmarkRunRecord[],
+): void {
+  const nonPolluxTaskId = taskIds.find(
+    (taskId) => !taskId.startsWith('pollux-v1-'),
+  );
+  if (nonPolluxTaskId !== undefined) {
+    throw new Error(
+      `Pollux v1 calibration only accepts pollux-v1 tasks: ${nonPolluxTaskId}`,
+    );
+  }
+
+  const invalidCondition = runs.find(
+    (run) => run.conditionId !== 'A' && run.conditionId !== 'E',
+  );
+  if (invalidCondition !== undefined) {
+    throw new Error(
+      `Pollux v1 calibration only accepts A/E runs; found ${invalidCondition.conditionId}`,
+    );
+  }
+}
+
+function buildPolluxV1CalibrationTaskSummary(params: {
+  taskId: string;
+  runs: RealBenchmarkRunRecord[];
+}): RealBenchmarkPolluxV1TaskCalibrationSummary {
+  const task = loadPolluxV1Task(params.taskId);
+  loadPolluxV1TaskReview(task);
+  const flash = buildM3ConditionTaskStats(params.taskId, 'A', params.runs);
+  const pro = buildM3ConditionTaskStats(params.taskId, 'E', params.runs);
+  const flashPassRate = flash.passRate ?? 0;
+  const proPassRate = pro.passRate ?? 0;
+  const flashMeanResponses = meanValidModelResponses(
+    params.taskId,
+    'A',
+    params.runs,
+  );
+  const flashMeanTokens = meanValidTokens(params.taskId, 'A', params.runs);
+  const proMeanResponses = meanValidModelResponses(
+    params.taskId,
+    'E',
+    params.runs,
+  );
+  const proMeanTokens = meanValidTokens(params.taskId, 'E', params.runs);
+
+  let verdict: RealBenchmarkPolluxV1CalibrationVerdict = 'label_confirmed';
+  let rationale = `Rubric label ${task.difficulty} is calibration-consistent on the available A/E runs.`;
+
+  if (flash.invalidRate > 0 || pro.invalidRate > 0) {
+    verdict = 'flaky_or_invalid';
+    rationale = `A/E invalidation detected (A invalid ${formatRate(flash.invalidRate)}, E invalid ${formatRate(pro.invalidRate)}); review task stability before final FD runs.`;
+  } else if (proPassRate < flashPassRate) {
+    verdict = 'flaky_or_invalid';
+    rationale = `E pass rate ${formatRate(proPassRate)} is below A pass rate ${formatRate(flashPassRate)}, which suggests ambiguity, flakiness, or oracle mismatch.`;
+  } else if (task.difficulty === 'easy_control' && flashPassRate < 1) {
+    verdict = 'too_hard_or_ambiguous';
+    rationale = `Easy/control task was not reliably solved by A (pass rate ${formatRate(flashPassRate)}); review prompt clarity and oracle fairness.`;
+  } else if (task.difficulty === 'hard' && proPassRate === 0) {
+    verdict = 'too_hard_or_ambiguous';
+    rationale = `Hard task was not solved by E on valid runs, so it may be too hard, ambiguous, or incorrectly specified.`;
+  } else if (
+    task.difficulty === 'hard' &&
+    flashPassRate >= 1 &&
+    proPassRate <= flashPassRate &&
+    (flashMeanResponses <= 4 || flashMeanTokens <= 30_000)
+  ) {
+    verdict = 'too_easy';
+    rationale = `Hard task was solved cheaply by A (mean responses ${flashMeanResponses.toFixed(1)}, mean tokens ${Math.round(flashMeanTokens)}) without an E pass-rate advantage; flag for hardening or relabeling.`;
+  }
+
+  return {
+    taskId: params.taskId,
+    rubricDifficulty: task.difficulty,
+    benchmarkDifficulty: task.difficulty,
+    verdict,
+    rationale,
+    flash,
+    pro,
+    flashMeanModelResponses: flashMeanResponses,
+    proMeanModelResponses: proMeanResponses,
+    flashMeanTokens,
+    proMeanTokens,
+  };
+}
+
+export function buildRealBenchmarkPolluxV1CalibrationSummary(params: {
+  calibrationId: string;
+  corpusSha: string;
+  taskIds: string[];
+  runs: RealBenchmarkRunRecord[];
+}): RealBenchmarkPolluxV1CalibrationSummary {
+  assertPolluxV1CalibrationInputs(params.taskIds, params.runs);
+  const taskSummaries = params.taskIds.map((taskId) =>
+    buildPolluxV1CalibrationTaskSummary({
+      taskId,
+      runs: params.runs,
+    }),
+  );
+  const verdictCounts = Object.fromEntries(
+    POLLUX_V1_CALIBRATION_VERDICTS.map((verdict) => [verdict, 0]),
+  ) as Record<RealBenchmarkPolluxV1CalibrationVerdict, number>;
+  for (const taskSummary of taskSummaries) {
+    verdictCounts[taskSummary.verdict] += 1;
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    calibrationId: params.calibrationId,
+    corpusSha: params.corpusSha,
+    benchmarkId: 'pollux-v1.1',
+    candidateTaskCount: params.taskIds.length,
+    verdictCounts,
+    taskSummaries,
+  };
+}
+
+export function buildRealBenchmarkPolluxV1LabelReview(
+  summary: RealBenchmarkPolluxV1CalibrationSummary,
+): RealBenchmarkPolluxV1TaskCalibrationSummary[] {
+  return summary.taskSummaries.filter(
+    (taskSummary) => taskSummary.verdict !== 'label_confirmed',
+  );
+}
+
+export function renderRealBenchmarkPolluxV1CalibrationReport(
+  summary: RealBenchmarkPolluxV1CalibrationSummary,
+): string {
+  const lines: string[] = [];
+  lines.push('# Pollux v1.1 A/E Calibration Report');
+  lines.push('');
+  lines.push(`Generated: ${summary.generatedAt}`);
+  lines.push(`Calibration: ${summary.calibrationId}`);
+  lines.push(`Corpus SHA: \`${summary.corpusSha}\``);
+  lines.push('');
+  lines.push(
+    'FD results are intentionally excluded from this calibration. A/E',
+  );
+  lines.push('runs may flag labels for review, but do not define difficulty.');
+  lines.push('');
+  lines.push('## Verdict Counts');
+  lines.push('');
+  lines.push('| Verdict | Count |');
+  lines.push('| --- | ---: |');
+  for (const verdict of POLLUX_V1_CALIBRATION_VERDICTS) {
+    lines.push(`| ${verdict} | ${summary.verdictCounts[verdict]} |`);
+  }
+  lines.push('');
+  lines.push('## Task Results');
+  lines.push('');
+  lines.push(
+    '| Task | Rubric difficulty | Verdict | A pass | E pass | A invalid | E invalid | A tokens | E tokens | A responses | E responses |',
+  );
+  lines.push(
+    '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+  );
+  for (const taskSummary of summary.taskSummaries) {
+    lines.push(
+      [
+        `| ${taskSummary.taskId}`,
+        taskSummary.rubricDifficulty,
+        taskSummary.verdict,
+        formatRate(taskSummary.flash.passRate),
+        formatRate(taskSummary.pro.passRate),
+        formatRate(taskSummary.flash.invalidRate),
+        formatRate(taskSummary.pro.invalidRate),
+        String(Math.round(taskSummary.flashMeanTokens)),
+        String(Math.round(taskSummary.proMeanTokens)),
+        taskSummary.flashMeanModelResponses.toFixed(1),
+        taskSummary.proMeanModelResponses.toFixed(1),
+        '|',
+      ].join(' | '),
+    );
+  }
+  lines.push('');
+  lines.push('## Review Notes');
+  lines.push('');
+  for (const taskSummary of summary.taskSummaries) {
+    if (taskSummary.verdict === 'label_confirmed') {
+      continue;
+    }
+    lines.push(`- ${taskSummary.taskId}: ${taskSummary.rationale}`);
+  }
+  if (
+    summary.taskSummaries.every(
+      (taskSummary) => taskSummary.verdict === 'label_confirmed',
+    )
+  ) {
+    lines.push('- No label-review items were detected in this calibration.');
+  }
+
+  return lines.join('\n');
 }
 
 function getDifficultyRank(difficulty: string): number {
@@ -2539,6 +2808,46 @@ function buildM3ConditionValueSummary(
     advisorParserOutcomeCounts: mergeCountRecords(
       validRuns.map((run) => run.advisorParserOutcomeCounts),
     ),
+    advisorTruncatedCount: validRuns.filter(
+      (run) => run.advisorTruncated === true,
+    ).length,
+    advisorGuidanceTooShortCount: validRuns.filter(
+      (run) => run.advisorGuidanceTooShort === true,
+    ).length,
+    advisorFallbackAttemptCount: validRuns.reduce(
+      (sum, run) =>
+        sum +
+        getAdvisorAttempts(run).filter(
+          (attempt) => attempt.attemptKind === 'fallback',
+        ).length,
+      0,
+    ),
+    advisorFallbackSuccessCount: validRuns.reduce(
+      (sum, run) =>
+        sum +
+        getAdvisorAttempts(run).filter(
+          (attempt) =>
+            attempt.attemptKind === 'fallback' &&
+            attempt.outcome === 'consulted',
+        ).length,
+      0,
+    ),
+    advisorFailOpenAfterFallbackCount: validRuns.filter((run) => {
+      const attempts = getAdvisorAttempts(run);
+      return (
+        attempts.some((attempt) => attempt.attemptKind === 'fallback') &&
+        run.actualAdvisorConsultOutcome === 'fail_open'
+      );
+    }).length,
+    advisorGuidanceQualityCounts: mergeCountRecords(
+      validRuns.map((run) =>
+        run.advisorGuidanceQuality
+          ? ({ [run.advisorGuidanceQuality]: 1 } as Partial<
+              Record<NonNullable<typeof run.advisorGuidanceQuality>, number>
+            >)
+          : undefined,
+      ),
+    ),
     diagnosticTraceSampleCount: validRuns.filter(
       (run) => run.diagnosticTracePath,
     ).length,
@@ -2966,12 +3275,14 @@ export function renderRealBenchmarkM3ValueReport(
   lines.push('Advisor diagnostics:');
   lines.push('');
   lines.push(
-    '| Condition | Trigger sources | Parser outcomes | Trace samples | Trace events | Failure causes |',
+    '| Condition | Trigger sources | Parser outcomes | Truncated | Too short | Fallback attempts | Fallback successes | Fail-open after fallback | Guidance quality | Trace samples | Trace events | Failure causes |',
   );
-  lines.push('| --- | --- | --- | ---: | ---: | --- |');
+  lines.push(
+    '| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |',
+  );
   for (const condition of summary.conditionValueSummaries) {
     lines.push(
-      `| ${condition.conditionId} | ${formatCountRecord(condition.advisorTriggerSourceCounts)} | ${formatCountRecord(condition.advisorParserOutcomeCounts)} | ${condition.diagnosticTraceSampleCount ?? 0} | ${condition.diagnosticTraceEventCount ?? 0} | ${formatCountRecord(condition.polluxFailureCauseCounts)} |`,
+      `| ${condition.conditionId} | ${formatCountRecord(condition.advisorTriggerSourceCounts)} | ${formatCountRecord(condition.advisorParserOutcomeCounts)} | ${condition.advisorTruncatedCount ?? 0} | ${condition.advisorGuidanceTooShortCount ?? 0} | ${condition.advisorFallbackAttemptCount ?? 0} | ${condition.advisorFallbackSuccessCount ?? 0} | ${condition.advisorFailOpenAfterFallbackCount ?? 0} | ${formatCountRecord(condition.advisorGuidanceQualityCounts)} | ${condition.diagnosticTraceSampleCount ?? 0} | ${condition.diagnosticTraceEventCount ?? 0} | ${formatCountRecord(condition.polluxFailureCauseCounts)} |`,
     );
   }
   lines.push('');

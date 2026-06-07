@@ -47,7 +47,7 @@ export const POLLUX_REAL_DEFAULT_PRICING_TEMPLATE_PATH = join(
   'docs',
   'core',
   'pollux',
-  'P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_TEMPLATE.json',
+  'P4-13_REAL_BENCHMARK_PRICING_SNAPSHOT_2026-04-30-LITE.json',
 );
 
 export const POLLUX_REAL_AUTH_SEED_FILES = [
@@ -98,6 +98,21 @@ const DETECTOR_ADVISOR_SETTINGS: Record<string, unknown> = {
   advisorTriggerMode: 'detector',
 };
 
+const FLASH_LITE_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...HYBRID_ADVISOR_SETTINGS,
+  advisorExecutorProfile: 'flash_lite',
+};
+
+const FLASH_LITE_EXECUTOR_REQUEST_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...EXECUTOR_REQUEST_ADVISOR_SETTINGS,
+  advisorExecutorProfile: 'flash_lite',
+};
+
+const FLASH_LITE_DETECTOR_ADVISOR_SETTINGS: Record<string, unknown> = {
+  ...DETECTOR_ADVISOR_SETTINGS,
+  advisorExecutorProfile: 'flash_lite',
+};
+
 export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
   {
     id: 'A',
@@ -137,11 +152,11 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     id: 'LF',
     executorModel: 'gemini-3.1-flash-lite-preview',
     advisorModel: 'gemini-3.1-pro-preview',
-    advisorFallbackModel: null,
+    advisorFallbackModel: 'gemini-3-flash-preview',
     polluxEnabled: true,
     authProfile: 'lite-advisor',
     publishableEligible: true,
-    settingsOverrides: HYBRID_ADVISOR_SETTINGS,
+    settingsOverrides: FLASH_LITE_ADVISOR_SETTINGS,
   },
   {
     id: 'FR',
@@ -167,21 +182,21 @@ export const POLLUX_REAL_CONDITIONS: RealBenchmarkConditionProfile[] = [
     id: 'LFR',
     executorModel: 'gemini-3.1-flash-lite-preview',
     advisorModel: 'gemini-3.1-pro-preview',
-    advisorFallbackModel: null,
+    advisorFallbackModel: 'gemini-3-flash-preview',
     polluxEnabled: true,
     authProfile: 'lite-request-advisor',
     publishableEligible: false,
-    settingsOverrides: EXECUTOR_REQUEST_ADVISOR_SETTINGS,
+    settingsOverrides: FLASH_LITE_EXECUTOR_REQUEST_ADVISOR_SETTINGS,
   },
   {
     id: 'LFD',
     executorModel: 'gemini-3.1-flash-lite-preview',
     advisorModel: 'gemini-3.1-pro-preview',
-    advisorFallbackModel: null,
+    advisorFallbackModel: 'gemini-3-flash-preview',
     polluxEnabled: true,
     authProfile: 'lite-detector-advisor',
     publishableEligible: false,
-    settingsOverrides: DETECTOR_ADVISOR_SETTINGS,
+    settingsOverrides: FLASH_LITE_DETECTOR_ADVISOR_SETTINGS,
   },
   {
     id: 'FS',
@@ -226,6 +241,8 @@ export function buildRealBenchmarkSettings(
 ): Record<string, unknown> & BenchmarkSettingsOverrides {
   const advisorTriggerMode = condition.settingsOverrides['advisorTriggerMode'];
   const advisorBudgetMode = condition.settingsOverrides['advisorBudgetMode'];
+  const advisorExecutorProfile =
+    condition.settingsOverrides['advisorExecutorProfile'];
   const advisorShamEnabled = condition.settingsOverrides['advisorShamEnabled'];
   const advisorShamGuidance =
     condition.settingsOverrides['advisorShamGuidance'];
@@ -267,6 +284,11 @@ export function buildRealBenchmarkSettings(
       name: condition.executorModel,
       disableLoopDetection: true,
     },
+    tools: {
+      shell: {
+        inactivityTimeout: 45,
+      },
+    },
     experimental: {
       dynamicModelConfiguration: false,
       gemmaModelRouter: {
@@ -290,6 +312,11 @@ export function buildRealBenchmarkSettings(
         advisorBudgetMode:
           advisorBudgetMode === 'fixed' || advisorBudgetMode === 'adaptive'
             ? advisorBudgetMode
+            : undefined,
+        advisorExecutorProfile:
+          advisorExecutorProfile === 'default' ||
+          advisorExecutorProfile === 'flash_lite'
+            ? advisorExecutorProfile
             : undefined,
         maxAdvisorCallsShortTask:
           typeof maxAdvisorCallsShortTask === 'number'
@@ -352,10 +379,21 @@ export function getDefaultGeminiHome(): string {
 
 function getDirtyStatus(repoRoot: string): string[] {
   try {
-    const output = execFileSync('git', ['status', '--porcelain'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    });
+    const output = execFileSync(
+      'git',
+      [
+        'status',
+        '--porcelain',
+        '--',
+        '.',
+        ':(exclude)evaluation_results/.tmp',
+        ':(exclude)evaluation_results/.tmp/**',
+      ],
+      {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      },
+    );
     return output
       .split(/\r?\n/g)
       .map((line) => line.trimEnd())

@@ -87,6 +87,14 @@ export type RealBenchmarkAdvisorTriggerSource =
   | 'self_status'
   | 'loop'
   | 'unknown';
+export type RealBenchmarkAdvisorExecutorProfile = 'default' | 'flash_lite';
+export type RealBenchmarkAdvisorGuidanceQuality =
+  | 'none'
+  | 'capacity_failed'
+  | 'truncated'
+  | 'too_short'
+  | 'structured'
+  | 'fallback_structured';
 export type RealBenchmarkConfusionExclusion = 'budget_exhausted' | 'fail_open';
 export type RealBenchmarkPolluxFailureCause =
   | 'oracle_structural_completeness'
@@ -136,6 +144,8 @@ export type RealBenchmarkInvalidationReason =
   | 'missing_telemetry'
   | 'missing_prompt_id'
   | 'missing_response_id'
+  | 'early_stop_telemetry_flush_missing'
+  | 'workspace_package_escape'
   | 'fairness_pin_failure';
 
 export interface RealBenchmarkStructuredErrorEvidence {
@@ -190,6 +200,12 @@ export interface RealBenchmarkCostBreakdown {
   advisor: number | null;
   executor: number | null;
   pricingSnapshotId: string | null;
+  benchmarkLegacyTotal?: number | null;
+  benchmarkLegacyAdvisor?: number | null;
+  benchmarkLegacyExecutor?: number | null;
+  officialEstimatedTotal?: number | null;
+  officialEstimatedAdvisor?: number | null;
+  officialEstimatedExecutor?: number | null;
 }
 
 export interface RealBenchmarkTelemetrySummary {
@@ -266,6 +282,9 @@ export interface RealBenchmarkAllSampleUsageSummary {
   escalationAttempts: number;
   rawOraclePasses: number;
   ceilingInvalidations: number;
+  capabilityInvalidations: number;
+  infraInvalidations: number;
+  runtimeInvalidations: number;
   meanModelResponses: number;
   meanWallClockMs: number;
 }
@@ -293,6 +312,12 @@ export interface RealBenchmarkAdvisorAttemptRecord {
   parserOutcome: RealBenchmarkAdvisorParserOutcome | null;
   outcome: RealBenchmarkAdvisorAttemptOutcome | null;
   failureKind: string | null;
+  advisorExecutorProfile?: RealBenchmarkAdvisorExecutorProfile | null;
+  outputFinishReason?: string | null;
+  visibleOutputTokens?: number;
+  thoughtTokens?: number;
+  truncated?: boolean;
+  guidanceTooShort?: boolean;
   eventIndex: number;
 }
 
@@ -308,6 +333,8 @@ export interface RealBenchmarkAdvisorGuidanceRecord {
   advisorTriggerSource: RealBenchmarkAdvisorTriggerSource;
   model: string | null;
   attemptKind: RealBenchmarkAdvisorAttemptKind | null;
+  advisorExecutorProfile?: RealBenchmarkAdvisorExecutorProfile | null;
+  guidanceQuality?: RealBenchmarkAdvisorGuidanceQuality;
   eventIndex: number;
 }
 
@@ -340,6 +367,14 @@ export interface RealBenchmarkRunRecord {
   stderrWorkspacePathViolationCount: number;
   toolErrorCount: number;
   advisorAttempts: RealBenchmarkAdvisorAttemptRecord[];
+  advisorExecutorProfile?: RealBenchmarkAdvisorExecutorProfile | null;
+  advisorOutputFinishReasons?: string[];
+  advisorVisibleOutputTokens?: number;
+  advisorThoughtTokens?: number;
+  advisorTruncated?: boolean;
+  advisorGuidanceTooShort?: boolean;
+  advisorFallbackUsed?: boolean;
+  advisorGuidanceQuality?: RealBenchmarkAdvisorGuidanceQuality;
   advisorGuidanceEvents?: RealBenchmarkAdvisorGuidanceRecord[];
   advisorGuidanceInjected?: boolean;
   advisorGuidanceInjectionCount?: number;
@@ -378,6 +413,10 @@ export interface RealBenchmarkRunRecord {
     sandboxIsolated: boolean;
   };
   oraclePass: boolean;
+  earlyStopOraclePassed?: boolean;
+  telemetryFlushMissingAfterEarlyStop?: boolean;
+  workspacePackagePrefix?: string | null;
+  workspacePackageEscapedRepoRoot?: boolean;
   invalidated: boolean;
   invalidationReason?: RealBenchmarkInvalidationReason;
   structuredErrorEvidence: RealBenchmarkStructuredErrorEvidence | null;
@@ -400,7 +439,10 @@ export interface RealBenchmarkRunRecord {
   entrypointPath: string;
   buildFreshness: RealBenchmarkBuildFreshness;
   taskEscalates: boolean;
+  liveSampleRoot?: string;
+  artifactSampleRoot?: string;
   workspaceDir: string;
+  liveWorkspaceDir?: string;
   homeDir: string;
   telemetryPath: string;
   stdoutPath: string;
@@ -742,6 +784,12 @@ export interface RealBenchmarkM3ValueThresholds {
   minSelectedTaskCount: number;
 }
 
+export type RealBenchmarkPolluxV1CalibrationVerdict =
+  | 'label_confirmed'
+  | 'too_easy'
+  | 'too_hard_or_ambiguous'
+  | 'flaky_or_invalid';
+
 export interface RealBenchmarkM3ConditionTaskStats {
   conditionId: RealBenchmarkConditionId;
   sampleCount: number;
@@ -753,6 +801,30 @@ export interface RealBenchmarkM3ConditionTaskStats {
   totalCostUsd: number | null;
   meanWallClockMs: number;
   totalTokens: number;
+}
+
+export interface RealBenchmarkPolluxV1TaskCalibrationSummary {
+  taskId: string;
+  rubricDifficulty: string;
+  benchmarkDifficulty: string;
+  verdict: RealBenchmarkPolluxV1CalibrationVerdict;
+  rationale: string;
+  flash: RealBenchmarkM3ConditionTaskStats;
+  pro: RealBenchmarkM3ConditionTaskStats;
+  flashMeanModelResponses: number;
+  proMeanModelResponses: number;
+  flashMeanTokens: number;
+  proMeanTokens: number;
+}
+
+export interface RealBenchmarkPolluxV1CalibrationSummary {
+  generatedAt: string;
+  calibrationId: string;
+  corpusSha: string;
+  benchmarkId: 'pollux-v1.1';
+  candidateTaskCount: number;
+  verdictCounts: Record<RealBenchmarkPolluxV1CalibrationVerdict, number>;
+  taskSummaries: RealBenchmarkPolluxV1TaskCalibrationSummary[];
 }
 
 export interface RealBenchmarkM3TaskCalibrationSummary {
@@ -869,6 +941,14 @@ export interface RealBenchmarkM3ConditionValueSummary {
   advisorParserOutcomeCounts?: Partial<
     Record<RealBenchmarkAdvisorParserOutcome, number>
   >;
+  advisorTruncatedCount?: number;
+  advisorGuidanceTooShortCount?: number;
+  advisorFallbackAttemptCount?: number;
+  advisorFallbackSuccessCount?: number;
+  advisorFailOpenAfterFallbackCount?: number;
+  advisorGuidanceQualityCounts?: Partial<
+    Record<RealBenchmarkAdvisorGuidanceQuality, number>
+  >;
   diagnosticTraceSampleCount?: number;
   diagnosticTraceEventCount?: number;
   polluxFailureCauseCounts?: Partial<
@@ -938,6 +1018,7 @@ export interface PolluxRealPilotOptions {
   manifest: RealBenchmarkCampaignManifest;
   tasks: RealBenchmarkTaskSpec[];
   artifactRoot: string;
+  scratchRoot?: string;
   pricingSnapshot?: RealBenchmarkPricingSnapshot;
   binaryPath?: string;
   entrypointPreference?: RealBenchmarkEntrypointPreference;

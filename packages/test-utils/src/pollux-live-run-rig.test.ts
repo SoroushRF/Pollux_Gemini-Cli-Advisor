@@ -5,9 +5,14 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDefaultCampaignManifest } from './pollux-real-config.js';
+import {
+  buildDefaultCampaignManifest,
+  buildRealBenchmarkSettings,
+  getPolluxRealConditionsById,
+} from './pollux-real-config.js';
 import {
   POLLUX_REAL_DEFAULT_MAX_MODEL_RESPONSES,
+  POLLUX_REAL_DEFAULT_SCRATCH_ROOT,
   PolluxLiveRunRig,
 } from './pollux-live-run-rig.js';
 
@@ -63,5 +68,69 @@ describe('PolluxLiveRunRig default response ceiling', () => {
     expect(getMaxModelResponsesForCondition({ id: 'F' })).toBe(18);
     expect(getMaxModelResponsesForCondition({ id: 'A' })).toBe(15);
     expect(getMaxModelResponsesForCondition({ id: 'FR' })).toBe(15);
+  });
+
+  it('defaults live scratch workspaces outside the repository artifact tree', () => {
+    const rig = createRig();
+
+    expect((rig as unknown as { scratchRoot: string }).scratchRoot).toBe(
+      POLLUX_REAL_DEFAULT_SCRATCH_ROOT,
+    );
+    expect(
+      (rig as unknown as { scratchRoot: string }).scratchRoot,
+    ).not.toContain('artifacts/pollux');
+  });
+
+  it('sets a bounded task-local shell inactivity timeout in benchmark settings', () => {
+    const settings = buildRealBenchmarkSettings(
+      getPolluxRealConditionsById(['A'])[0],
+      'telemetry.log',
+    ) as { tools?: { shell?: { inactivityTimeout?: number } } };
+
+    expect(settings.tools?.shell?.inactivityTimeout).toBe(45);
+  });
+
+  it('does not invalidate an oracle-passing early stop solely for missing response telemetry', () => {
+    const rig = createRig();
+    const computeInvalidationReason = (
+      rig as unknown as {
+        computeInvalidationReason: (
+          exitCode: number,
+          timedOut: boolean,
+          telemetryEvents: unknown[],
+          telemetry: { responseIds: string[]; promptIds: string[] },
+          maxModelResponsesPerSample: number,
+          fairnessPins: Record<string, boolean>,
+          structuredErrorEvidence: null,
+          stderr: string,
+          oraclePass: boolean,
+          earlyStopOraclePassed: boolean,
+          workspacePackageEscapedRepoRoot: boolean,
+        ) => string | undefined;
+      }
+    ).computeInvalidationReason.bind(rig);
+
+    expect(
+      computeInvalidationReason(
+        0,
+        false,
+        [{ body: 'event' }],
+        { responseIds: [], promptIds: ['prompt'] },
+        15,
+        {
+          routerPinned: true,
+          loopDetectionDisabled: true,
+          availabilityReset: true,
+          dynamicConfigFixed: true,
+          sessionIsolated: true,
+          sandboxIsolated: true,
+        },
+        null,
+        '',
+        true,
+        true,
+        false,
+      ),
+    ).toBeUndefined();
   });
 });

@@ -7,6 +7,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRealBenchmarkCampaignSummary,
+  buildRealBenchmarkPolluxV1CalibrationSummary,
+  buildRealBenchmarkPolluxV1LabelReview,
+  renderRealBenchmarkPolluxV1CalibrationReport,
   renderRealBenchmarkCampaignReport,
 } from './pollux-real-report.js';
 import type {
@@ -705,12 +708,133 @@ describe('buildRealBenchmarkCampaignSummary', () => {
     expect(markdown).toContain('All-sample condition diagnostics');
     expect(markdown).toContain('model_call_ceiling_exceeded=1');
     expect(markdown).toContain(
-      '| F | 1 | 1 | 1000 | 200 | $0.1234 | 1 | 1 | 9 |',
+      '| F | 1 | 1 | 1 | 0 | 0 | 1000 | 200 | $0.1234 | 1 | 1 | 9 |',
     );
     expect(markdown).toContain('| F | core | M3-BM-20-GUARDED-REGISTRY-RENAME');
     expect(markdown).toContain(
       '| 9 | 6 | 3 | 1000 | 200 | $0.1234 | 1 | 1 | risk_gate | yes | 8 | 7/1 | consulted |',
     );
+  });
+});
+
+describe('buildRealBenchmarkPolluxV1CalibrationSummary', () => {
+  it('rejects FD-containing calibration inputs', () => {
+    expect(() =>
+      buildRealBenchmarkPolluxV1CalibrationSummary({
+        calibrationId: 'pollux-v1_1-calibration-unit',
+        corpusSha: 'corpus',
+        taskIds: ['pollux-v1-cross-contract-easy-01'],
+        runs: [
+          buildRun({
+            taskId: 'pollux-v1-cross-contract-easy-01',
+            conditionId: 'FD',
+          }),
+        ],
+      }),
+    ).toThrow(/only accepts A\/E runs/);
+  });
+
+  it('flags cheap A-pass hard tasks for label review', () => {
+    const taskId = 'pollux-v1-test-intent-hard-01';
+    const summary = buildRealBenchmarkPolluxV1CalibrationSummary({
+      calibrationId: 'pollux-v1_1-calibration-unit',
+      corpusSha: 'corpus',
+      taskIds: [taskId],
+      runs: [
+        buildRun({
+          taskId,
+          conditionId: 'A',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          tokens: { total: 10_000, advisor: 0, executor: 10_000 },
+          modelResponseCount: 2,
+        }),
+        buildRun({
+          taskId,
+          conditionId: 'E',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+          tokens: { total: 12_000, advisor: 0, executor: 12_000 },
+          modelResponseCount: 2,
+        }),
+      ],
+    });
+
+    expect(summary.taskSummaries[0].verdict).toBe('too_easy');
+    expect(buildRealBenchmarkPolluxV1LabelReview(summary)).toHaveLength(1);
+  });
+
+  it('flags E failures on easy controls as flakiness or ambiguity risk', () => {
+    const taskId = 'pollux-v1-cross-contract-easy-01';
+    const summary = buildRealBenchmarkPolluxV1CalibrationSummary({
+      calibrationId: 'pollux-v1_1-calibration-unit',
+      corpusSha: 'corpus',
+      taskIds: [taskId],
+      runs: [
+        buildRun({
+          taskId,
+          conditionId: 'A',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+        }),
+        buildRun({
+          taskId,
+          conditionId: 'E',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          oraclePass: false,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+        }),
+      ],
+    });
+
+    expect(summary.taskSummaries[0].verdict).toBe('flaky_or_invalid');
+  });
+
+  it('renders summary markdown for fixture run records', () => {
+    const taskId = 'pollux-v1-source-truth-easy-01';
+    const summary = buildRealBenchmarkPolluxV1CalibrationSummary({
+      calibrationId: 'pollux-v1_1-calibration-unit',
+      corpusSha: 'corpus',
+      taskIds: [taskId],
+      runs: [
+        buildRun({
+          taskId,
+          conditionId: 'A',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+        }),
+        buildRun({
+          taskId,
+          conditionId: 'E',
+          taskEscalates: false,
+          observedAdvisorCalls: 0,
+          escalationEvents: [],
+          escalationTiming: [],
+          reasonCodes: [],
+        }),
+      ],
+    });
+
+    const markdown = renderRealBenchmarkPolluxV1CalibrationReport(summary);
+
+    expect(summary.verdictCounts.label_confirmed).toBe(1);
+    expect(markdown).toContain('# Pollux v1.1 A/E Calibration Report');
+    expect(markdown).toContain(taskId);
   });
 });
 

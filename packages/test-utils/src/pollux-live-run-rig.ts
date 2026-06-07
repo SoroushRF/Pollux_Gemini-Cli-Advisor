@@ -4,9 +4,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { GEMINI_DIR } from '@google/gemini-cli-core';
 import type { RealBenchmarkTaskSpec } from '../../core/src/pollux/benchmark/realTypes.js';
@@ -52,7 +53,14 @@ interface RunProcessResult {
   stderr: string;
   wallClockMs: number;
   timedOut: boolean;
+  earlyStopOraclePassed: boolean;
 }
+
+const BENCHMARK_CHILD_TERMINATION_SIGNALS: NodeJS.Signals[] = [
+  'SIGINT',
+  'SIGTERM',
+  'SIGHUP',
+];
 
 const CONSULT_ATTEMPT_OUTCOMES = new Set([
   'consulted',
@@ -63,6 +71,11 @@ const CONSULT_ATTEMPT_OUTCOMES = new Set([
 ]);
 
 export const POLLUX_REAL_DEFAULT_MAX_MODEL_RESPONSES = 15;
+
+export const POLLUX_REAL_DEFAULT_SCRATCH_ROOT =
+  process.platform === 'win32'
+    ? path.join('C:\\', 'tmp', 'pollux-real-runs')
+    : path.join(os.tmpdir(), 'pollux-real-runs');
 
 function countEscalationAttempts(
   escalationEvents: readonly RealBenchmarkEscalationEvent[],
@@ -374,6 +387,43 @@ function removeDirIfExists(dirPath: string): void {
   }
 }
 
+function getNpmPrefix(cwd: string): string | null {
+  try {
+    return execFileSync(
+      process.platform === 'win32' ? 'cmd.exe' : 'npm',
+      process.platform === 'win32'
+        ? ['/d', '/s', '/c', 'npm.cmd prefix']
+        : ['prefix'],
+      {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    ).trim();
+  } catch {
+    return null;
+  }
+}
+
+function copyDirectoryContents(sourceDir: string, targetDir: string): void {
+  if (!fs.existsSync(sourceDir)) {
+    return;
+  }
+  ensureDir(targetDir);
+  for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(targetDir, entry.name);
+    if (entry.isDirectory()) {
+      copyDirectoryContents(sourcePath, targetPath);
+      continue;
+    }
+    if (entry.isFile()) {
+      ensureDir(path.dirname(targetPath));
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+  }
+}
+
 function parseTelemetryLogContent(content: string): ParsedTelemetryLog[] {
   return content
     .split(/}\r?\n{/)
@@ -529,6 +579,10 @@ function parseAdvisorAttemptTelemetryEvents(
     const attemptKind = getStringAttribute(attributes, 'attempt_kind');
     const parserOutcome = getStringAttribute(attributes, 'parser_outcome');
     const outcome = getStringAttribute(attributes, 'outcome');
+    const advisorExecutorProfile = getStringAttribute(
+      attributes,
+      'advisor_executor_profile',
+    );
 
     parsed.push({
       turnId: getStringAttribute(attributes, 'turn_id') ?? null,
@@ -569,6 +623,20 @@ function parseAdvisorAttemptTelemetryEvents(
           ? outcome
           : null,
       failureKind: getStringAttribute(attributes, 'failure_kind') ?? null,
+      advisorExecutorProfile:
+        advisorExecutorProfile === 'default' ||
+        advisorExecutorProfile === 'flash_lite'
+          ? advisorExecutorProfile
+          : null,
+      outputFinishReason:
+        getStringAttribute(attributes, 'output_finish_reason') ?? null,
+      visibleOutputTokens: getNumberAttribute(
+        attributes,
+        'visible_output_tokens',
+      ),
+      thoughtTokens: getNumberAttribute(attributes, 'thought_tokens'),
+      truncated: getBooleanAttribute(attributes, 'truncated'),
+      guidanceTooShort: getBooleanAttribute(attributes, 'guidance_too_short'),
       eventIndex,
     });
   }
@@ -601,6 +669,11 @@ function parseAdvisorGuidanceTelemetryEvents(
       'advisor_trigger_source',
     );
     const attemptKind = getStringAttribute(attributes, 'attempt_kind');
+    const advisorExecutorProfile = getStringAttribute(
+      attributes,
+      'advisor_executor_profile',
+    );
+    const guidanceQuality = getStringAttribute(attributes, 'guidance_quality');
 
     parsed.push({
       turnId: getStringAttribute(attributes, 'turn_id') ?? null,
@@ -657,6 +730,20 @@ function parseAdvisorGuidanceTelemetryEvents(
         attemptKind === 'fallback'
           ? attemptKind
           : null,
+      advisorExecutorProfile:
+        advisorExecutorProfile === 'default' ||
+        advisorExecutorProfile === 'flash_lite'
+          ? advisorExecutorProfile
+          : null,
+      guidanceQuality:
+        guidanceQuality === 'none' ||
+        guidanceQuality === 'capacity_failed' ||
+        guidanceQuality === 'truncated' ||
+        guidanceQuality === 'too_short' ||
+        guidanceQuality === 'structured' ||
+        guidanceQuality === 'fallback_structured'
+          ? guidanceQuality
+          : undefined,
       eventIndex,
     });
   }
@@ -675,11 +762,11 @@ function deriveConfusionExclusion(
   return null;
 }
 
-function computeEventCostUsd(
+function computeEventCostsUsd(
   model: string | undefined,
   attributes: Record<string, unknown> | undefined,
   pricingSnapshot?: RealBenchmarkPricingSnapshot,
-): number | null {
+): { legacy: number; official: number } | null {
   if (!pricingSnapshot || !model) {
     return null;
   }
@@ -691,6 +778,7 @@ function computeEventCostUsd(
 
   const inputTokens = getNumberAttribute(attributes, 'input_token_count');
   const outputTokens = getNumberAttribute(attributes, 'output_token_count');
+  const thoughtTokens = getNumberAttribute(attributes, 'thoughts_token_count');
   const cachedInputTokens = getNumberAttribute(
     attributes,
     'cached_content_token_count',
@@ -703,9 +791,15 @@ function computeEventCostUsd(
     1_000_000;
   const inputCost =
     (pricing.inputUsdPerMillion * uncachedInputTokens) / 1_000_000;
-  const outputCost = (pricing.outputUsdPerMillion * outputTokens) / 1_000_000;
+  const legacyOutputCost =
+    (pricing.outputUsdPerMillion * outputTokens) / 1_000_000;
+  const officialOutputCost =
+    (pricing.outputUsdPerMillion * (outputTokens + thoughtTokens)) / 1_000_000;
 
-  return inputCost + cachedInputCost + outputCost;
+  return {
+    legacy: inputCost + cachedInputCost + legacyOutputCost,
+    official: inputCost + cachedInputCost + officialOutputCost,
+  };
 }
 
 export function summarizeRealBenchmarkTelemetry(
@@ -733,6 +827,9 @@ export function summarizeRealBenchmarkTelemetry(
   let totalCost = 0;
   let advisorCost = 0;
   let executorCost = 0;
+  let legacyTotalCost = 0;
+  let legacyAdvisorCost = 0;
+  let legacyExecutorCost = 0;
   let hasAnyCost = false;
 
   const escalationEvents = parseEscalationTelemetryEvents(events);
@@ -753,7 +850,7 @@ export function summarizeRealBenchmarkTelemetry(
       const total = getNumberAttribute(attributes, 'total_token_count');
       const durationMs = getNumberAttribute(attributes, 'duration_ms');
       const model = getStringAttribute(attributes, 'model');
-      const eventCostUsd = computeEventCostUsd(
+      const eventCostsUsd = computeEventCostsUsd(
         model,
         attributes,
         pricingSnapshot,
@@ -771,20 +868,25 @@ export function summarizeRealBenchmarkTelemetry(
       if (role === ADVISOR_TELEMETRY_ROLE) {
         advisorCalls += 1;
         advisorTokens += total;
-        if (eventCostUsd !== null) {
-          advisorCost += eventCostUsd;
-          totalCost += eventCostUsd;
+        if (eventCostsUsd !== null) {
+          advisorCost += eventCostsUsd.official;
+          totalCost += eventCostsUsd.official;
+          legacyAdvisorCost += eventCostsUsd.legacy;
+          legacyTotalCost += eventCostsUsd.legacy;
           hasAnyCost = true;
         }
       } else if (role === 'main') {
         executorTokens += total;
-        if (eventCostUsd !== null) {
-          executorCost += eventCostUsd;
-          totalCost += eventCostUsd;
+        if (eventCostsUsd !== null) {
+          executorCost += eventCostsUsd.official;
+          totalCost += eventCostsUsd.official;
+          legacyExecutorCost += eventCostsUsd.legacy;
+          legacyTotalCost += eventCostsUsd.legacy;
           hasAnyCost = true;
         }
-      } else if (eventCostUsd !== null) {
-        totalCost += eventCostUsd;
+      } else if (eventCostsUsd !== null) {
+        totalCost += eventCostsUsd.official;
+        legacyTotalCost += eventCostsUsd.legacy;
         hasAnyCost = true;
       }
     }
@@ -818,6 +920,12 @@ export function summarizeRealBenchmarkTelemetry(
       advisor: hasAnyCost ? advisorCost : null,
       executor: hasAnyCost ? executorCost : null,
       pricingSnapshotId: pricingSnapshot?.id ?? null,
+      benchmarkLegacyTotal: hasAnyCost ? legacyTotalCost : null,
+      benchmarkLegacyAdvisor: hasAnyCost ? legacyAdvisorCost : null,
+      benchmarkLegacyExecutor: hasAnyCost ? legacyExecutorCost : null,
+      officialEstimatedTotal: hasAnyCost ? totalCost : null,
+      officialEstimatedAdvisor: hasAnyCost ? advisorCost : null,
+      officialEstimatedExecutor: hasAnyCost ? executorCost : null,
     },
     utilityRoleCounts: Object.fromEntries(utilityRoleCounts),
     modelCallBreakdown: {
@@ -1016,6 +1124,58 @@ function classifyPolluxFailureCause(params: {
   return params.oraclePass ? undefined : 'oracle_behavioral_failure';
 }
 
+function deriveAdvisorExecutorProfile(
+  attempts: readonly RealBenchmarkAdvisorAttemptRecord[],
+  guidanceEvents: readonly RealBenchmarkAdvisorGuidanceRecord[],
+): RealBenchmarkRunRecord['advisorExecutorProfile'] {
+  return (
+    attempts.find((attempt) => attempt.advisorExecutorProfile !== null)
+      ?.advisorExecutorProfile ??
+    guidanceEvents.find((event) => event.advisorExecutorProfile !== null)
+      ?.advisorExecutorProfile ??
+    null
+  );
+}
+
+function deriveAdvisorGuidanceQuality(params: {
+  readonly attempts: readonly RealBenchmarkAdvisorAttemptRecord[];
+  readonly guidanceEvents: readonly RealBenchmarkAdvisorGuidanceRecord[];
+  readonly advisorExecutorProfile: RealBenchmarkRunRecord['advisorExecutorProfile'];
+}): RealBenchmarkRunRecord['advisorGuidanceQuality'] {
+  if (params.attempts.length === 0 && params.guidanceEvents.length === 0) {
+    return 'none';
+  }
+  if (params.attempts.some((attempt) => attempt.truncated === true)) {
+    return 'truncated';
+  }
+  if (
+    params.advisorExecutorProfile === 'flash_lite' &&
+    (params.attempts.some((attempt) => attempt.guidanceTooShort === true) ||
+      params.guidanceEvents.some(
+        (event) => event.guidanceWords > 0 && event.guidanceWords < 20,
+      ))
+  ) {
+    return 'too_short';
+  }
+  if (params.guidanceEvents.some((event) => event.attemptKind === 'fallback')) {
+    return 'fallback_structured';
+  }
+  if (params.guidanceEvents.length > 0) {
+    return 'structured';
+  }
+  if (
+    params.attempts.some(
+      (attempt) =>
+        attempt.outcome === 'capacity_exhausted' ||
+        attempt.outcome === 'quota_exhausted' ||
+        attempt.outcome === 'timeout',
+    )
+  ) {
+    return 'capacity_failed';
+  }
+  return 'none';
+}
+
 function signalClassMatchesReason(
   signalClass: RealBenchmarkTaskSpec['escalationSignalClass'],
   event: RealBenchmarkEscalationEvent,
@@ -1158,29 +1318,153 @@ function buildCleanEnv(homeDir: string): NodeJS.ProcessEnv {
   return cleanEnv;
 }
 
+function terminateProcessTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (pid === undefined) {
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
+        stdio: 'ignore',
+      });
+      return;
+    } catch {
+      // Fall through to child.kill as a best-effort fallback.
+    }
+  } else {
+    try {
+      process.kill(-pid, 'SIGTERM');
+      return;
+    } catch {
+      // Fall through to child.kill as a best-effort fallback.
+    }
+  }
+
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // The child may already have exited.
+  }
+}
+
 async function runHeadlessCli(
   command: string,
   args: string[],
   cwd: string,
   homeDir: string,
   timeoutMs: number,
+  shouldStopEarly?: (stdout: string) => boolean | Promise<boolean>,
 ): Promise<RunProcessResult> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let settled = false;
     let timedOut = false;
+    let earlyStopOraclePassed = false;
+    let checkingEarlyStop = false;
+    let stdout = '';
+    let stderr = '';
     const child = spawn(command, args, {
       cwd,
       env: buildCleanEnv(homeDir),
       stdio: 'pipe',
+      detached: process.platform !== 'win32',
     });
+
+    const cleanupHandlers: Array<() => void> = [];
+
+    const settleResolve = (exitCode: number | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (earlyStopTimer !== undefined) {
+        clearInterval(earlyStopTimer);
+      }
+      for (const cleanup of cleanupHandlers) {
+        cleanup();
+      }
+      resolve({
+        exitCode,
+        stdout,
+        stderr,
+        wallClockMs: Date.now() - startedAt,
+        timedOut,
+        earlyStopOraclePassed,
+      });
+    };
+
+    const settleReject = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (earlyStopTimer !== undefined) {
+        clearInterval(earlyStopTimer);
+      }
+      for (const cleanup of cleanupHandlers) {
+        cleanup();
+      }
+      reject(error);
+    };
+
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      stderr += `\nPollux real benchmark sample timed out after ${timeoutMs}ms; terminated child process tree.\n`;
+      terminateProcessTree(child);
+      settleResolve(null);
     }, timeoutMs);
 
-    let stdout = '';
-    let stderr = '';
+    const earlyStopTimer =
+      shouldStopEarly === undefined
+        ? undefined
+        : setInterval(() => {
+            if (settled || checkingEarlyStop) {
+              return;
+            }
+            checkingEarlyStop = true;
+            Promise.resolve(shouldStopEarly(stdout))
+              .then((shouldStop) => {
+                if (settled || !shouldStop) {
+                  return;
+                }
+                earlyStopOraclePassed = true;
+                stderr +=
+                  '\nPollux real benchmark oracle passed before CLI exit; waiting briefly for telemetry flush before terminating child process tree.\n';
+                setTimeout(() => {
+                  if (settled) {
+                    return;
+                  }
+                  stderr +=
+                    '\nPollux real benchmark early-stop grace period elapsed; terminated child process tree.\n';
+                  terminateProcessTree(child);
+                  settleResolve(0);
+                }, 1_500);
+              })
+              .catch(() => {
+                // The oracle can fail normally while the agent is mid-edit.
+              })
+              .finally(() => {
+                checkingEarlyStop = false;
+              });
+          }, 1_000);
+
+    for (const signal of BENCHMARK_CHILD_TERMINATION_SIGNALS) {
+      const handler = () => {
+        stderr += `\nPollux real benchmark interrupted by ${signal}; terminated child process tree.\n`;
+        terminateProcessTree(child);
+        settleReject(
+          new Error(`Pollux real benchmark interrupted by ${signal}`),
+        );
+      };
+      process.once(signal, handler);
+      cleanupHandlers.push(() => {
+        process.removeListener(signal, handler);
+      });
+    }
 
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -1191,26 +1475,10 @@ async function runHeadlessCli(
       stderr += chunk;
     });
     child.on('error', (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
+      settleReject(error);
     });
     child.on('close', (exitCode) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        exitCode,
-        stdout,
-        stderr,
-        wallClockMs: Date.now() - startedAt,
-        timedOut,
-      });
+      settleResolve(exitCode);
     });
   });
 }
@@ -1218,6 +1486,7 @@ async function runHeadlessCli(
 export class PolluxLiveRunRig {
   private readonly repoRoot: string;
   private readonly artifactRoot: string;
+  private readonly scratchRoot: string;
   private readonly manifest: PolluxRealPilotOptions['manifest'];
   private readonly pricingSnapshot?: RealBenchmarkPricingSnapshot;
   private readonly binaryPath?: string;
@@ -1231,6 +1500,10 @@ export class PolluxLiveRunRig {
   constructor(options: PolluxRealPilotOptions & { repoRoot: string }) {
     this.repoRoot = options.repoRoot;
     this.artifactRoot = options.artifactRoot;
+    this.scratchRoot =
+      options.scratchRoot ??
+      process.env['POLLUX_REAL_SCRATCH_ROOT'] ??
+      POLLUX_REAL_DEFAULT_SCRATCH_ROOT;
     this.manifest = options.manifest;
     this.pricingSnapshot = options.pricingSnapshot;
     this.binaryPath = options.binaryPath;
@@ -1277,18 +1550,33 @@ export class PolluxLiveRunRig {
     const sampleId = sanitizeSegment(
       `${condition.id}-${task.id.toLowerCase()}-run-${String(sampleIndex).padStart(3, '0')}`,
     );
-    const sampleRoot = path.join(this.artifactRoot, 'scratch', sampleId);
-    const workspaceDir = path.join(sampleRoot, 'workspace');
-    const homeDir = path.join(sampleRoot, 'home');
-    const telemetryPath = path.join(homeDir, 'telemetry.log');
-    const diagnosticTracePath = path.join(sampleRoot, 'pollux-trace.jsonl');
-    const stdoutPath = path.join(sampleRoot, 'stdout.txt');
-    const stderrPath = path.join(sampleRoot, 'stderr.txt');
+    const liveSampleRoot = path.join(
+      this.scratchRoot,
+      sanitizeSegment(this.manifest.campaignId),
+      sampleId,
+    );
+    const artifactSampleRoot = path.join(
+      this.artifactRoot,
+      'scratch',
+      sampleId,
+    );
+    const workspaceDir = path.join(liveSampleRoot, 'workspace');
+    const homeDir = path.join(liveSampleRoot, 'home');
+    const telemetryPath = path.join(artifactSampleRoot, 'telemetry.log');
+    const diagnosticTracePath = path.join(
+      artifactSampleRoot,
+      'pollux-trace.jsonl',
+    );
+    const stdoutPath = path.join(artifactSampleRoot, 'stdout.txt');
+    const stderrPath = path.join(artifactSampleRoot, 'stderr.txt');
+    const workspaceSnapshotDir = path.join(artifactSampleRoot, 'workspace');
     const homeGeminiDir = path.join(homeDir, GEMINI_DIR);
     const workspaceGeminiDir = path.join(workspaceDir, GEMINI_DIR);
 
-    removeDirIfExists(sampleRoot);
+    removeDirIfExists(liveSampleRoot);
+    removeDirIfExists(artifactSampleRoot);
     ensureDir(workspaceDir);
+    ensureDir(artifactSampleRoot);
     ensureDir(homeGeminiDir);
     ensureDir(workspaceGeminiDir);
 
@@ -1329,6 +1617,7 @@ export class PolluxLiveRunRig {
       workspaceDir,
       homeDir,
       this.maxWallClockMs,
+      async (stdout) => task.oracle(stdout, workspaceDir),
     );
 
     fs.writeFileSync(stdoutPath, result.stdout);
@@ -1359,6 +1648,11 @@ export class PolluxLiveRunRig {
     );
     const toolErrorCount = countToolErrors(result.stderr);
     const oraclePass = await task.oracle(result.stdout, workspaceDir);
+    const workspacePackagePrefix = getNpmPrefix(workspaceDir);
+    const workspacePackageEscapedRepoRoot =
+      workspacePackagePrefix !== null &&
+      path.resolve(workspacePackagePrefix).toLowerCase() ===
+        path.resolve(this.repoRoot).toLowerCase();
     const fairnessPins = evaluatePerRunPins(settings as FairnessPinSettings, {
       sessionId: sampleId,
       workspaceDir,
@@ -1379,7 +1673,14 @@ export class PolluxLiveRunRig {
       fairnessPins,
       structuredErrorEvidence,
       result.stderr,
+      oraclePass,
+      result.earlyStopOraclePassed,
+      workspacePackageEscapedRepoRoot,
     );
+    const telemetryFlushMissingAfterEarlyStop =
+      result.earlyStopOraclePassed &&
+      oraclePass &&
+      telemetry.responseIds.length === 0;
     const expectedEscalation = computeExpectedEscalation(task, condition);
     const predictedEscalation = computePredictedEscalation(telemetry);
     const excludedFromConfusion = deriveConfusionExclusion(
@@ -1397,6 +1698,10 @@ export class PolluxLiveRunRig {
     );
     appendDiagnosticTraceOracleResult(diagnosticTracePath, {
       oraclePass,
+      earlyStopOraclePassed: result.earlyStopOraclePassed,
+      telemetryFlushMissingAfterEarlyStop,
+      workspacePackagePrefix,
+      workspacePackageEscapedRepoRoot,
       invalidated: invalidationReason !== undefined,
       invalidationReason: invalidationReason ?? null,
       exitCode: result.exitCode,
@@ -1423,6 +1728,15 @@ export class PolluxLiveRunRig {
             (sum, event) => sum + event.guidanceWords,
             0,
           ) / telemetry.advisorGuidanceEvents.length;
+    const advisorExecutorProfile = deriveAdvisorExecutorProfile(
+      telemetry.advisorAttempts,
+      telemetry.advisorGuidanceEvents,
+    );
+    const advisorGuidanceQuality = deriveAdvisorGuidanceQuality({
+      attempts: telemetry.advisorAttempts,
+      guidanceEvents: telemetry.advisorGuidanceEvents,
+      advisorExecutorProfile,
+    });
     const polluxFailureCause = classifyPolluxFailureCause({
       oraclePass,
       invalidationReason,
@@ -1473,6 +1787,40 @@ export class PolluxLiveRunRig {
       stderrWorkspacePathViolationCount,
       toolErrorCount,
       advisorAttempts: telemetry.advisorAttempts,
+      advisorExecutorProfile,
+      advisorOutputFinishReasons: [
+        ...new Set(
+          telemetry.advisorAttempts
+            .map((attempt) => attempt.outputFinishReason)
+            .filter(
+              (reason): reason is string =>
+                typeof reason === 'string' && reason.length > 0,
+            ),
+        ),
+      ],
+      advisorVisibleOutputTokens: telemetry.advisorAttempts.reduce(
+        (sum, attempt) => sum + (attempt.visibleOutputTokens ?? 0),
+        0,
+      ),
+      advisorThoughtTokens: telemetry.advisorAttempts.reduce(
+        (sum, attempt) => sum + (attempt.thoughtTokens ?? 0),
+        0,
+      ),
+      advisorTruncated: telemetry.advisorAttempts.some(
+        (attempt) => attempt.truncated === true,
+      ),
+      advisorGuidanceTooShort:
+        telemetry.advisorAttempts.some(
+          (attempt) => attempt.guidanceTooShort === true,
+        ) ||
+        (advisorExecutorProfile === 'flash_lite' &&
+          telemetry.advisorGuidanceEvents.some(
+            (event) => event.guidanceWords > 0 && event.guidanceWords < 20,
+          )),
+      advisorFallbackUsed: telemetry.advisorAttempts.some(
+        (attempt) => attempt.attemptKind === 'fallback',
+      ),
+      advisorGuidanceQuality,
       advisorGuidanceEvents: telemetry.advisorGuidanceEvents,
       advisorGuidanceInjected: telemetry.advisorGuidanceEvents.length > 0,
       advisorGuidanceInjectionCount: telemetry.advisorGuidanceEvents.length,
@@ -1592,15 +1940,20 @@ export class PolluxLiveRunRig {
       entrypointPath: entrypoint.path,
       buildFreshness,
       taskEscalates: task.escalates === true,
-      workspaceDir,
+      liveSampleRoot,
+      artifactSampleRoot,
+      workspaceDir: workspaceSnapshotDir,
+      liveWorkspaceDir: workspaceDir,
       homeDir,
       telemetryPath,
       stdoutPath,
       stderrPath,
     };
 
+    copyDirectoryContents(workspaceDir, workspaceSnapshotDir);
+
     if (!this.keepScratchDirectories) {
-      removeDirIfExists(sampleRoot);
+      removeDirIfExists(liveSampleRoot);
     }
 
     return record;
@@ -1643,9 +1996,16 @@ export class PolluxLiveRunRig {
     fairnessPins: RealBenchmarkRunRecord['fairnessPins'],
     structuredErrorEvidence: RealBenchmarkStructuredErrorEvidence | null,
     stderr: string,
+    oraclePass: boolean,
+    earlyStopOraclePassed: boolean,
+    workspacePackageEscapedRepoRoot: boolean,
   ): RealBenchmarkInvalidationReason | undefined {
     if (timedOut) {
       return 'run_timeout';
+    }
+
+    if (workspacePackageEscapedRepoRoot) {
+      return 'workspace_package_escape';
     }
 
     if (exitCode !== 0) {
@@ -1665,6 +2025,9 @@ export class PolluxLiveRunRig {
     }
 
     if (telemetry.responseIds.length === 0) {
+      if (earlyStopOraclePassed && oraclePass) {
+        return undefined;
+      }
       return 'missing_response_id';
     }
 

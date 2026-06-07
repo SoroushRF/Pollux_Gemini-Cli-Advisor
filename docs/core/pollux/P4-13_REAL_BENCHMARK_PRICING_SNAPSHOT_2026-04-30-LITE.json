@@ -1,0 +1,33 @@
+{
+  "id": "pricing-snapshot-2026-04-30-gemini-3-lite-fd",
+  "capturedAt": "2026-04-30T00:00:00.000Z",
+  "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+  "notes": "Frozen for Pollux Flash-Lite advisor-mode evaluation on 2026-04-30. Uses Gemini Developer API published standard text pricing. Output pricing includes thinking tokens where present. This snapshot assumes prompts remain within the <=200k token tier and does not model audio-specific pricing, batch/flex/priority discounts, grounding charges, or cache storage-hour charges.",
+  "models": {
+    "gemini-3-flash-preview": {
+      "inputUsdPerMillion": 0.5,
+      "outputUsdPerMillion": 3,
+      "cachedInputUsdPerMillion": 0.05
+    },
+    "gemini-3.1-flash-lite-preview": {
+      "inputUsdPerMillion": 0.25,
+      "outputUsdPerMillion": 1.5,
+      "cachedInputUsdPerMillion": 0.025
+    },
+    "gemini-3.1-pro-preview": {
+      "inputUsdPerMillion": 2,
+      "outputUsdPerMillion": 12,
+      "cachedInputUsdPerMillion": 0.2
+    },
+    "gemini-3-pro-preview": {
+      "inputUsdPerMillion": 2,
+      "outputUsdPerMillion": 12,
+      "cachedInputUsdPerMillion": 0.2
+    },
+    "gemini-2.5-pro": {
+      "inputUsdPerMillion": 1.25,
+      "outputUsdPerMillion": 10,
+      "cachedInputUsdPerMillion": 0.125
+    }
+  }
+}
