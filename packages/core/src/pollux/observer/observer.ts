@@ -163,6 +163,13 @@ function hardPrecisionReasonForSignal(
   return undefined;
 }
 
+function advisorCooldownKey(signal: SensorSignal): string {
+  if (signal.id === SELF_ADVISOR_REQUEST_SIGNAL_ID) {
+    return `${signal.id}:${signal.attribution ?? ''}`;
+  }
+  return signal.id;
+}
+
 /** Same netScore / ids as {@link LoopBridgeSensor} hard-loop signal (DETECTOR_IMPLEMENTATION_PLAN §C.2). */
 export function buildPolluxHardLoopNextTurnIntent(
   queuedAtMs: number = Date.now(),
@@ -379,7 +386,10 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       return;
     }
     for (const signalId of contributingSignalIds) {
-      this.advisorCooldownSignalIds.add(signalId);
+      const signal = this.activeSignals.get(signalId);
+      this.advisorCooldownSignalIds.add(
+        signal ? advisorCooldownKey(signal) : signalId,
+      );
       this.activeSignals.delete(signalId);
     }
     this.pendingSameTurnIntent = undefined;
@@ -540,7 +550,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       });
     }
     for (const signal of signals) {
-      if (this.advisorCooldownSignalIds.has(signal.id)) {
+      if (this.advisorCooldownSignalIds.has(advisorCooldownKey(signal))) {
         continue;
       }
       this.activeSignals.set(signal.id, signal);

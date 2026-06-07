@@ -2602,6 +2602,96 @@ describe('Gemini Client (client.ts)', () => {
       expect(historyText).toContain('Inspect alias ownership first');
     });
 
+    it('strict executor requests can trigger multiple same-turn checkpoint consults within budget', async () => {
+      mockTurnRunFn.mockImplementation(() =>
+        (async function* () {
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              '<pollux:advisor_request reason="contract extraction before source edit" timing="now"/>',
+          };
+          yield {
+            type: GeminiEventType.Content,
+            value:
+              '\n<pollux:advisor_request reason="final diff audit before completion" timing="now"/>',
+          };
+          yield {
+            type: GeminiEventType.Finished,
+            value: { reason: FinishReason.STOP, usageMetadata: undefined },
+          };
+        })(),
+      );
+
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        enabled: true,
+        advisorTriggerMode: 'hybrid',
+        advisorBudgetMode: 'fixed',
+        maxAdvisorCallsPerTurn: 3,
+        maxAdvisorCallsPerSession: 8,
+        detector: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector,
+          selfReport: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.selfReport,
+            enabled: true,
+          },
+          timing: {
+            ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.detector.timing,
+            sameTurnEnabled: true,
+            maxSameTurnEscalationsPerTurn: 3,
+          },
+        },
+      });
+      mockPolicyCheck.mockResolvedValue({
+        decision: PolicyDecision.ALLOW,
+        rule: undefined,
+      });
+      const advisorSpy = vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: '{"guidance":"ok"}' }],
+            },
+          },
+        ],
+      } as GenerateContentResponse);
+      const escalationSpy = vi
+        .spyOn(telemetryLoggers, 'logPolluxEscalation')
+        .mockImplementation(() => {});
+
+      await fromAsync(
+        client.sendMessageStream(
+          [{ text: 'strict checkpoint run' }],
+          new AbortController().signal,
+          'pollux-strict-multi-checkpoint',
+          undefined,
+          false,
+          undefined,
+          false,
+          PolluxRuntimeSurface.LEGACY_INTERACTIVE,
+        ),
+      );
+
+      expect(
+        advisorSpy.mock.calls.filter(
+          (call) => call[3] === LlmRole.UTILITY_ADVISOR,
+        ),
+      ).toHaveLength(2);
+      const consultedReasons = escalationSpy.mock.calls
+        .map(([, event]) => event)
+        .filter(
+          (event) =>
+            event.outcome === 'consulted' &&
+            event.reason_code ===
+              PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+        )
+        .map((event) => event.contributing_signal_attributions?.join('\n'));
+      expect(consultedReasons).toEqual([
+        'advisor_request reason="contract extraction before source edit"',
+        'advisor_request reason="final diff audit before completion"',
+      ]);
+    });
+
     it('records capacity_exhausted when the advisor model is capacity-limited', async () => {
       mockTurnRunFn.mockImplementation(() =>
         (async function* () {

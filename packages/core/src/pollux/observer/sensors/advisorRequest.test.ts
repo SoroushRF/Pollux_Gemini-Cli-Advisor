@@ -55,4 +55,37 @@ describe('pollux/observer/sensors/advisorRequest', () => {
     const sensor = new AdvisorRequestSensor();
     expect(sensor.observe(makeInput('ADVISOR_REQUEST: unsure'))).toEqual([]);
   });
+
+  it('emits later distinct requests from accumulated output', () => {
+    const sensor = new AdvisorRequestSensor();
+    const first =
+      '<pollux:advisor_request reason="contract extraction before source edit" timing="now"/>';
+    const second =
+      '<pollux:advisor_request reason="final diff audit before completion" timing="now"/>';
+
+    expect(sensor.observe(makeInput(first))).toHaveLength(1);
+    const signals = sensor.observe(makeInput(`${first}\n${second}`));
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({
+      id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+      attribution:
+        'advisor_request reason="final diff audit before completion"',
+    });
+  });
+
+  it('dedupes repeated request reasons in alternate request forms', () => {
+    const sensor = new AdvisorRequestSensor();
+
+    expect(
+      sensor.observe(makeInput('advisor_request now: final diff audit')),
+    ).toHaveLength(1);
+    expect(
+      sensor.observe(
+        makeInput(
+          'advisor_request now: final diff audit\nADVISOR_REQUEST: final diff audit',
+        ),
+      ),
+    ).toEqual([]);
+  });
 });

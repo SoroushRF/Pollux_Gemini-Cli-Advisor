@@ -273,6 +273,45 @@ describe('pollux/observer', () => {
     );
   });
 
+  it('does not cooldown distinct executor advisor request reasons', () => {
+    const obs = createLiveExecutorObserver(
+      mergePolluxExperimentalConfig({
+        enabled: true,
+        advisorTriggerMode: 'hybrid',
+        detector: {
+          selfReport: { enabled: true },
+          timing: { sameTurnEnabled: true, maxSameTurnEscalationsPerTurn: 3 },
+        },
+      }),
+    );
+    obs.beginTurn();
+
+    const first =
+      '<pollux:advisor_request reason="contract extraction before source edit" timing="now"/>';
+    const second =
+      '<pollux:advisor_request reason="final diff audit before completion" timing="now"/>';
+
+    obs.ingest({ type: GeminiEventType.Content, value: first });
+    const firstIntent = obs.consumeSameTurnIntent();
+    expect(firstIntent).toEqual(
+      expect.objectContaining({
+        reasonCode: PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+      }),
+    );
+    obs.noteAdvisorSuccess(true, firstIntent?.contributingSignalIds);
+
+    obs.ingest({ type: GeminiEventType.Content, value: `\n${second}` });
+
+    expect(obs.peekSameTurnIntent()).toEqual(
+      expect.objectContaining({
+        reasonCode: PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+        contributingSignalAttributions: [
+          'advisor_request reason="final diff audit before completion"',
+        ],
+      }),
+    );
+  });
+
   it('executor_request mode ignores detector-only status tags', () => {
     const obs = createLiveExecutorObserver(
       mergePolluxExperimentalConfig({

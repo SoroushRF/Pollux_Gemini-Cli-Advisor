@@ -438,6 +438,14 @@ function buildPolluxDowngradedNextTurnIntent(
   };
 }
 
+function polluxExecutorAdvisorRequestKey(intent: SameTurnIntent): string {
+  return (
+    intent.contributingSignalAttributions?.join('\n') ||
+    intent.contributingSignalIds.join('\n') ||
+    intent.reasonCode
+  );
+}
+
 type BeforeAgentHookReturn =
   | {
       type: GeminiEventType.AgentExecutionStopped;
@@ -492,6 +500,8 @@ export class GeminiClient {
    * subsequent same-turn-eligible intents must downgrade to next-turn.
    */
   private polluxSameTurnFiredThisTurn = false;
+  private readonly polluxSameTurnExecutorRequestKeysThisTurn =
+    new Set<string>();
   private polluxActiveObserver: LiveExecutorObserver | undefined;
   private polluxActiveObserverPromptId: string | undefined;
   private polluxActiveUserPromptText = '';
@@ -2397,7 +2407,15 @@ export class GeminiClient {
     const experimental = this.config.getPolluxExperimentalConfig();
     const sameTurnEnabled = experimental.detector.timing.sameTurnEnabled;
 
-    const singleShotBlocked = this.polluxSameTurnFiredThisTurn;
+    const executorRequestKey = polluxExecutorAdvisorRequestKey(intent);
+    const canUseMultiCheckpointSlot =
+      intent.reasonCode ===
+        PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST &&
+      (experimental.advisorTriggerMode === 'hybrid' ||
+        experimental.advisorTriggerMode === 'executor_request') &&
+      !this.polluxSameTurnExecutorRequestKeysThisTurn.has(executorRequestKey);
+    const singleShotBlocked =
+      this.polluxSameTurnFiredThisTurn && !canUseMultiCheckpointSlot;
     const killSwitchBlocked = !sameTurnEnabled;
 
     // Pre-check budget at same-turn trigger time. The nested
@@ -2460,6 +2478,14 @@ export class GeminiClient {
       );
       if (outcome === 'consulted') {
         this.polluxSameTurnFiredThisTurn = true;
+        if (
+          intent.reasonCode ===
+          PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST
+        ) {
+          this.polluxSameTurnExecutorRequestKeysThisTurn.add(
+            executorRequestKey,
+          );
+        }
         polluxObserver.noteAdvisorSuccess(true, intent.contributingSignalIds);
       } else if (outcome === 'budget_exhausted') {
         // Budget went from allowed at pre-check to exhausted during execution
@@ -2528,9 +2554,11 @@ export class GeminiClient {
       this.polluxActiveObserver === undefined;
     if (isNewPolluxUserTurn) {
       this.polluxAdvisorCallsThisTurn = 0;
-      // F.1.4: reset the single-shot same-turn guardrail at user-turn entry so
-      // each new user task is allowed exactly one same-turn consult (per I11).
+      // F.1.4: reset same-turn guardrails at user-turn entry. Detector signals
+      // keep I11 single-shot behavior; explicit executor checkpoint requests
+      // may use multiple configured slots.
       this.polluxSameTurnFiredThisTurn = false;
+      this.polluxSameTurnExecutorRequestKeysThisTurn.clear();
     }
     this.polluxPendingSameTurnIntent = undefined;
     const polluxObserver = this.getPolluxObserverForProcessTurn({

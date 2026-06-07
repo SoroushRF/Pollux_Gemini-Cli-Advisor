@@ -54,24 +54,28 @@ export class AdvisorRequestSensor implements Sensor {
       if (!text) {
         return [];
       }
-      const tag =
-        parsePolluxAdvisorRequestTag(text).find((candidate) =>
-          isNonTrivialAdvisorReason(candidate.reason),
-        ) ??
-        parsePolluxStatusTag(text)
-          .map((status) => {
-            const reason = [status.stuckOn, status.next]
-              .filter((entry): entry is string => typeof entry === 'string')
-              .join(' ');
-            return STATUS_ADVISOR_HINT_RE.test(reason)
-              ? ({
-                  reason,
-                  timing: 'now',
-                  sourceFormat: 'status',
-                } as const)
-              : undefined;
-          })
-          .find((candidate) => isNonTrivialAdvisorReason(candidate?.reason));
+      const candidates = [
+        ...parsePolluxAdvisorRequestTag(text),
+        ...parsePolluxStatusTag(text).map((status) => {
+          const reason = [status.stuckOn, status.next]
+            .filter((entry): entry is string => typeof entry === 'string')
+            .join(' ');
+          return STATUS_ADVISOR_HINT_RE.test(reason)
+            ? ({
+                reason,
+                timing: 'now',
+                sourceFormat: 'status',
+              } as const)
+            : undefined;
+        }),
+      ];
+      const tag = candidates.find((candidate) => {
+        if (!isNonTrivialAdvisorReason(candidate?.reason)) {
+          return false;
+        }
+        const dedupeKey = candidate.reason.trim().toLowerCase();
+        return !this.emittedReasons.has(dedupeKey);
+      });
       if (!tag?.reason) {
         return [];
       }
