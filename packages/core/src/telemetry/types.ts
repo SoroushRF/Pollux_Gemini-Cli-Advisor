@@ -1238,7 +1238,7 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
     | 'capacity_exhausted'
     | 'quota_exhausted';
   failure_kind?: string;
-  advisor_executor_profile?: 'default' | 'flash_lite';
+  advisor_executor_profile?: 'default' | 'flash_lite' | 'strict_fd';
   output_finish_reason?: string;
   visible_output_tokens?: number;
   thought_tokens?: number;
@@ -1272,7 +1272,7 @@ export class PolluxAdvisorAttemptTelemetryEvent implements BaseTelemetryEvent {
       | 'capacity_exhausted'
       | 'quota_exhausted';
     failureKind?: string;
-    advisorExecutorProfile?: 'default' | 'flash_lite';
+    advisorExecutorProfile?: 'default' | 'flash_lite' | 'strict_fd';
     outputFinishReason?: string;
     visibleOutputTokens?: number;
     thoughtTokens?: number;
@@ -1353,7 +1353,7 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
     | 'unknown';
   model?: string;
   attempt_kind?: 'primary' | 'repair_retry' | 'fallback';
-  advisor_executor_profile?: 'default' | 'flash_lite';
+  advisor_executor_profile?: 'default' | 'flash_lite' | 'strict_fd';
   guidance_quality?:
     | 'none'
     | 'capacity_failed'
@@ -1385,7 +1385,7 @@ export class PolluxAdvisorGuidanceTelemetryEvent implements BaseTelemetryEvent {
       | 'unknown';
     model?: string;
     attemptKind?: 'primary' | 'repair_retry' | 'fallback';
-    advisorExecutorProfile?: 'default' | 'flash_lite';
+    advisorExecutorProfile?: 'default' | 'flash_lite' | 'strict_fd';
     guidanceQuality?:
       | 'none'
       | 'capacity_failed'

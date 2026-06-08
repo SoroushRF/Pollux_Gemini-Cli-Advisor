@@ -50,13 +50,30 @@ export const detectorSettings = {
   },
 };
 
+export const STRICT_FD_CHECKPOINT_REASONS = [
+  'contract extraction before source edit',
+  'mid-run risk review after edits or failed tests',
+  'final diff audit before completion',
+];
+
 export const strictFdSettings = {
   advisorTriggerMode: 'hybrid',
   advisorBudgetMode: 'fixed',
-  maxAdvisorCallsPerTurn: 3,
-  maxAdvisorCallsPerSession: 8,
-  maxAdvisorCallsShortTask: 3,
-  maxAdvisorCallsLongTask: 5,
+  advisorExecutorProfile: 'strict_fd',
+  maxAdvisorCallsPerTurn: 6,
+  maxAdvisorCallsPerSession: 12,
+  maxAdvisorCallsShortTask: 6,
+  maxAdvisorCallsLongTask: 8,
+  executorCheckpoints: {
+    enabled: true,
+    requiredReasons: STRICT_FD_CHECKPOINT_REASONS,
+    enforceRequired: true,
+    reserveRequiredPrimarySlots: true,
+    minGuidanceWords: 40,
+    rejectTruncatedGuidance: true,
+    requireStructuredGuidance: true,
+    finalGate: true,
+  },
   detector: {
     ...detectorSettings.detector,
     timing: {
@@ -67,12 +84,6 @@ export const strictFdSettings = {
 };
 
 export const VALID_DEEPSWE_FD_PROFILES = new Set(['detector', 'strict']);
-
-export const STRICT_FD_CHECKPOINT_REASONS = [
-  'contract extraction before source edit',
-  'mid-run risk review after edits or failed tests',
-  'final diff audit before completion',
-];
 
 export function buildDeepSweConditions(fdProfile = 'strict') {
   if (!VALID_DEEPSWE_FD_PROFILES.has(fdProfile)) {
@@ -88,6 +99,7 @@ export function buildDeepSweConditions(fdProfile = 'strict') {
       ...deepsweConditions.FD,
       pollux: {
         ...deepsweConditions.FD.pollux,
+        executorCheckpoints: undefined,
         ...fdSettings,
       },
     },
@@ -577,8 +589,21 @@ export function buildDeepSweContractChecklist(task) {
       'Do not treat smaller restore target memory as success.',
     );
     checklist.verificationFocus.push(
+      'receiver.Compare(other) means the receiver is the old/base snapshot and the argument is the new/changed snapshot.',
+      'DiffEntry.OldValue must come from receiver data; DiffEntry.NewValue must come from other.',
+      'Diff entries must be grouped by module capture order with offsets ascending within each module.',
+      'Incremental snapshots, including incremental-from-incremental snapshots, must reconstruct complete memory from Data().',
+      'Summarize(incremental).ModifiedBytes must match the changed-byte count.',
       'Restoring into nil or undersized memory must fail with insufficient_memory.',
+      'RestoreSnapshot must not grow target memory.',
     );
+    checklist.finalDiffHazards.push({
+      id: 'wazero_compare_old_new_inversion',
+      pattern:
+        'OldValue\\s*:\\s*[^\\n,]*other|NewValue\\s*:\\s*[^\\n,]*(?:base|old|receiver)',
+      message:
+        'Patch may invert Compare old/new values; receiver.Compare(other) means OldValue comes from receiver and NewValue comes from other.',
+    });
     checklist.finalDiffHazards.push({
       id: 'wazero_restore_mem_grow',
       pattern: '\\bmem\\.Grow\\s*\\(\\s*(?!0\\s*\\))',
@@ -668,6 +693,19 @@ function checkpointReasonsFromText(text) {
   )) {
     out.push(match[1].trim());
   }
+  if (/\brequest(?:ing)?\s+(?:advisor\s+)?contract\s+extraction\b/i.test(text)) {
+    out.push('contract extraction before source edit');
+  }
+  if (
+    /\brequest(?:ing)?\s+(?:advisor\s+)?(?:mid[-\s]?run\s+)?risk\s+review\b/i.test(
+      text,
+    )
+  ) {
+    out.push('mid-run risk review after edits or failed tests');
+  }
+  if (/\brequest(?:ing)?\s+(?:advisor\s+)?final\s+diff\s+audit\b/i.test(text)) {
+    out.push('final diff audit before completion');
+  }
   return out;
 }
 
@@ -693,8 +731,42 @@ function uniqueKnownFdCheckpointReasons(reasons) {
 
 export function auditStrictFdCheckpointTrace(traceText) {
   const requested = [];
+  const primaryAttempted = [];
   const consulted = [];
+  const consultedGood = [];
+  const failed = [];
+  const budgetBlocked = [];
   const pendingDecisionReasons = [];
+  const canonicalReason = (reason) =>
+    uniqueKnownFdCheckpointReasons([reason])[0];
+  const addReason = (list, reason) => {
+    const canonical = canonicalReason(reason);
+    if (canonical && !list.includes(canonical)) {
+      list.push(canonical);
+    }
+    return canonical;
+  };
+  const addFailure = (reason, details = {}) => {
+    const canonical = canonicalReason(reason);
+    if (!canonical) {
+      return;
+    }
+    failed.push({
+      reason: canonical,
+      ...details,
+    });
+  };
+  const addBudgetBlocked = (reason, details = {}) => {
+    const canonical = canonicalReason(reason);
+    if (!canonical) {
+      return;
+    }
+    budgetBlocked.push({
+      reason: canonical,
+      ...details,
+    });
+  };
+
   for (const rawLine of String(traceText ?? '').split(/\r?\n/g)) {
     if (!rawLine.trim()) {
       continue;
@@ -706,9 +778,52 @@ export function auditStrictFdCheckpointTrace(traceText) {
       continue;
     }
     const payload = event?.payload ?? {};
-    for (const reason of checkpointReasonsFromText(payload.text)) {
-      requested.push(reason);
+    const textFragments = [payload.text];
+    if (payload.args && typeof payload.args === 'object') {
+      for (const key of ['description', 'command', 'instruction']) {
+        if (typeof payload.args[key] === 'string') {
+          textFragments.push(payload.args[key]);
+        }
+      }
     }
+    for (const reason of checkpointReasonsFromText(textFragments.join('\n'))) {
+      addReason(requested, reason);
+    }
+
+    if (event?.type === 'checkpoint_state') {
+      const reason = addReason(requested, payload.reason);
+      if (!reason) {
+        continue;
+      }
+      if (payload.attemptKind === 'primary') {
+        addReason(primaryAttempted, reason);
+      }
+      if (payload.status === 'consulted_good') {
+        addReason(consulted, reason);
+        addReason(consultedGood, reason);
+      } else if (
+        payload.status === 'consulted_weak' ||
+        payload.status === 'failed' ||
+        payload.status === 'repair_skipped_reserved_checkpoint_slot' ||
+        payload.status === 'fallback_skipped_reserved_checkpoint_slot'
+      ) {
+        addFailure(reason, {
+          status: payload.status,
+          outcome: payload.outcome,
+          attempt_kind: payload.attemptKind,
+          finish_reason: payload.finishReason,
+          parser_outcome: payload.parserOutcome,
+          truncated: payload.truncated,
+          failure_kind: payload.failureKind,
+        });
+      } else if (payload.status === 'budget_blocked') {
+        addBudgetBlocked(reason, {
+          status: payload.status,
+          outcome: 'budget_exhausted',
+        });
+      }
+    }
+
     if (
       event?.type === 'observer_decision' &&
       payload.reasonCode === 'pollux.escalation.executor_advisor_request'
@@ -716,45 +831,86 @@ export function auditStrictFdCheckpointTrace(traceText) {
       for (const attribution of payload.contributingSignalAttributions ?? []) {
         const reason = checkpointReasonFromAttribution(attribution);
         if (reason) {
+          addReason(requested, reason);
           pendingDecisionReasons.push(reason);
         }
       }
     }
     if (
       event?.type === 'advisor_attempt' &&
-      payload.reasonCode === 'pollux.escalation.executor_advisor_request' &&
-      payload.outcome === 'consulted'
+      payload.reasonCode === 'pollux.escalation.executor_advisor_request'
     ) {
-      const reason = pendingDecisionReasons.shift();
+      const reason = payload.checkpointReason ?? pendingDecisionReasons.shift();
       if (reason) {
-        consulted.push(reason);
+        addReason(requested, reason);
+        if (payload.attemptKind === 'primary') {
+          addReason(primaryAttempted, reason);
+        }
+        if (payload.outcome === 'consulted') {
+          addReason(consulted, reason);
+          if (payload.checkpointConsultedGood === true) {
+            addReason(consultedGood, reason);
+          } else {
+            addFailure(reason, {
+              outcome: payload.outcome,
+              attempt_kind: payload.attemptKind,
+              finish_reason: payload.outputFinishReason,
+              parser_outcome: payload.parserOutcome,
+              truncated: payload.truncated,
+              failure_kind:
+                payload.strictCheckpointFailureKind ?? 'weak_guidance',
+            });
+          }
+        } else {
+          addFailure(reason, {
+            outcome: payload.outcome,
+            attempt_kind: payload.attemptKind,
+            finish_reason: payload.outputFinishReason,
+            parser_outcome: payload.parserOutcome,
+            truncated: payload.truncated,
+            failure_kind:
+              payload.strictCheckpointFailureKind ?? payload.failureKind,
+          });
+        }
       }
     }
   }
 
-  const canonicalRequested = uniqueKnownFdCheckpointReasons([
-    ...requested,
-    ...consulted,
-  ]);
+  const canonicalRequested = uniqueKnownFdCheckpointReasons(requested);
+  const canonicalPrimaryAttempted =
+    uniqueKnownFdCheckpointReasons(primaryAttempted);
   const canonicalConsulted = uniqueKnownFdCheckpointReasons(consulted);
-  const consultedSet = new Set(canonicalConsulted);
+  const canonicalConsultedGood = uniqueKnownFdCheckpointReasons(consultedGood);
+  const consultedGoodSet = new Set(canonicalConsultedGood);
   const requestedSet = new Set(canonicalRequested);
+  const observedSet = new Set([
+    ...canonicalRequested,
+    ...canonicalPrimaryAttempted,
+    ...canonicalConsulted,
+    ...canonicalConsultedGood,
+    ...failed.map((entry) => entry.reason),
+    ...budgetBlocked.map((entry) => entry.reason),
+  ]);
   const missing = STRICT_FD_CHECKPOINT_REASONS.filter(
-    (reason) => !requestedSet.has(reason),
+    (reason) => !observedSet.has(reason),
   );
   const requestedButNotConsulted = STRICT_FD_CHECKPOINT_REASONS.filter(
-    (reason) => requestedSet.has(reason) && !consultedSet.has(reason),
+    (reason) => requestedSet.has(reason) && !consultedGoodSet.has(reason),
   );
 
   return {
     required: STRICT_FD_CHECKPOINT_REASONS,
+    requested: canonicalRequested,
+    primary_attempted: canonicalPrimaryAttempted,
     consulted: canonicalConsulted,
+    consulted_good: canonicalConsultedGood,
+    failed,
+    budget_blocked: budgetBlocked,
     requested_but_not_consulted: requestedButNotConsulted,
     missing,
-    complete:
-      missing.length === 0 &&
-      requestedButNotConsulted.length === 0 &&
-      canonicalConsulted.length === STRICT_FD_CHECKPOINT_REASONS.length,
+    complete: STRICT_FD_CHECKPOINT_REASONS.every((reason) =>
+      consultedGoodSet.has(reason),
+    ),
   };
 }
 
@@ -769,6 +925,7 @@ export function buildDeepSwePrompt(task, options = {}) {
           '- Before the first source edit, request advisor contract extraction with exactly: <pollux:advisor_request reason="contract extraction before source edit" timing="now"/>',
           '- After substantial source edits or repeated failed tests, request advisor risk review with: <pollux:advisor_request reason="mid-run risk review after edits or failed tests" timing="now"/>',
           '- Before final completion, request final diff audit with: <pollux:advisor_request reason="final diff audit before completion" timing="now"/>',
+          '- A shell echo, comment, or no-op command that merely says you are requesting an advisor is not a checkpoint; emit the actual advisor request tag.',
           '- Emit the final diff audit request before any final answer text, then wait for hidden advisor guidance before claiming completion.',
           '- Do not claim completion until final diff audit guidance has been received and considered.',
           '- Treat advisor guidance as hidden implementation constraints; do not mention Pollux in the final answer.',

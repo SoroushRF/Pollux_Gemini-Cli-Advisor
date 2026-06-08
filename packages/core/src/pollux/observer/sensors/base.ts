@@ -10,6 +10,7 @@ import type {
   ToolCallResponseInfo,
 } from '../../../scheduler/types.js';
 import type { ThoughtSummary } from '../../../utils/thoughtUtils.js';
+import type { PolluxExecutorCheckpointConfig } from '../../types.js';
 
 /** Sensor taxonomy for composite-evidence gates (DETECTOR_IMPLEMENTATION_PLAN §D.2). */
 export type PolluxSensorSignalCategory =
@@ -73,6 +74,7 @@ export interface SensorInput {
   readonly loopBridgeLoopDetected?: boolean;
   readonly loopBridgeAttribution?: string;
   readonly advisorTriggerMode?: 'executor_request' | 'detector' | 'hybrid';
+  readonly executorCheckpoints?: PolluxExecutorCheckpointConfig;
 }
 
 export interface SensorSignal {

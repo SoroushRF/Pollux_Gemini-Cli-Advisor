@@ -541,6 +541,22 @@ function buildAdvisorContractLines(
   mode: AdvisorConsultationMode | undefined,
   advisorExecutorProfile: PolluxAdvisorExecutorProfile = 'default',
 ) {
+  if (advisorExecutorProfile === 'strict_fd') {
+    const label =
+      mode === 'final_audit'
+        ? 'strict final diff audit'
+        : mode === 'constraint_audit'
+          ? 'strict checkpoint audit'
+          : 'strict checkpoint guidance';
+    return [
+      `Mode: ${label}`,
+      'You are the stronger advisor for a strict FD checkpoint. Give concrete patch-level guidance the executor can apply immediately.',
+      'Return strict JSON: {"guidance":"1. ... 2. ...","must_include":["..."],"must_forbid":["..."],"verify_before_done":["..."],"confidence":1-10}',
+      'Target 120-260 words. Use exact files, APIs, invariants, old/new value directions, and forbidden implementation patterns from the context.',
+      'Every array must contain at least one specific item. Prefer executable checks and hidden-test hazards over broad advice.',
+      'No markdown. No user-facing prose. No code block unless an exact one-line pattern is essential.',
+    ];
+  }
   if (advisorExecutorProfile === 'flash_lite') {
     const label =
       mode === 'final_audit'

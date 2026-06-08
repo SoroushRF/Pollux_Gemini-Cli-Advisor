@@ -70,7 +70,10 @@ export type PolluxAdvisorTriggerMode =
 
 export type PolluxAdvisorBudgetMode = 'fixed' | 'adaptive';
 
-export type PolluxAdvisorExecutorProfile = 'default' | 'flash_lite';
+export type PolluxAdvisorExecutorProfile =
+  | 'default'
+  | 'flash_lite'
+  | 'strict_fd';
 
 export interface PolluxLongTaskHeuristicConfig {
   readonly minToolCalls: number;
@@ -216,12 +219,24 @@ export interface PolluxExperimentalConfig {
   readonly advisorShamGuidance: string;
   readonly emitAdvisorDebug: boolean;
   readonly diagnosticTrace: PolluxDiagnosticTraceConfig;
+  readonly executorCheckpoints: PolluxExecutorCheckpointConfig;
   /**
    * Max time to wait for an advisor model response before fail-open (ms).
    * P1-07; enforced by runtime integration in later phases.
    */
   readonly advisorRequestTimeoutMs: number;
   readonly detector: PolluxDetectorConfig;
+}
+
+export interface PolluxExecutorCheckpointConfig {
+  readonly enabled: boolean;
+  readonly requiredReasons: readonly string[];
+  readonly enforceRequired: boolean;
+  readonly reserveRequiredPrimarySlots: boolean;
+  readonly minGuidanceWords: number;
+  readonly rejectTruncatedGuidance: boolean;
+  readonly requireStructuredGuidance: boolean;
+  readonly finalGate: boolean;
 }
 
 /** Deep-partial merge input for `experimental.pollux.detector` (settings JSON). */
@@ -251,6 +266,7 @@ export type PolluxExperimentalConfigMergeInput = Partial<
   detector?: PolluxDetectorConfigMergeInput;
   longTaskHeuristic?: Partial<PolluxLongTaskHeuristicConfig>;
   diagnosticTrace?: Partial<PolluxDiagnosticTraceConfig>;
+  executorCheckpoints?: Partial<PolluxExecutorCheckpointConfig>;
 };
 
 /**
@@ -290,6 +306,16 @@ export const DEFAULT_POLLUX_EXPERIMENTAL_CONFIG = {
     includeObserverSignals: true,
     maxTextCharsPerEvent: 4000,
     redactSensitiveText: true,
+  },
+  executorCheckpoints: {
+    enabled: false,
+    requiredReasons: [],
+    enforceRequired: false,
+    reserveRequiredPrimarySlots: false,
+    minGuidanceWords: 20,
+    rejectTruncatedGuidance: false,
+    requireStructuredGuidance: false,
+    finalGate: false,
   },
   advisorRequestTimeoutMs: 120_000,
   detector: DEFAULT_POLLUX_DETECTOR_CONFIG,
@@ -465,7 +491,8 @@ export function mergePolluxExperimentalConfig(
   const executorModel = partial?.executorModel ?? d.executorModel;
   const advisorExecutorProfile =
     partial?.advisorExecutorProfile === 'default' ||
-    partial?.advisorExecutorProfile === 'flash_lite'
+    partial?.advisorExecutorProfile === 'flash_lite' ||
+    partial?.advisorExecutorProfile === 'strict_fd'
       ? partial.advisorExecutorProfile
       : executorModel.toLowerCase().includes('flash-lite')
         ? 'flash_lite'
@@ -534,6 +561,38 @@ export function mergePolluxExperimentalConfig(
         : d.advisorShamGuidance,
     emitAdvisorDebug: partial?.emitAdvisorDebug ?? d.emitAdvisorDebug,
     diagnosticTrace: mergePolluxDiagnosticTraceConfig(partial?.diagnosticTrace),
+    executorCheckpoints: {
+      enabled:
+        partial?.executorCheckpoints?.enabled ?? d.executorCheckpoints.enabled,
+      requiredReasons: Array.isArray(
+        partial?.executorCheckpoints?.requiredReasons,
+      )
+        ? partial.executorCheckpoints.requiredReasons.filter(
+            (reason): reason is string =>
+              typeof reason === 'string' && reason.trim().length > 0,
+          )
+        : d.executorCheckpoints.requiredReasons,
+      enforceRequired:
+        partial?.executorCheckpoints?.enforceRequired ??
+        d.executorCheckpoints.enforceRequired,
+      reserveRequiredPrimarySlots:
+        partial?.executorCheckpoints?.reserveRequiredPrimarySlots ??
+        d.executorCheckpoints.reserveRequiredPrimarySlots,
+      minGuidanceWords: polluxFiniteNumberInRange(
+        partial?.executorCheckpoints?.minGuidanceWords,
+        d.executorCheckpoints.minGuidanceWords,
+        { min: 1 },
+      ),
+      rejectTruncatedGuidance:
+        partial?.executorCheckpoints?.rejectTruncatedGuidance ??
+        d.executorCheckpoints.rejectTruncatedGuidance,
+      requireStructuredGuidance:
+        partial?.executorCheckpoints?.requireStructuredGuidance ??
+        d.executorCheckpoints.requireStructuredGuidance,
+      finalGate:
+        partial?.executorCheckpoints?.finalGate ??
+        d.executorCheckpoints.finalGate,
+    },
     advisorRequestTimeoutMs: Math.max(
       POLLUX_MIN_ADVISOR_TIMEOUT_MS,
       polluxFiniteNumber(

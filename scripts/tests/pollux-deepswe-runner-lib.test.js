@@ -441,12 +441,28 @@ allow_internet = false
       executorModel: 'gemini-3-flash-preview',
       advisorModel: 'gemini-3.1-pro-preview',
       advisorTriggerMode: 'hybrid',
-      maxAdvisorCallsPerTurn: 3,
-      maxAdvisorCallsPerSession: 8,
+      advisorExecutorProfile: 'strict_fd',
+      maxAdvisorCallsPerTurn: 6,
+      maxAdvisorCallsPerSession: 12,
+      executorCheckpoints: {
+        enabled: true,
+        enforceRequired: true,
+        reserveRequiredPrimarySlots: true,
+        minGuidanceWords: 40,
+        rejectTruncatedGuidance: true,
+        requireStructuredGuidance: true,
+        finalGate: true,
+        requiredReasons: [
+          'contract extraction before source edit',
+          'mid-run risk review after edits or failed tests',
+          'final diff audit before completion',
+        ],
+      },
     });
     expect(buildDeepSweConditions('detector').FD.pollux).toMatchObject({
       advisorTriggerMode: 'detector',
       maxAdvisorCallsShortTask: 1,
+      executorCheckpoints: undefined,
     });
   });
 
@@ -480,6 +496,12 @@ allow_internet = false
         contractChecklist: checklist,
       }),
     ).toContain('wait for hidden advisor guidance');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).toContain('shell echo, comment, or no-op command');
   });
 
   it('audits complete strict FD checkpoint traces', () => {
@@ -503,6 +525,9 @@ allow_internet = false
         type: 'advisor_attempt',
         payload: {
           reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'contract extraction before source edit',
+          checkpointConsultedGood: true,
+          attemptKind: 'primary',
           outcome: 'consulted',
         },
       },
@@ -525,6 +550,9 @@ allow_internet = false
         type: 'advisor_attempt',
         payload: {
           reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'mid-run risk review after edits or failed tests',
+          checkpointConsultedGood: true,
+          attemptKind: 'primary',
           outcome: 'consulted',
         },
       },
@@ -547,6 +575,9 @@ allow_internet = false
         type: 'advisor_attempt',
         payload: {
           reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'final diff audit before completion',
+          checkpointConsultedGood: true,
+          attemptKind: 'primary',
           outcome: 'consulted',
         },
       },
@@ -557,6 +588,11 @@ allow_internet = false
     expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
       complete: true,
       consulted: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+        'final diff audit before completion',
+      ],
+      consulted_good: [
         'contract extraction before source edit',
         'mid-run risk review after edits or failed tests',
         'final diff audit before completion',
@@ -587,6 +623,9 @@ allow_internet = false
         type: 'advisor_attempt',
         payload: {
           reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'contract extraction before source edit',
+          checkpointConsultedGood: true,
+          attemptKind: 'primary',
           outcome: 'consulted',
         },
       },
@@ -608,6 +647,167 @@ allow_internet = false
     });
   });
 
+  it('audits r2-style checkpoint request text in tool call args', () => {
+    const trace = [
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: {
+            description: 'Request advisor contract extraction.',
+            command: 'echo "Requesting advisor contract extraction"',
+          },
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: {
+            description: 'Request mid-run risk review.',
+            command: 'echo "Requesting mid-run risk review"',
+          },
+        },
+      },
+      {
+        type: 'executor_text_delta',
+        payload: {
+          text: '<pollux:advisor_request reason="final diff audit before completion" timing="now"/>',
+        },
+      },
+      {
+        type: 'observer_decision',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          contributingSignalAttributions: [
+            'advisor_request reason="final diff audit before completion"',
+          ],
+        },
+      },
+      {
+        type: 'advisor_attempt',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'final diff audit before completion',
+          checkpointConsultedGood: true,
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: false,
+      consulted: ['final diff audit before completion'],
+      requested_but_not_consulted: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+      ],
+      missing: [],
+    });
+  });
+
+  it('audits r3-style weak, failed, and budget-blocked checkpoints honestly', () => {
+    const trace = [
+      {
+        type: 'observer_decision',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          contributingSignalAttributions: [
+            'advisor_request reason="contract extraction before source edit"',
+          ],
+        },
+      },
+      {
+        type: 'advisor_attempt',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'contract extraction before source edit',
+          checkpointConsultedGood: false,
+          strictCheckpointFailureKind: 'truncated_guidance',
+          attemptKind: 'primary',
+          parserOutcome: 'plain_text_fallback',
+          outputFinishReason: 'MAX_TOKENS',
+          truncated: true,
+          outcome: 'consulted',
+        },
+      },
+      {
+        type: 'observer_decision',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          contributingSignalAttributions: [
+            'advisor_request reason="mid-run risk review after edits or failed tests"',
+          ],
+        },
+      },
+      {
+        type: 'advisor_attempt',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'mid-run risk review after edits or failed tests',
+          checkpointConsultedGood: false,
+          attemptKind: 'primary',
+          parserOutcome: 'empty_response',
+          outputFinishReason: 'MAX_TOKENS',
+          outcome: 'empty_response',
+        },
+      },
+      {
+        type: 'checkpoint_state',
+        payload: {
+          reason: 'final diff audit before completion',
+          status: 'budget_blocked',
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: false,
+      requested: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+        'final diff audit before completion',
+      ],
+      primary_attempted: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+      ],
+      consulted: ['contract extraction before source edit'],
+      consulted_good: [],
+      requested_but_not_consulted: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+        'final diff audit before completion',
+      ],
+      missing: [],
+    });
+    const audit = auditStrictFdCheckpointTrace(trace);
+    expect(audit.failed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'contract extraction before source edit',
+          failure_kind: 'truncated_guidance',
+          finish_reason: 'MAX_TOKENS',
+        }),
+        expect.objectContaining({
+          reason: 'mid-run risk review after edits or failed tests',
+          outcome: 'empty_response',
+        }),
+      ]),
+    );
+    expect(audit.budget_blocked).toEqual([
+      expect.objectContaining({
+        reason: 'final diff audit before completion',
+        outcome: 'budget_exhausted',
+      }),
+    ]);
+  });
+
   it('extracts wazero contract hints and flags forbidden restore memory growth', () => {
     const checklist = buildDeepSweContractChecklist({
       taskId: 'wazero-multi-module-snapshots',
@@ -616,6 +816,9 @@ allow_internet = false
 
     expect(checklist.forbiddenBehaviors.join('\n')).toContain(
       'Do not grow target module memory',
+    );
+    expect(checklist.verificationFocus.join('\n')).toContain(
+      'receiver.Compare(other) means the receiver is the old/base snapshot',
     );
     expect(
       analyzeContractChecklistHazards(

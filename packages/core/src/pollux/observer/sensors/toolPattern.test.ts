@@ -7,6 +7,7 @@
 import { GeminiEventType } from '../../../core/turn.js';
 import { describe, expect, it } from 'vitest';
 import type { SensorInput, ToolEventRecord } from './base.js';
+import { SELF_ADVISOR_REQUEST_SIGNAL_ID } from './advisorRequest.js';
 import {
   LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
   TOOL_EXECUTOR_CHECKPOINT_ADVISOR_SIGNAL_ID,
@@ -35,6 +36,7 @@ function requestEvent(
 ): ToolEventRecord {
   return {
     tsMs: Date.now(),
+    callId: `${argsHash}-call`,
     name,
     argsHash,
     readOnly,
@@ -54,9 +56,11 @@ function responseEvent(
   name: string,
   exitCode?: number,
   schemaError?: boolean,
+  callId = `${name}-call`,
 ): ToolEventRecord {
   return {
     tsMs: Date.now(),
+    callId,
     name,
     argsHash: `${name}:h`,
     readOnly: false,
@@ -66,6 +70,21 @@ function responseEvent(
     schemaError,
   };
 }
+
+const strictExecutorCheckpoints = {
+  enabled: true,
+  requiredReasons: [
+    'contract extraction before source edit',
+    'mid-run risk review after edits or failed tests',
+    'final diff audit before completion',
+  ],
+  enforceRequired: true,
+  reserveRequiredPrimarySlots: true,
+  minGuidanceWords: 40,
+  rejectTruncatedGuidance: true,
+  requireStructuredGuidance: true,
+  finalGate: true,
+};
 
 function makeInput(partial: Partial<SensorInput>): SensorInput {
   return {
@@ -546,6 +565,150 @@ describe('pollux/observer/sensors/toolPattern', () => {
     );
   });
 
+  it('strict checkpoints request contract extraction before first Go source mutation', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'write-snapshot',
+            name: 'write_file',
+            args: {
+              file_path: 'experimental/snapshot/snapshot.go',
+              content: 'package snapshot',
+            },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-snapshot', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+            content: 'package snapshot',
+          }),
+        ],
+      }),
+    );
+
+    expect(out).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+        attribution: expect.stringContaining(
+          'advisor_request reason="contract extraction before source edit"',
+        ),
+      }),
+    );
+  });
+
+  it('strict checkpoints request mid-run review on second source mutation', () => {
+    const sensor = new ToolPatternSensor();
+
+    sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'write-one',
+            name: 'write_file',
+            args: { file_path: 'experimental/snapshot/snapshot.go' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-one', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+        ],
+      }),
+    );
+
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        currentTurnAdvisorSuccessWithinTurn: true,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'write-two',
+            name: 'replace',
+            args: { file_path: 'experimental/experimental.go' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-one', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+          requestEvent('replace', 'write-two', false, true, {
+            file_path: 'experimental/experimental.go',
+          }),
+        ],
+      }),
+    );
+
+    expect(out).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+        attribution: expect.stringContaining(
+          'advisor_request reason="mid-run risk review after edits or failed tests"',
+        ),
+      }),
+    );
+  });
+
+  it('strict checkpoints request mid-run review after failed focused test', () => {
+    const sensor = new ToolPatternSensor();
+    const testRequest = requestEvent(
+      'run_shell_command',
+      'test-run',
+      false,
+      false,
+      {
+        command: 'go test ./experimental/snapshot/...',
+      },
+    );
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.ToolCallResponse,
+          value: {
+            callId: testRequest.callId!,
+            responseParts: [{ text: 'exit code: 1' }],
+            resultDisplay: 'go test failed',
+            error: undefined,
+            errorType: undefined,
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-one', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+          testRequest,
+          responseEvent('run_shell_command', 1, false, testRequest.callId),
+        ],
+      }),
+    );
+
+    expect(out).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+        attribution: expect.stringContaining(
+          'advisor_request reason="mid-run risk review after edits or failed tests"',
+        ),
+      }),
+    );
+  });
+
   it('emits finalization audit after high-risk source mutation before m3 marker', () => {
     const sensor = new ToolPatternSensor();
     const out = sensor.observe(
@@ -582,6 +745,75 @@ describe('pollux/observer/sensors/toolPattern', () => {
 
     expect(out.some((s) => s.id === TOOL_FINALIZATION_AUDIT_SIGNAL_ID)).toBe(
       true,
+    );
+  });
+
+  it('strict checkpoints request final diff audit before completion marker', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'done',
+            name: 'write_file',
+            args: { file_path: 'm3-done.txt', content: 'done' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-source', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+          requestEvent('write_file', 'done', false, true, {
+            file_path: 'm3-done.txt',
+            content: 'done',
+          }),
+        ],
+      }),
+    );
+
+    expect(out).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+        attribution: expect.stringContaining(
+          'advisor_request reason="final diff audit before completion"',
+        ),
+      }),
+    );
+  });
+
+  it('strict final gate requests final diff audit on Finished after source mutations', () => {
+    const sensor = new ToolPatternSensor();
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.Finished,
+          value: {
+            reason: undefined,
+            usageMetadata: undefined,
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-source', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+        ],
+      }),
+    );
+
+    expect(out).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+        attribution: expect.stringContaining(
+          'advisor_request reason="final diff audit before completion"',
+        ),
+      }),
     );
   });
 

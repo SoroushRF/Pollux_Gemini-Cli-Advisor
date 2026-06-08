@@ -200,6 +200,10 @@ export interface LiveExecutorObserver {
     success: boolean,
     contributingSignalIds?: readonly string[],
   ): void;
+  snapshotCheckpointContext(): {
+    readonly toolEventWindow: readonly unknown[];
+    readonly currentTurnModelOutputTail: string;
+  };
 }
 
 export interface PolluxObserverDiagnosticTraceSink {
@@ -227,6 +231,12 @@ export const LIVE_EXECUTOR_OBSERVER_NO_OP: LiveExecutorObserver = {
     return undefined;
   },
   noteAdvisorSuccess(): void {},
+  snapshotCheckpointContext(): {
+    readonly toolEventWindow: readonly unknown[];
+    readonly currentTurnModelOutputTail: string;
+  } {
+    return { toolEventWindow: [], currentTurnModelOutputTail: '' };
+  },
 };
 
 class PolluxLiveExecutorObserver implements LiveExecutorObserver {
@@ -396,6 +406,39 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
     this.pendingNextTurnIntent = undefined;
   }
 
+  snapshotCheckpointContext(): {
+    readonly toolEventWindow: readonly unknown[];
+    readonly currentTurnModelOutputTail: string;
+  } {
+    const clamp = (value: string, maxChars: number) =>
+      value.length > maxChars ? value.slice(value.length - maxChars) : value;
+    return {
+      toolEventWindow: this.toolEventWindow.slice(-12).map((entry) => ({
+        tsMs: entry.tsMs,
+        callId: entry.callId,
+        name: entry.name,
+        readOnly: entry.readOnly,
+        mutation: entry.mutation,
+        phase: entry.phase,
+        exitCode: entry.exitCode,
+        schemaError: entry.schemaError,
+        request: entry.request
+          ? {
+              name: entry.request.name,
+              args: entry.request.args,
+            }
+          : undefined,
+        response: entry.response
+          ? {
+              errorType: entry.response.errorType,
+              text: clamp(partToString(entry.response.responseParts), 1_500),
+            }
+          : undefined,
+      })),
+      currentTurnModelOutputTail: clamp(this.currentTurnModelOutput, 4_000),
+    };
+  }
+
   private buildSensorInput(event: ServerGeminiStreamEvent): SensorInput {
     return {
       event,
@@ -405,6 +448,7 @@ class PolluxLiveExecutorObserver implements LiveExecutorObserver {
       userPromptText: this.userPromptText,
       promptConstraintSummary: this.promptConstraintSummary,
       advisorTriggerMode: this.experimental.advisorTriggerMode,
+      executorCheckpoints: this.experimental.executorCheckpoints,
       currentTurnTokenCount: this.currentTurnTokenCount,
       sessionMedianSuccessfulTurnTokens: median(
         this.successfulTurnTokenHistory,

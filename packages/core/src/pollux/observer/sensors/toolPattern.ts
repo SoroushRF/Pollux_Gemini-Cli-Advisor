@@ -12,6 +12,7 @@ import type {
   SensorSignal,
   ToolEventRecord,
 } from './base.js';
+import { SELF_ADVISOR_REQUEST_SIGNAL_ID } from './advisorRequest.js';
 
 /** Tool-pattern sensor slot (Phase D). */
 export const TOOL_PATTERN_SENSOR_ID = 'sensor.tool_pattern' as const;
@@ -74,6 +75,12 @@ function isConfigOrDataPath(path: string): boolean {
 
 function isSourcePath(path: string): boolean {
   return /(^|\/)src(\/|$)|\.(?:ts|tsx|js|jsx|mjs|cjs)$/i.test(path);
+}
+
+function isExecutorCheckpointSourcePath(path: string): boolean {
+  return /(^|\/)src(\/|$)|\.(?:ts|tsx|js|jsx|mjs|cjs|go|py|rs|java|kt|kts|c|cc|cpp|cxx|h|hpp|cs|rb|php|swift|scala)$/i.test(
+    path,
+  );
 }
 
 function isCompletionMarkerPath(path: string): boolean {
@@ -270,6 +277,22 @@ function collectAllowedSourceMutationPaths(
   ];
 }
 
+function collectSourceMutationPaths(
+  mutationRequests: readonly ToolEventRecord[],
+): string[] {
+  return [
+    ...new Set(
+      mutationRequests
+        .flatMap((entry) => collectRequestPaths(entry))
+        .filter(
+          (path) =>
+            isExecutorCheckpointSourcePath(path) &&
+            !isCompletionMarkerPath(path),
+        ),
+    ),
+  ];
+}
+
 function latestResponseFailed(
   responseEvents: readonly ToolEventRecord[],
 ): boolean {
@@ -281,8 +304,187 @@ function latestResponseFailed(
   );
 }
 
+const STRICT_CONTRACT_CHECKPOINT_REASON =
+  'contract extraction before source edit';
+const STRICT_MID_RUN_CHECKPOINT_REASON =
+  'mid-run risk review after edits or failed tests';
+const STRICT_FINAL_AUDIT_CHECKPOINT_REASON =
+  'final diff audit before completion';
+
+const FOCUSED_TEST_COMMAND_RE =
+  /\b(go\s+test|npm\s+(?:run\s+)?test|npm\s+exec|npx\s+(?:jest|vitest)|pnpm\s+(?:test|vitest|jest)|yarn\s+(?:test|vitest|jest)|pytest|vitest|jest|cargo\s+test)\b/i;
+
+function normalizeCheckpointReason(reason: string): string {
+  return reason.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function configuredCheckpointReason(
+  input: SensorInput,
+  reason: string,
+): string | undefined {
+  const requiredReasons = input.executorCheckpoints?.requiredReasons ?? [];
+  const normalized = normalizeCheckpointReason(reason);
+  return requiredReasons.find(
+    (candidate) => normalizeCheckpointReason(candidate) === normalized,
+  );
+}
+
+function toolRequestText(entry: ToolEventRecord | undefined): string {
+  if (!entry?.request) {
+    return '';
+  }
+  const pieces = [entry.request.name];
+  const args = entry.request.args;
+  if (args && typeof args === 'object' && !Array.isArray(args)) {
+    for (const key of ['description', 'command', 'instruction']) {
+      const value = (args)[key];
+      if (typeof value === 'string') {
+        pieces.push(value);
+      }
+    }
+  }
+  return pieces.join('\n');
+}
+
+function isFocusedTestResponse(
+  response: ToolEventRecord,
+  requestEvents: readonly ToolEventRecord[],
+): boolean {
+  const request = requestEvents.find(
+    (entry) => entry.callId === response.callId,
+  );
+  return FOCUSED_TEST_COMMAND_RE.test(toolRequestText(request));
+}
+
 export class ToolPatternSensor implements Sensor {
   readonly id = TOOL_PATTERN_SENSOR_ID;
+  private readonly emittedExecutorCheckpointReasons = new Set<string>();
+
+  beginTurn(): void {
+    this.emittedExecutorCheckpointReasons.clear();
+  }
+
+  private buildStrictCheckpointSignal(
+    input: SensorInput,
+    reason: string,
+    nowMs: number,
+    attributionDetail: string,
+  ): SensorSignal | undefined {
+    if (!input.executorCheckpoints?.enabled) {
+      return undefined;
+    }
+    const canonical = configuredCheckpointReason(input, reason);
+    if (!canonical) {
+      return undefined;
+    }
+    const dedupeKey = normalizeCheckpointReason(canonical);
+    if (this.emittedExecutorCheckpointReasons.has(dedupeKey)) {
+      return undefined;
+    }
+    this.emittedExecutorCheckpointReasons.add(dedupeKey);
+    return {
+      id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+      weight: 3,
+      precisionPrior: 0.95,
+      category: 'self',
+      hardPrecision: true,
+      tsMs: nowMs,
+      attribution: `advisor_request reason="${canonical}" (${attributionDetail})`,
+    };
+  }
+
+  private maybeEmitStrictExecutorCheckpoint(params: {
+    input: SensorInput;
+    requestEvents: readonly ToolEventRecord[];
+    responseEvents: readonly ToolEventRecord[];
+    mutationRequests: readonly ToolEventRecord[];
+    nowMs: number;
+  }): SensorSignal | undefined {
+    const { input, requestEvents, responseEvents, mutationRequests, nowMs } =
+      params;
+    if (!input.executorCheckpoints?.enabled) {
+      return undefined;
+    }
+
+    const sourceMutationRequests = mutationRequests.filter(
+      (entry) => collectSourceMutationPaths([entry]).length > 0,
+    );
+
+    if (input.event.type === GeminiEventType.ToolCallRequest) {
+      const latest = requestEvents.at(-1);
+      if (!latest) {
+        return undefined;
+      }
+      const latestPaths = collectRequestPaths(latest);
+      if (
+        latestPaths.some(isCompletionMarkerPath) &&
+        sourceMutationRequests.length > 0
+      ) {
+        return this.buildStrictCheckpointSignal(
+          input,
+          STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+          nowMs,
+          'before completion marker after source mutations',
+        );
+      }
+
+      const latestSourcePaths = collectSourceMutationPaths([latest]);
+      if (latestSourcePaths.length === 0) {
+        return undefined;
+      }
+      if (
+        sourceMutationRequests.length === 1 &&
+        !input.currentTurnAdvisorSuccessWithinTurn
+      ) {
+        return this.buildStrictCheckpointSignal(
+          input,
+          STRICT_CONTRACT_CHECKPOINT_REASON,
+          nowMs,
+          `before first source mutation: ${latestSourcePaths.join(', ')}`,
+        );
+      }
+      if (sourceMutationRequests.length >= 2) {
+        return this.buildStrictCheckpointSignal(
+          input,
+          STRICT_MID_RUN_CHECKPOINT_REASON,
+          nowMs,
+          `after ${sourceMutationRequests.length} source mutations`,
+        );
+      }
+    }
+
+    if (input.event.type === GeminiEventType.ToolCallResponse) {
+      const latestResponse = responseEvents.at(-1);
+      if (
+        latestResponse &&
+        latestResponseFailed(responseEvents) &&
+        sourceMutationRequests.length > 0 &&
+        isFocusedTestResponse(latestResponse, requestEvents)
+      ) {
+        return this.buildStrictCheckpointSignal(
+          input,
+          STRICT_MID_RUN_CHECKPOINT_REASON,
+          nowMs,
+          'after failed focused test command following source mutation',
+        );
+      }
+    }
+
+    if (
+      input.event.type === GeminiEventType.Finished &&
+      input.executorCheckpoints.finalGate &&
+      sourceMutationRequests.length > 0
+    ) {
+      return this.buildStrictCheckpointSignal(
+        input,
+        STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+        nowMs,
+        'at terminal completion after source mutations',
+      );
+    }
+
+    return undefined;
+  }
 
   observe(input: SensorInput): readonly SensorSignal[] {
     try {
@@ -297,6 +499,16 @@ export class ToolPatternSensor implements Sensor {
       const mutationRequests = requestEvents.filter((entry) => entry.mutation);
       const readOnlyRequests = requestEvents.filter((entry) => entry.readOnly);
       const failureCascadeCount = countTrailingFailures(responseEvents);
+      const strictCheckpointSignal = this.maybeEmitStrictExecutorCheckpoint({
+        input,
+        requestEvents,
+        responseEvents,
+        mutationRequests,
+        nowMs,
+      });
+      if (strictCheckpointSignal) {
+        out.push(strictCheckpointSignal);
+      }
 
       if (input.event.type === GeminiEventType.ToolCallRequest) {
         const latest = requestEvents.at(-1);
@@ -336,6 +548,14 @@ export class ToolPatternSensor implements Sensor {
             hasStandardAnchorInspection ||
             hasAliasCompatibilityAnchor ||
             hasCrossFileSourceSearch;
+          const promptAnchorPaths = [
+            ...summary.mutationProtectedPaths,
+            ...summary.behaviorAnchorPaths,
+            ...summary.sourceOfTruthPaths,
+            ...summary.referencedPaths,
+          ].filter((path) => !isCompletionMarkerPath(path));
+          const hasMultiSurfacePromptAnchor =
+            new Set(promptAnchorPaths.map(normalizePath)).size >= 2;
           if (hasSufficientAnchorInspection) {
             out.push({
               id: LONGITUDINAL_M3_ANCHOR_PRESSURE_SIGNAL_ID,
@@ -353,7 +573,10 @@ export class ToolPatternSensor implements Sensor {
               firstMeaningfulMutation &&
               anchorReadPaths.length >= 1 &&
               !input.currentTurnAdvisorSuccessWithinTurn &&
-              !input.recentAdvisorSuccessWithinTurns
+              !input.recentAdvisorSuccessWithinTurns &&
+              (hasSufficientAnchorInspection ||
+                (hasHighRiskStructuralConstraints(input) &&
+                  hasMultiSurfacePromptAnchor))
             ) {
               const executorCheckpoint =
                 input.advisorTriggerMode === 'executor_request';

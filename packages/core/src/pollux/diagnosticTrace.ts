@@ -19,6 +19,7 @@ export type PolluxDiagnosticTraceEventType =
   | 'advisor_attempt'
   | 'advisor_guidance'
   | 'guidance_injection'
+  | 'checkpoint_state'
   | 'fr_decision_checkpoint'
   | 'oracle_result';
 

@@ -305,6 +305,21 @@ interface PolluxAdvisorAttemptResult {
   readonly guidanceTooShort?: boolean;
   readonly retryableForRepair: boolean;
   readonly retryableForFallback: boolean;
+  readonly strictCheckpointFailureKind?: string;
+  readonly strictCheckpointConsultedGood?: boolean;
+}
+
+interface PolluxStrictCheckpointState {
+  readonly reason: string;
+  requested: boolean;
+  primaryAttempted: boolean;
+  consultedGood: boolean;
+  failed: boolean;
+  budgetBlocked: boolean;
+  lastOutcome?: PolluxAdvisorAttemptOutcome | 'budget_exhausted';
+  lastParserOutcome?: PolluxAdvisorAttemptParserOutcome;
+  lastFinishReason?: string;
+  lastFailureKind?: string;
 }
 
 type PolluxAdvisorConsultationResult =
@@ -314,10 +329,12 @@ type PolluxAdvisorConsultationResult =
       readonly structuredConfidence?: number;
       readonly model: string;
       readonly attemptKind: PolluxAdvisorAttemptKind;
+      readonly checkpointReason?: string;
     }
   | {
       readonly outcome: 'policy_denied' | 'fail_open';
       readonly failureKind?: AdvisorPathFailureKind;
+      readonly checkpointReason?: string;
     };
 
 function resolvePolluxAdvisorExecutorProfile(
@@ -326,10 +343,16 @@ function resolvePolluxAdvisorExecutorProfile(
     advisorExecutorProfile?: string;
   }>,
 ): PolluxAdvisorExecutorProfile {
-  return experimental.advisorExecutorProfile === 'flash_lite' ||
+  if (experimental.advisorExecutorProfile === 'strict_fd') {
+    return 'strict_fd';
+  }
+  if (
+    experimental.advisorExecutorProfile === 'flash_lite' ||
     experimental.executorModel.toLowerCase().includes('flash-lite')
-    ? 'flash_lite'
-    : 'default';
+  ) {
+    return 'flash_lite';
+  }
+  return 'default';
 }
 
 function countWords(value: string): number {
@@ -368,6 +391,19 @@ function isFlashLiteGuidanceTooShort(params: {
     return false;
   }
   return countWords(params.guidance) < 20;
+}
+
+function normalizedPolluxCheckpointReason(reason: string): string {
+  return reason.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function polluxCheckpointReasonFromAttribution(
+  attribution: string | undefined,
+): string | undefined {
+  if (!attribution) {
+    return undefined;
+  }
+  return /\badvisor_request reason="([^"]+)"/i.exec(attribution)?.[1];
 }
 
 function extractThoughtPartsFromGenerateContentResponse(
@@ -502,6 +538,11 @@ export class GeminiClient {
   private polluxSameTurnFiredThisTurn = false;
   private readonly polluxSameTurnExecutorRequestKeysThisTurn =
     new Set<string>();
+  private readonly polluxStrictCheckpointStates = new Map<
+    string,
+    PolluxStrictCheckpointState
+  >();
+  private polluxStrictFinalGateContinuationUsedThisTurn = false;
   private polluxActiveObserver: LiveExecutorObserver | undefined;
   private polluxActiveObserverPromptId: string | undefined;
   private polluxActiveUserPromptText = '';
@@ -1046,6 +1087,234 @@ export class GeminiClient {
     };
   }
 
+  private canonicalPolluxStrictCheckpointReason(
+    reason: string | undefined,
+  ): string | undefined {
+    if (!reason) {
+      return undefined;
+    }
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (
+      !experimental.executorCheckpoints.enabled ||
+      !experimental.executorCheckpoints.enforceRequired
+    ) {
+      return undefined;
+    }
+    const normalized = normalizedPolluxCheckpointReason(reason);
+    return experimental.executorCheckpoints.requiredReasons.find(
+      (candidate) => normalizedPolluxCheckpointReason(candidate) === normalized,
+    );
+  }
+
+  private strictCheckpointReasonFromIntent(
+    intent: SameTurnIntent | NextTurnIntent,
+  ): string | undefined {
+    if (
+      intent.reasonCode !== PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST
+    ) {
+      return undefined;
+    }
+    for (const attribution of intent.contributingSignalAttributions ?? []) {
+      const canonical = this.canonicalPolluxStrictCheckpointReason(
+        polluxCheckpointReasonFromAttribution(attribution),
+      );
+      if (canonical) {
+        return canonical;
+      }
+    }
+    return undefined;
+  }
+
+  private strictCheckpointReasonFromEscalationMeta(meta?: {
+    readonly reasonCode?: string;
+    readonly contributingSignalAttributions?: readonly string[];
+  }): string | undefined {
+    if (
+      meta?.reasonCode !== PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST
+    ) {
+      return undefined;
+    }
+    for (const attribution of meta.contributingSignalAttributions ?? []) {
+      const canonical = this.canonicalPolluxStrictCheckpointReason(
+        polluxCheckpointReasonFromAttribution(attribution),
+      );
+      if (canonical) {
+        return canonical;
+      }
+    }
+    return undefined;
+  }
+
+  private getOrCreateStrictCheckpointState(
+    reason: string,
+  ): PolluxStrictCheckpointState {
+    const key = normalizedPolluxCheckpointReason(reason);
+    let state = this.polluxStrictCheckpointStates.get(key);
+    if (!state) {
+      state = {
+        reason,
+        requested: false,
+        primaryAttempted: false,
+        consultedGood: false,
+        failed: false,
+        budgetBlocked: false,
+      };
+      this.polluxStrictCheckpointStates.set(key, state);
+    }
+    return state;
+  }
+
+  private noteStrictCheckpointRequested(reason: string | undefined): void {
+    if (!reason) {
+      return;
+    }
+    const state = this.getOrCreateStrictCheckpointState(reason);
+    state.requested = true;
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason,
+      status: 'requested',
+    });
+  }
+
+  private noteStrictCheckpointBudgetBlocked(reason: string | undefined): void {
+    if (!reason) {
+      return;
+    }
+    const state = this.getOrCreateStrictCheckpointState(reason);
+    state.requested = true;
+    state.budgetBlocked = true;
+    state.lastOutcome = 'budget_exhausted';
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason,
+      status: 'budget_blocked',
+    });
+  }
+
+  private noteStrictCheckpointAttempt(
+    reason: string | undefined,
+    result: PolluxAdvisorAttemptResult,
+  ): void {
+    if (!reason) {
+      return;
+    }
+    const state = this.getOrCreateStrictCheckpointState(reason);
+    state.requested = true;
+    if (result.attemptKind === 'primary') {
+      state.primaryAttempted = true;
+    }
+    state.lastOutcome = result.outcome;
+    state.lastParserOutcome = result.parserOutcome;
+    state.lastFinishReason = result.outputFinishReason;
+    state.lastFailureKind =
+      result.strictCheckpointFailureKind ?? result.failOpenKind;
+    if (result.strictCheckpointConsultedGood === true) {
+      state.consultedGood = true;
+      state.failed = false;
+    } else if (
+      !result.consultationSucceeded ||
+      result.strictCheckpointFailureKind
+    ) {
+      state.failed = true;
+    }
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason,
+      status:
+        result.strictCheckpointConsultedGood === true
+          ? 'consulted_good'
+          : result.consultationSucceeded
+            ? 'consulted_weak'
+            : 'failed',
+      attemptKind: result.attemptKind,
+      outcome: result.outcome,
+      parserOutcome: result.parserOutcome,
+      finishReason: result.outputFinishReason,
+      truncated: result.truncated,
+      failureKind: result.strictCheckpointFailureKind ?? result.failOpenKind,
+    });
+  }
+
+  private strictCheckpointIsConsultedGood(reason: string | undefined): boolean {
+    if (!reason) {
+      return false;
+    }
+    return (
+      this.polluxStrictCheckpointStates.get(
+        normalizedPolluxCheckpointReason(reason),
+      )?.consultedGood === true
+    );
+  }
+
+  private remainingRequiredCheckpointPrimaryAttempts(): number {
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (
+      !experimental.executorCheckpoints.enabled ||
+      !experimental.executorCheckpoints.enforceRequired
+    ) {
+      return 0;
+    }
+    return experimental.executorCheckpoints.requiredReasons.filter((reason) => {
+      const state = this.polluxStrictCheckpointStates.get(
+        normalizedPolluxCheckpointReason(reason),
+      );
+      return !state?.primaryAttempted;
+    }).length;
+  }
+
+  private canUseRepairAttemptWithoutStarvingRequiredCheckpoints(): boolean {
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (!experimental.executorCheckpoints.reserveRequiredPrimarySlots) {
+      return true;
+    }
+    const remainingPrimary = this.remainingRequiredCheckpointPrimaryAttempts();
+    const remainingTurnSlots =
+      experimental.maxAdvisorCallsPerTurn - this.polluxAdvisorCallsThisTurn;
+    const remainingSessionSlots =
+      experimental.maxAdvisorCallsPerSession -
+      this.polluxAdvisorCallsThisSession;
+    return (
+      Math.min(remainingTurnSlots, remainingSessionSlots) > remainingPrimary
+    );
+  }
+
+  private buildStrictCheckpointContextPacket(params: {
+    readonly reason?: string;
+    readonly intent: SameTurnIntent | NextTurnIntent;
+    readonly pendingToolContextOverride?: string;
+  }): string | undefined {
+    if (!params.reason) {
+      return params.pendingToolContextOverride;
+    }
+    const observerSnapshot =
+      this.polluxActiveObserver?.snapshotCheckpointContext();
+    const checkpointStates = [
+      ...this.polluxStrictCheckpointStates.values(),
+    ].map((state) => ({
+      reason: state.reason,
+      requested: state.requested,
+      primaryAttempted: state.primaryAttempted,
+      consultedGood: state.consultedGood,
+      failed: state.failed,
+      budgetBlocked: state.budgetBlocked,
+      lastOutcome: state.lastOutcome,
+      lastParserOutcome: state.lastParserOutcome,
+      lastFinishReason: state.lastFinishReason,
+      lastFailureKind: state.lastFailureKind,
+    }));
+    const packet = {
+      strictCheckpoint: {
+        reason: params.reason,
+        required:
+          this.config.getPolluxExperimentalConfig().executorCheckpoints
+            .requiredReasons,
+        checkpointStates,
+      },
+      pendingTool: params.pendingToolContextOverride,
+      recentToolEvents: observerSnapshot?.toolEventWindow ?? [],
+      modelOutputTail: observerSnapshot?.currentTurnModelOutputTail,
+    };
+    return JSON.stringify(packet);
+  }
+
   private getPolluxObserverForProcessTurn(params: {
     readonly request: PartListUnion;
     readonly promptId: string;
@@ -1278,6 +1547,12 @@ export class GeminiClient {
       undefined,
     );
 
+    const advisorExecutorProfile =
+      resolvePolluxAdvisorExecutorProfile(experimental);
+    const checkpointReason =
+      this.strictCheckpointReasonFromEscalationMeta(escalationMeta);
+    this.noteStrictCheckpointRequested(checkpointReason);
+
     if (policyResult.decision !== PolicyDecision.ALLOW) {
       if (experimental.emitAdvisorDebug) {
         debugLogger.log(
@@ -1297,15 +1572,13 @@ export class GeminiClient {
             escalationMeta.contributingSignalAttributions,
         });
       }
-      return { outcome: 'policy_denied' };
+      return { outcome: 'policy_denied', checkpointReason };
     }
-
-    const advisorExecutorProfile =
-      resolvePolluxAdvisorExecutorProfile(experimental);
     const advisorMode = this.resolvePolluxAdvisorConsultationMode({
       turnContext,
       reasonCode: escalationMeta?.reasonCode,
       advisorExecutorProfile,
+      checkpointReason,
     });
     const advisorInput = {
       context: turnContext,
@@ -1368,10 +1641,12 @@ export class GeminiClient {
           advisorPrompt,
           advisorMode,
           advisorExecutorProfile,
+          checkpointReason,
           advisorSignal,
           executorModel: experimental.executorModel,
           escalationMeta,
         });
+      this.noteStrictCheckpointAttempt(checkpointReason, primaryAttempt);
       consultationSucceeded = primaryAttempt.consultationSucceeded;
       failOpenKind = primaryAttempt.failOpenKind;
       if (primaryAttempt.consultationSucceeded && primaryAttempt.guidance) {
@@ -1395,7 +1670,11 @@ export class GeminiClient {
         );
       }
 
-      if (!consultationSucceeded && primaryAttempt.retryableForRepair) {
+      if (
+        !consultationSucceeded &&
+        primaryAttempt.retryableForRepair &&
+        this.canUseRepairAttemptWithoutStarvingRequiredCheckpoints()
+      ) {
         const repairPrompt = buildAdvisorConsultationRepairPrompt({
           input: advisorInput,
           previousResponse: primaryAttempt.rawResponse,
@@ -1413,10 +1692,12 @@ export class GeminiClient {
             advisorPrompt: repairPrompt,
             advisorMode,
             advisorExecutorProfile,
+            checkpointReason,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
           });
+        this.noteStrictCheckpointAttempt(checkpointReason, repairAttempt);
         consultationSucceeded = repairAttempt.consultationSucceeded;
         failOpenKind = repairAttempt.failOpenKind;
         if (repairAttempt.consultationSucceeded && repairAttempt.guidance) {
@@ -1433,10 +1714,18 @@ export class GeminiClient {
             truncated: repairAttempt.truncated,
           };
         }
+      } else if (!consultationSucceeded && primaryAttempt.retryableForRepair) {
+        this.recordPolluxDiagnosticTrace('checkpoint_state', {
+          reason: checkpointReason,
+          status: 'repair_skipped_reserved_checkpoint_slot',
+          remainingRequiredPrimaryAttempts:
+            this.remainingRequiredCheckpointPrimaryAttempts(),
+        });
       } else if (
         !consultationSucceeded &&
         primaryAttempt.retryableForFallback &&
-        fallbackModel !== null
+        fallbackModel !== null &&
+        this.canUseRepairAttemptWithoutStarvingRequiredCheckpoints()
       ) {
         const fallbackAttempt =
           await this.attemptPolluxAdvisorConsultationWithModel({
@@ -1447,10 +1736,12 @@ export class GeminiClient {
             advisorPrompt,
             advisorMode,
             advisorExecutorProfile,
+            checkpointReason,
             advisorSignal,
             executorModel: experimental.executorModel,
             escalationMeta,
           });
+        this.noteStrictCheckpointAttempt(checkpointReason, fallbackAttempt);
         consultationSucceeded = fallbackAttempt.consultationSucceeded;
         failOpenKind = fallbackAttempt.failOpenKind;
         if (fallbackAttempt.consultationSucceeded && fallbackAttempt.guidance) {
@@ -1467,6 +1758,17 @@ export class GeminiClient {
             truncated: fallbackAttempt.truncated,
           };
         }
+      } else if (
+        !consultationSucceeded &&
+        primaryAttempt.retryableForFallback &&
+        fallbackModel !== null
+      ) {
+        this.recordPolluxDiagnosticTrace('checkpoint_state', {
+          reason: checkpointReason,
+          status: 'fallback_skipped_reserved_checkpoint_slot',
+          remainingRequiredPrimaryAttempts:
+            this.remainingRequiredCheckpointPrimaryAttempts(),
+        });
       }
     } catch (error) {
       if (signal.aborted) {
@@ -1553,9 +1855,14 @@ export class GeminiClient {
         structuredConfidence: winningGuidance.structuredConfidence,
         model: winningGuidance.model,
         attemptKind: winningGuidance.attemptKind,
+        checkpointReason,
       };
     }
-    return { outcome: 'fail_open', failureKind: failOpenKind };
+    return {
+      outcome: 'fail_open',
+      failureKind: failOpenKind,
+      checkpointReason,
+    };
   }
 
   private injectPolluxAdvisorGuidance(params: {
@@ -1731,9 +2038,11 @@ export class GeminiClient {
     readonly turnContext: PolluxTurnContext;
     readonly reasonCode?: string;
     readonly advisorExecutorProfile?: PolluxAdvisorExecutorProfile;
+    readonly checkpointReason?: string;
   }): AdvisorConsultationMode {
     if (
-      params.reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT
+      params.reasonCode === PolluxEscalationReasonCode.FINAL_CONSTRAINT_AUDIT ||
+      params.checkpointReason === 'final diff audit before completion'
     ) {
       return 'final_audit';
     }
@@ -1760,6 +2069,44 @@ export class GeminiClient {
     return hasHighRiskConstraint ? 'constraint_audit' : 'compact';
   }
 
+  private classifyStrictCheckpointGuidanceFailure(params: {
+    readonly checkpointReason?: string;
+    readonly guidance: string;
+    readonly mustInclude?: readonly string[];
+    readonly mustForbid?: readonly string[];
+    readonly verifyBeforeDone?: readonly string[];
+    readonly parserOutcome: PolluxAdvisorAttemptParserOutcome;
+    readonly truncated: boolean;
+  }): string | undefined {
+    if (!params.checkpointReason) {
+      return undefined;
+    }
+    const checkpoints =
+      this.config.getPolluxExperimentalConfig().executorCheckpoints;
+    if (!checkpoints.enforceRequired) {
+      return undefined;
+    }
+    if (checkpoints.rejectTruncatedGuidance && params.truncated) {
+      return 'truncated_guidance';
+    }
+    const guidanceWords = countWords(params.guidance);
+    if (
+      params.parserOutcome === 'plain_text_fallback' &&
+      guidanceWords < checkpoints.minGuidanceWords
+    ) {
+      return 'guidance_too_short';
+    }
+    if (
+      checkpoints.requireStructuredGuidance &&
+      (params.mustInclude?.length ?? 0) === 0 &&
+      (params.mustForbid?.length ?? 0) === 0 &&
+      (params.verifyBeforeDone?.length ?? 0) === 0
+    ) {
+      return 'unstructured_guidance';
+    }
+    return undefined;
+  }
+
   private async attemptPolluxAdvisorConsultationWithModel(params: {
     turnId: string;
     attemptIndex: number;
@@ -1768,6 +2115,7 @@ export class GeminiClient {
     advisorPrompt: string;
     advisorMode?: AdvisorConsultationMode;
     advisorExecutorProfile: PolluxAdvisorExecutorProfile;
+    checkpointReason?: string;
     advisorSignal: AbortSignal;
     executorModel: string;
     escalationMeta:
@@ -1834,14 +2182,16 @@ export class GeminiClient {
           systemInstructionOverride:
             'You are a concise advisor for an executor model. Return only the requested guidance.',
           generateContentConfigOverride: {
-            maxOutputTokens:
-              params.advisorExecutorProfile === 'flash_lite'
-                ? (params.advisorMode ?? 'compact') === 'compact'
-                  ? 1024
-                  : 1536
-                : (params.advisorMode ?? 'compact') === 'compact'
-                  ? 384
-                  : 512,
+            maxOutputTokens: (() => {
+              const mode = params.advisorMode ?? 'compact';
+              if (params.advisorExecutorProfile === 'strict_fd') {
+                return mode === 'compact' ? 1024 : 2048;
+              }
+              if (params.advisorExecutorProfile === 'flash_lite') {
+                return mode === 'compact' ? 1024 : 1536;
+              }
+              return mode === 'compact' ? 384 : 512;
+            })(),
             temperature: 0.2,
           },
         },
@@ -1888,6 +2238,9 @@ export class GeminiClient {
           visibleOutputTokens,
           thoughtTokens,
           truncated,
+          strictCheckpointConsultedGood: params.checkpointReason
+            ? false
+            : undefined,
           retryableForRepair: false,
           retryableForFallback:
             params.attemptKind === 'primary' &&
@@ -1922,6 +2275,9 @@ export class GeminiClient {
           visibleOutputTokens,
           thoughtTokens,
           truncated,
+          strictCheckpointConsultedGood: params.checkpointReason
+            ? false
+            : undefined,
           retryableForRepair:
             params.attemptKind === 'primary' &&
             (parsedResponse.reason === 'empty_response' ||
@@ -1938,9 +2294,20 @@ export class GeminiClient {
         mustInclude: parsedResponse.mustInclude,
         verifyBeforeDone: parsedResponse.verifyBeforeDone,
       });
+      const strictCheckpointFailure =
+        this.classifyStrictCheckpointGuidanceFailure({
+          checkpointReason: params.checkpointReason,
+          guidance: parsedResponse.guidance,
+          mustInclude: parsedResponse.mustInclude,
+          mustForbid: parsedResponse.mustForbid,
+          verifyBeforeDone: parsedResponse.verifyBeforeDone,
+          parserOutcome: parsedResponse.parserOutcome,
+          truncated,
+        });
       if (
-        params.advisorExecutorProfile === 'flash_lite' &&
-        (truncated || guidanceTooShort)
+        (params.advisorExecutorProfile === 'flash_lite' &&
+          (truncated || guidanceTooShort)) ||
+        strictCheckpointFailure
       ) {
         result = {
           attemptIndex: params.attemptIndex,
@@ -1961,7 +2328,11 @@ export class GeminiClient {
           visibleOutputTokens,
           thoughtTokens,
           truncated,
-          guidanceTooShort,
+          guidanceTooShort:
+            guidanceTooShort ||
+            strictCheckpointFailure === 'guidance_too_short',
+          strictCheckpointFailureKind: strictCheckpointFailure,
+          strictCheckpointConsultedGood: false,
           retryableForRepair: params.attemptKind === 'primary',
           retryableForFallback: false,
         };
@@ -1993,6 +2364,9 @@ export class GeminiClient {
         thoughtTokens,
         truncated,
         guidanceTooShort,
+        strictCheckpointConsultedGood: params.checkpointReason
+          ? true
+          : undefined,
         retryableForRepair: false,
         retryableForFallback: false,
       };
@@ -2028,6 +2402,9 @@ export class GeminiClient {
           visibleOutputTokens: 0,
           thoughtTokens: 0,
           truncated: false,
+          strictCheckpointConsultedGood: params.checkpointReason
+            ? false
+            : undefined,
           retryableForRepair: false,
           retryableForFallback: params.attemptKind === 'primary',
         };
@@ -2049,6 +2426,9 @@ export class GeminiClient {
         visibleOutputTokens: 0,
         thoughtTokens: 0,
         truncated: false,
+        strictCheckpointConsultedGood: params.checkpointReason
+          ? false
+          : undefined,
         retryableForRepair: false,
         retryableForFallback:
           params.attemptKind === 'primary' &&
@@ -2077,6 +2457,9 @@ export class GeminiClient {
           parserOutcome: result.parserOutcome,
           outcome: result.outcome,
           failureKind: result.failOpenKind,
+          checkpointReason: params.checkpointReason,
+          checkpointConsultedGood: result.strictCheckpointConsultedGood,
+          strictCheckpointFailureKind: result.strictCheckpointFailureKind,
           advisorExecutorProfile: result.advisorExecutorProfile,
           outputFinishReason: result.outputFinishReason,
           visibleOutputTokens: result.visibleOutputTokens,
@@ -2231,6 +2614,8 @@ export class GeminiClient {
       options.sameTurnDowngraded === true || inferredDowngrade
         ? true
         : undefined;
+    const checkpointReason = this.strictCheckpointReasonFromIntent(intent);
+    this.noteStrictCheckpointRequested(checkpointReason);
 
     const eligibility = checkPolluxEligibility({
       runtimeSurface,
@@ -2252,6 +2637,9 @@ export class GeminiClient {
         contributingSignalIds: intent.contributingSignalIds,
         contributingSignalAttributions: intent.contributingSignalAttributions,
       });
+      if (outcome === 'budget_exhausted') {
+        this.noteStrictCheckpointBudgetBlocked(checkpointReason);
+      }
       return outcome;
     }
 
@@ -2275,12 +2663,19 @@ export class GeminiClient {
       ? this.polluxActiveUserPromptText
       : partListUnionToString(request);
 
+    const strictCheckpointContextOverride =
+      this.buildStrictCheckpointContextPacket({
+        reason: checkpointReason,
+        intent,
+        pendingToolContextOverride,
+      });
+
     const turnContext = this.buildPolluxTurnContext(
       request,
       prompt_id,
       runtimeSurface,
       experimental,
-      pendingToolContextOverride,
+      strictCheckpointContextOverride,
       isFunctionResponseContinuation
         ? this.polluxActiveUserPromptText
         : undefined,
@@ -2302,6 +2697,7 @@ export class GeminiClient {
         contributingSignalIds: intent.contributingSignalIds,
         contributingSignalAttributions: intent.contributingSignalAttributions,
       });
+      this.noteStrictCheckpointBudgetBlocked(checkpointReason);
       return 'budget_exhausted';
     }
 
@@ -2406,6 +2802,7 @@ export class GeminiClient {
   ): Promise<PolluxIntentConsultationOutcome> {
     const experimental = this.config.getPolluxExperimentalConfig();
     const sameTurnEnabled = experimental.detector.timing.sameTurnEnabled;
+    const checkpointReason = this.strictCheckpointReasonFromIntent(intent);
 
     const executorRequestKey = polluxExecutorAdvisorRequestKey(intent);
     const canUseMultiCheckpointSlot =
@@ -2461,6 +2858,9 @@ export class GeminiClient {
         contributingSignalIds: intent.contributingSignalIds,
         contributingSignalAttributions: intent.contributingSignalAttributions,
       });
+      if (budgetBlocked) {
+        this.noteStrictCheckpointBudgetBlocked(checkpointReason);
+      }
       return budgetBlocked ? 'budget_exhausted' : 'skipped';
     }
 
@@ -2486,7 +2886,13 @@ export class GeminiClient {
             executorRequestKey,
           );
         }
-        polluxObserver.noteAdvisorSuccess(true, intent.contributingSignalIds);
+        const strictCheckpointComplete =
+          checkpointReason === undefined ||
+          this.strictCheckpointIsConsultedGood(checkpointReason);
+        polluxObserver.noteAdvisorSuccess(
+          strictCheckpointComplete,
+          intent.contributingSignalIds,
+        );
       } else if (outcome === 'budget_exhausted') {
         // Budget went from allowed at pre-check to exhausted during execution
         // (race with parallel surface). Treat as a downgrade so the attempt
@@ -2728,6 +3134,7 @@ export class GeminiClient {
     let isError = false;
     let isInvalidStream = false;
     let polluxStatusTagStreamCarry = '';
+    let polluxStrictFinalGateContinuationRequest: PartListUnion | undefined;
 
     let loopDetectedAbort = false;
     let loopRecoverResult: { detail?: string } | undefined;
@@ -2773,7 +3180,7 @@ export class GeminiClient {
         if (postIntent?.pauseBoundary === 'post_event') {
           const consumed = polluxObserver.consumeSameTurnIntent();
           if (consumed) {
-            await this.runPolluxSameTurnConsult(
+            const outcome = await this.runPolluxSameTurnConsult(
               request,
               signal,
               prompt_id,
@@ -2781,6 +3188,25 @@ export class GeminiClient {
               consumed,
               polluxObserver,
             );
+            const checkpointReason =
+              this.strictCheckpointReasonFromIntent(consumed);
+            if (
+              event.type === GeminiEventType.Finished &&
+              checkpointReason === 'final diff audit before completion' &&
+              outcome === 'consulted' &&
+              this.strictCheckpointIsConsultedGood(checkpointReason) &&
+              !this.polluxStrictFinalGateContinuationUsedThisTurn &&
+              boundedTurns > 1
+            ) {
+              this.polluxStrictFinalGateContinuationUsedThisTurn = true;
+              this.flushPolluxPendingAdvisorGuidance();
+              polluxStrictFinalGateContinuationRequest = [
+                {
+                  text: 'Continue after applying hidden advisor guidance. Make any needed code changes before final completion. Do not mention Pollux.',
+                },
+              ];
+              break;
+            }
           }
         }
       }
@@ -2870,6 +3296,18 @@ export class GeminiClient {
 
     const polluxExperimentalAfterStream =
       this.config.getPolluxExperimentalConfig();
+    if (polluxStrictFinalGateContinuationRequest && !signal.aborted) {
+      controller.abort();
+      return yield* this.processTurn(
+        polluxStrictFinalGateContinuationRequest,
+        signal,
+        prompt_id,
+        boundedTurns - 1,
+        false,
+        displayContent,
+        runtimeSurface,
+      );
+    }
     if (
       polluxStatusTagStreamCarry.length > 0 &&
       polluxExperimentalAfterStream.enabled &&
@@ -3049,6 +3487,8 @@ export class GeminiClient {
       this.hookStateMap.delete(this.lastPromptId);
       this.lastPromptId = prompt_id;
       this.currentSequenceModel = null;
+      this.polluxStrictCheckpointStates.clear();
+      this.polluxStrictFinalGateContinuationUsedThisTurn = false;
     }
 
     if (hooksEnabled && messageBus) {

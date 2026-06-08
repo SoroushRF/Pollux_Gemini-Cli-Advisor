@@ -7499,6 +7499,123 @@ ${JSON.stringify(
       );
     });
 
+    it('rejects truncated tiny guidance for strict FD checkpoints', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['contract extraction before source edit'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: 'check compare direction' }],
+            },
+            finishReason: FinishReason.MAX_TOKENS,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'contract extraction before source edit',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        parserOutcome: 'parse_error',
+        outcome: 'parse_error',
+        strictCheckpointFailureKind: 'truncated_guidance',
+        strictCheckpointConsultedGood: false,
+        retryableForRepair: true,
+      });
+    });
+
+    it('uses final-audit budgets for strict FD final checkpoints', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['final diff audit before completion'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      const generateSpy = vi
+        .spyOn(client, 'generateContent')
+        .mockResolvedValue({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      guidance:
+                        '1. Recheck receiver.Compare(other) direction so OldValue comes from the receiver/base snapshot and NewValue comes from the other snapshot. 2. Inspect each DiffEntry construction and verify module grouping plus ascending offsets. 3. Run the focused snapshot tests before completion.',
+                      must_include: ['OldValue from receiver snapshot'],
+                      must_forbid: ['NewValue from receiver/base data'],
+                      verify_before_done: [
+                        'go test ./experimental/snapshot/...',
+                      ],
+                      confidence: 8,
+                    }),
+                  },
+                ],
+              },
+              finishReason: FinishReason.STOP,
+            },
+          ],
+        } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'final_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'final diff audit before completion',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: true,
+        strictCheckpointConsultedGood: true,
+      });
+      expect(generateSpy).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({
+          generateContentConfigOverride: expect.objectContaining({
+            maxOutputTokens: 2048,
+          }),
+        }),
+      );
+    });
+
     it('classifies quota-looking advisor response text as quota_exhausted', async () => {
       vi.spyOn(client, 'generateContent').mockResolvedValue({
         candidates: [

@@ -22,6 +22,38 @@ function makeInput(text: string): SensorInput {
   };
 }
 
+function makeToolInput(command: string, description = ''): SensorInput {
+  return {
+    event: {
+      type: GeminiEventType.ToolCallRequest,
+      value: {
+        callId: 'tool-1',
+        name: 'run_shell_command',
+        args: { command, description },
+        isClientInitiated: false,
+        prompt_id: 'prompt-1',
+      },
+    },
+    turnElapsedMs: 0,
+    toolEventWindow: [],
+    thoughtWindow: [],
+    executorCheckpoints: {
+      enabled: true,
+      requiredReasons: [
+        'contract extraction before source edit',
+        'mid-run risk review after edits or failed tests',
+        'final diff audit before completion',
+      ],
+      enforceRequired: true,
+      reserveRequiredPrimarySlots: true,
+      minGuidanceWords: 40,
+      rejectTruncatedGuidance: true,
+      requireStructuredGuidance: true,
+      finalGate: true,
+    },
+  };
+}
+
 describe('pollux/observer/sensors/advisorRequest', () => {
   it('emits hard-precision signal for forgiving advisor request line', () => {
     const sensor = new AdvisorRequestSensor();
@@ -87,5 +119,39 @@ describe('pollux/observer/sensors/advisorRequest', () => {
         ),
       ),
     ).toEqual([]);
+  });
+
+  it('maps strict checkpoint shell request text to contract extraction', () => {
+    const sensor = new AdvisorRequestSensor();
+    const signals = sensor.observe(
+      makeToolInput('echo "Requesting advisor contract extraction"'),
+    );
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toMatchObject({
+      id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+      attribution:
+        'advisor_request reason="contract extraction before source edit"',
+    });
+  });
+
+  it('maps strict checkpoint shell request text to mid-run review', () => {
+    const sensor = new AdvisorRequestSensor();
+    const signals = sensor.observe(
+      makeToolInput('echo "Requesting mid-run risk review"'),
+    );
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0].attribution).toBe(
+      'advisor_request reason="mid-run risk review after edits or failed tests"',
+    );
+  });
+
+  it('ignores generic shell echoes that are not strict checkpoint aliases', () => {
+    const sensor = new AdvisorRequestSensor();
+
+    expect(sensor.observe(makeToolInput('echo "Requesting status"'))).toEqual(
+      [],
+    );
   });
 });
