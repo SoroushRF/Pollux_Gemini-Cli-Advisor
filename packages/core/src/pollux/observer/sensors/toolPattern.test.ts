@@ -603,7 +603,7 @@ describe('pollux/observer/sensors/toolPattern', () => {
     );
   });
 
-  it('strict checkpoints request mid-run review on second source mutation', () => {
+  it('strict checkpoints do not request mid-run review merely on second source mutation', () => {
     const sensor = new ToolPatternSensor();
 
     sensor.observe(
@@ -649,6 +649,68 @@ describe('pollux/observer/sensors/toolPattern', () => {
           }),
           requestEvent('replace', 'write-two', false, true, {
             file_path: 'experimental/experimental.go',
+          }),
+        ],
+      }),
+    );
+
+    expect(
+      out.some(
+        (signal) =>
+          signal.id === SELF_ADVISOR_REQUEST_SIGNAL_ID &&
+          signal.attribution?.includes(
+            'advisor_request reason="mid-run risk review after edits or failed tests"',
+          ),
+      ),
+    ).toBe(false);
+  });
+
+  it('strict checkpoints request mid-run review on repeated source churn', () => {
+    const sensor = new ToolPatternSensor();
+
+    sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'write-one',
+            name: 'write_file',
+            args: { file_path: 'experimental/snapshot/snapshot.go' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-one', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+        ],
+      }),
+    );
+
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        currentTurnAdvisorSuccessWithinTurn: true,
+        event: {
+          type: GeminiEventType.ToolCallRequest,
+          value: {
+            callId: 'write-two',
+            name: 'replace',
+            args: { file_path: 'experimental/snapshot/snapshot.go' },
+            isClientInitiated: false,
+            prompt_id: 'prompt-1',
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-one', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+          requestEvent('replace', 'write-two', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
           }),
         ],
       }),
@@ -813,6 +875,106 @@ describe('pollux/observer/sensors/toolPattern', () => {
         attribution: expect.stringContaining(
           'advisor_request reason="final diff audit before completion"',
         ),
+      }),
+    );
+  });
+
+  it('strict final gate does not repeat without a new source mutation', () => {
+    const sensor = new ToolPatternSensor();
+    const baseWindow = [
+      requestEvent('write_file', 'write-source', false, true, {
+        file_path: 'experimental/snapshot/snapshot.go',
+      }),
+    ];
+
+    const first = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.Finished,
+          value: {
+            reason: undefined,
+            usageMetadata: undefined,
+          },
+        },
+        toolEventWindow: baseWindow,
+      }),
+    );
+    const second = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.Finished,
+          value: {
+            reason: undefined,
+            usageMetadata: undefined,
+          },
+        },
+        toolEventWindow: baseWindow,
+      }),
+    );
+
+    expect(first).toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+      }),
+    );
+    expect(second).not.toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
+      }),
+    );
+  });
+
+  it('strict final gate does not re-arm after a new source mutation', () => {
+    const sensor = new ToolPatternSensor();
+
+    sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.Finished,
+          value: {
+            reason: undefined,
+            usageMetadata: undefined,
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-source', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+        ],
+      }),
+    );
+
+    const out = sensor.observe(
+      makeInput({
+        advisorTriggerMode: 'hybrid',
+        executorCheckpoints: strictExecutorCheckpoints,
+        event: {
+          type: GeminiEventType.Finished,
+          value: {
+            reason: undefined,
+            usageMetadata: undefined,
+          },
+        },
+        toolEventWindow: [
+          requestEvent('write_file', 'write-source', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+          requestEvent('replace', 'write-source-again', false, true, {
+            file_path: 'experimental/snapshot/snapshot.go',
+          }),
+        ],
+      }),
+    );
+
+    expect(out).not.toContainEqual(
+      expect.objectContaining({
+        id: SELF_ADVISOR_REQUEST_SIGNAL_ID,
       }),
     );
   });

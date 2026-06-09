@@ -324,9 +324,22 @@ function configuredCheckpointReason(
 ): string | undefined {
   const requiredReasons = input.executorCheckpoints?.requiredReasons ?? [];
   const normalized = normalizeCheckpointReason(reason);
-  return requiredReasons.find(
+  const configured = requiredReasons.find(
     (candidate) => normalizeCheckpointReason(candidate) === normalized,
   );
+  if (configured) {
+    return configured;
+  }
+  for (const builtIn of [
+    STRICT_CONTRACT_CHECKPOINT_REASON,
+    STRICT_MID_RUN_CHECKPOINT_REASON,
+    STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+  ]) {
+    if (normalizeCheckpointReason(builtIn) === normalized) {
+      return builtIn;
+    }
+  }
+  return undefined;
 }
 
 function toolRequestText(entry: ToolEventRecord | undefined): string {
@@ -337,7 +350,7 @@ function toolRequestText(entry: ToolEventRecord | undefined): string {
   const args = entry.request.args;
   if (args && typeof args === 'object' && !Array.isArray(args)) {
     for (const key of ['description', 'command', 'instruction']) {
-      const value = (args)[key];
+      const value = args[key];
       if (typeof value === 'string') {
         pieces.push(value);
       }
@@ -356,9 +369,40 @@ function isFocusedTestResponse(
   return FOCUSED_TEST_COMMAND_RE.test(toolRequestText(request));
 }
 
+function hasRepeatedSourceEdit(
+  mutationRequests: readonly ToolEventRecord[],
+): boolean {
+  const counts = new Map<string, number>();
+  for (const path of mutationRequests.flatMap((entry) =>
+    collectSourceMutationPaths([entry]),
+  )) {
+    const next = (counts.get(path) ?? 0) + 1;
+    if (next >= 2) {
+      return true;
+    }
+    counts.set(path, next);
+  }
+  return false;
+}
+
+function hasMultiFileHighRiskMutation(
+  sourceMutationRequests: readonly ToolEventRecord[],
+): boolean {
+  const paths = collectSourceMutationPaths(sourceMutationRequests);
+  if (new Set(paths).size < 2) {
+    return false;
+  }
+  const text = sourceMutationRequests.map(toolRequestText).join('\n');
+  return /\b(import|module|interface|type|class|func|package|schema|migration|concurrency|goroutine|async|await|transaction|lock|state machine)\b/i.test(
+    text,
+  );
+}
+
 export class ToolPatternSensor implements Sensor {
   readonly id = TOOL_PATTERN_SENSOR_ID;
   private readonly emittedExecutorCheckpointReasons = new Set<string>();
+  private lastFinalAuditSourceMutationCount = 0;
+  private finalAuditEmitted = false;
 
   beginTurn(): void {
     this.emittedExecutorCheckpointReasons.clear();
@@ -393,6 +437,33 @@ export class ToolPatternSensor implements Sensor {
     };
   }
 
+  private buildStrictFinalAuditSignal(
+    input: SensorInput,
+    sourceMutationRequests: readonly ToolEventRecord[],
+    nowMs: number,
+    attributionDetail: string,
+  ): SensorSignal | undefined {
+    if (this.finalAuditEmitted) {
+      return undefined;
+    }
+    if (
+      sourceMutationRequests.length <= this.lastFinalAuditSourceMutationCount
+    ) {
+      return undefined;
+    }
+    const signal = this.buildStrictCheckpointSignal(
+      input,
+      STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+      nowMs,
+      attributionDetail,
+    );
+    if (signal) {
+      this.lastFinalAuditSourceMutationCount = sourceMutationRequests.length;
+      this.finalAuditEmitted = true;
+    }
+    return signal;
+  }
+
   private maybeEmitStrictExecutorCheckpoint(params: {
     input: SensorInput;
     requestEvents: readonly ToolEventRecord[];
@@ -420,9 +491,9 @@ export class ToolPatternSensor implements Sensor {
         latestPaths.some(isCompletionMarkerPath) &&
         sourceMutationRequests.length > 0
       ) {
-        return this.buildStrictCheckpointSignal(
+        return this.buildStrictFinalAuditSignal(
           input,
-          STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+          sourceMutationRequests,
           nowMs,
           'before completion marker after source mutations',
         );
@@ -443,12 +514,16 @@ export class ToolPatternSensor implements Sensor {
           `before first source mutation: ${latestSourcePaths.join(', ')}`,
         );
       }
-      if (sourceMutationRequests.length >= 2) {
+      if (
+        sourceMutationRequests.length >= 2 &&
+        (hasRepeatedSourceEdit(sourceMutationRequests) ||
+          hasMultiFileHighRiskMutation(sourceMutationRequests))
+      ) {
         return this.buildStrictCheckpointSignal(
           input,
           STRICT_MID_RUN_CHECKPOINT_REASON,
           nowMs,
-          `after ${sourceMutationRequests.length} source mutations`,
+          `after ${sourceMutationRequests.length} risky or churned source mutations`,
         );
       }
     }
@@ -475,9 +550,9 @@ export class ToolPatternSensor implements Sensor {
       input.executorCheckpoints.finalGate &&
       sourceMutationRequests.length > 0
     ) {
-      return this.buildStrictCheckpointSignal(
+      return this.buildStrictFinalAuditSignal(
         input,
-        STRICT_FINAL_AUDIT_CHECKPOINT_REASON,
+        sourceMutationRequests,
         nowMs,
         'at terminal completion after source mutations',
       );
