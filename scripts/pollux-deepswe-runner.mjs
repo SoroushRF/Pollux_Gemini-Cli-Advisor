@@ -23,9 +23,13 @@ import {
   buildDeepSwePrompt,
   buildDependencyPreflightDockerArgs,
   buildPreflightReport,
+  buildProjectDependencyInstallDockerArgs,
   buildVerifierDockerArgs,
+  classifyVerifierBaselinePreflight,
   classifyVerifierResult,
   copyDirectoryNormalizedForVerifier,
+  analyzeApprovalModeContamination,
+  inspectNonInteractiveAuthReadiness,
   inferDependencyPreflight,
   loadDeepSweManifest,
   loadDeepSweTask,
@@ -236,6 +240,31 @@ function runGemini(args, options) {
   });
 }
 
+function redactCliArgs(args) {
+  const secretFlags = new Set([
+    '--api-key',
+    '--auth-token',
+    '--access-token',
+    '--refresh-token',
+  ]);
+  const out = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = String(args[i]);
+    if (secretFlags.has(arg)) {
+      out.push(arg, '[REDACTED]');
+      i += 1;
+    } else if (/^(--(?:api-key|auth-token|access-token|refresh-token)=)/i.test(arg)) {
+      out.push(arg.replace(/=.*/u, '=[REDACTED]'));
+    } else if (arg === '--prompt') {
+      out.push(arg, '[PROMPT_REDACTED]');
+      i += 1;
+    } else {
+      out.push(arg);
+    }
+  }
+  return out;
+}
+
 function buildCleanGeminiEnv(homeDir) {
   const cleanEnv = { ...process.env };
   for (const key of Object.keys(cleanEnv)) {
@@ -335,16 +364,42 @@ function summarizeTelemetry(telemetryPath) {
 }
 
 async function collectPatch(workDir) {
-  await execFile('git', ['add', '-N', '.'], {
+  const solutionPathspec = [
+    '.',
+    ':(exclude).gemini',
+    ':(exclude).gemini/**',
+    ':(exclude)node_modules',
+    ':(exclude)node_modules/**',
+    ':(exclude)**/node_modules',
+    ':(exclude)**/node_modules/**',
+    ':(exclude).pnpm-store',
+    ':(exclude).pnpm-store/**',
+    ':(exclude).yarn/cache',
+    ':(exclude).yarn/cache/**',
+  ];
+  await execFile('git', ['add', '-N', '--', ...solutionPathspec], {
     cwd: workDir,
     allowFailure: true,
   });
-  const diff = await execFile(
-    'git',
-    ['diff', '--binary', '--', '.', ':(exclude).gemini'],
-    { cwd: workDir },
-  );
-  return diff.stdout;
+  const attempts = [
+    ['diff', '--binary', '--', ...solutionPathspec],
+    ['diff', '--no-ext-diff', '--', ...solutionPathspec],
+  ];
+  const failures = [];
+  for (const args of attempts) {
+    const diff = await execFile('git', args, {
+      cwd: workDir,
+      allowFailure: true,
+    });
+    if (diff.code === 0) {
+      return diff.stdout;
+    }
+    failures.push(
+      `git ${args.join(' ')} failed with code ${diff.code}\n${diff.stderr}`,
+    );
+    await sleep(500);
+  }
+  throw new Error(failures.join('\n\n'));
 }
 
 function seedAuthFiles(homeGeminiDir) {
@@ -578,6 +633,20 @@ function dependencyPreflightCacheDir(dependencyPreflight, taskId) {
   return record?.cacheDir ?? null;
 }
 
+function assertNonInteractiveAuthReady(runDir) {
+  const readiness = inspectNonInteractiveAuthReadiness(process.env);
+  fs.writeFileSync(
+    path.join(runDir, 'auth-preflight.json'),
+    `${JSON.stringify(readiness, null, 2)}\n`,
+  );
+  if (!readiness.ok) {
+    throw new Error(
+      `Non-interactive auth preflight failed. Provide GEMINI_API_KEY, GOOGLE_API_KEY, ADC, or Gemini OAuth files. See ${path.join(runDir, 'auth-preflight.json')}.`,
+    );
+  }
+  return readiness;
+}
+
 async function runVerifier(task, workDir, rawDir, args, options = {}) {
   if (args.noVerifier) {
     return {
@@ -605,6 +674,42 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
   const artifactDir = path.join(rawDir, 'artifacts');
   ensureDir(verifierLogDir);
   ensureDir(artifactDir);
+  const installDockerArgs = buildProjectDependencyInstallDockerArgs({
+    dockerImage: task.dockerImage,
+    workDir,
+    dependencyCacheDir: options.dependencyCacheDir,
+    dependencyOffline: options.dependencyOffline !== false,
+    network: options.network ?? 'none',
+  });
+  fs.writeFileSync(
+    path.join(rawDir, 'verifier-dependency-install-command.json'),
+    `${JSON.stringify({ command: args.dockerCommand, args: installDockerArgs }, null, 2)}\n`,
+  );
+  const installResult = await execFile(args.dockerCommand, installDockerArgs, {
+    cwd: workDir,
+    allowFailure: true,
+  });
+  fs.writeFileSync(
+    path.join(rawDir, 'verifier-dependency-install-stdout.txt'),
+    installResult.stdout,
+  );
+  fs.writeFileSync(
+    path.join(rawDir, 'verifier-dependency-install-stderr.txt'),
+    installResult.stderr,
+  );
+  if (installResult.code !== 0) {
+    return {
+      result: installResult,
+      classification: classifyVerifierResult({
+        exitCode: installResult.code,
+        verifierLogDir,
+        scorePolicy: args.scorePolicy,
+        stdout: installResult.stdout,
+        stderr: installResult.stderr,
+        dependencyPreflightFailed: true,
+      }),
+    };
+  }
   const testsDir = prepareVerifierTests(task, rawDir);
   const dockerArgs = buildVerifierDockerArgs({
     dockerImage: task.dockerImage,
@@ -614,6 +719,8 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
     artifactDir,
     timeoutSec: task.verifierTimeoutSec,
     dependencyCacheDir: options.dependencyCacheDir,
+    dependencyOffline: options.dependencyOffline,
+    network: options.network,
   });
   fs.writeFileSync(
     path.join(rawDir, 'verifier-command.json'),
@@ -635,6 +742,140 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
   return { result, classification };
 }
 
+async function runBaselineVerifierPreflightForTasks(params) {
+  const { args, runDir, selected, dependencyPreflight } = params;
+  const preflightRoot = path.join(runDir, 'baseline-verifier-preflight');
+  ensureDir(preflightRoot);
+  const seenTaskIds = new Set();
+  const tasks = [];
+  for (const taskEntry of selected) {
+    if (seenTaskIds.has(taskEntry.taskId)) {
+      continue;
+    }
+    seenTaskIds.add(taskEntry.taskId);
+    const taskDir = resolveDeepSweTaskDir(args.deepsweRepo, taskEntry.taskId);
+    const task = loadDeepSweTask(taskDir, taskEntry);
+    const rawDir = path.join(preflightRoot, task.taskId);
+    ensureDir(rawDir);
+    const workDir = await createWorktree(
+      task,
+      `BASELINE_PREFLIGHT__${task.taskId}`,
+      path.join(runDir, 'baseline-verifier-preflight-workspaces'),
+      resolveRepoPath(repoRoot, args.scratchRoot),
+    );
+    const verifierLogDir = path.join(rawDir, 'verifier');
+    const artifactDir = path.join(rawDir, 'artifacts');
+    ensureDir(verifierLogDir);
+    ensureDir(artifactDir);
+    const testsDir = prepareVerifierTests(task, rawDir);
+    const dependencyCacheDir = dependencyPreflightCacheDir(
+      dependencyPreflight,
+      task.taskId,
+    );
+    const dockerArgs = buildVerifierDockerArgs({
+      dockerImage: task.dockerImage,
+      workDir,
+      testsDir,
+      verifierLogDir,
+      artifactDir,
+      timeoutSec: task.verifierTimeoutSec,
+      dependencyCacheDir,
+      dependencyOffline: !args.networkedVerifierPreflight,
+      network: args.networkedVerifierPreflight ? 'bridge' : 'none',
+    });
+    const installDockerArgs = buildProjectDependencyInstallDockerArgs({
+      dockerImage: task.dockerImage,
+      workDir,
+      dependencyCacheDir,
+      dependencyOffline: false,
+      network: args.networkedVerifierPreflight ? 'bridge' : 'none',
+    });
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-dependency-install-command.json'),
+      `${JSON.stringify({ command: args.dockerCommand, args: installDockerArgs }, null, 2)}\n`,
+    );
+    const installResult = await execFile(args.dockerCommand, installDockerArgs, {
+      cwd: workDir,
+      allowFailure: true,
+    });
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
+      installResult.stdout,
+    );
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-dependency-install-stderr.txt'),
+      installResult.stderr,
+    );
+    if (installResult.code !== 0) {
+      tasks.push({
+        taskId: task.taskId,
+        repository: task.repository,
+        dockerImage: task.dockerImage,
+        workDir,
+        dependencyCacheDir,
+        networked: args.networkedVerifierPreflight,
+        stdoutPath: path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
+        stderrPath: path.join(rawDir, 'baseline-verifier-dependency-install-stderr.txt'),
+        ok: false,
+        required: true,
+        exitCode: installResult.code,
+        verifier_baseline_exit_code: null,
+        verifier_new_tests_exit_code: null,
+        dependency_failure: true,
+        failure_kind: 'dependency_install_failure',
+      });
+      continue;
+    }
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-preflight-command.json'),
+      `${JSON.stringify({ command: args.dockerCommand, args: dockerArgs }, null, 2)}\n`,
+    );
+    const result = await execFile(args.dockerCommand, dockerArgs, {
+      cwd: workDir,
+      allowFailure: true,
+    });
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
+      result.stdout,
+    );
+    fs.writeFileSync(
+      path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
+      result.stderr,
+    );
+    const classification = classifyVerifierBaselinePreflight({
+      exitCode: result.code,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      dependencyPreflightFailed: dependencyPreflightFailed(
+        dependencyPreflight,
+        task.taskId,
+      ),
+    });
+    tasks.push({
+      taskId: task.taskId,
+      repository: task.repository,
+      dockerImage: task.dockerImage,
+      workDir,
+      dependencyCacheDir,
+      networked: args.networkedVerifierPreflight,
+      stdoutPath: path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
+      stderrPath: path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
+      ...classification,
+    });
+  }
+  const report = {
+    generatedAt: new Date().toISOString(),
+    networked: args.networkedVerifierPreflight,
+    ok: tasks.every((task) => task.ok || task.required === false),
+    tasks,
+  };
+  fs.writeFileSync(
+    path.join(runDir, 'baseline-verifier-preflight.json'),
+    `${JSON.stringify(report, null, 2)}\n`,
+  );
+  return report;
+}
+
 async function runDependencyPreflightForTasks(params) {
   const { args, runDir, selected } = params;
   const dependencyRoot = path.join(runDir, 'dependency-preflight');
@@ -654,6 +895,8 @@ async function runDependencyPreflightForTasks(params) {
     const spec = inferDependencyPreflight(testScript, {
       language: task.language,
       testPatchText,
+      taskId: task.taskId,
+      repository: task.repository,
     });
     const cacheDir = path.join(rawDir, 'dependency-cache');
     ensureDir(cacheDir);
@@ -857,6 +1100,43 @@ async function addCommandPreflightChecks(report, args, entrypoint) {
     required: true,
     detail: entrypoint,
   });
+  if (entrypoint.kind === 'bundle') {
+    const bundlePath = path.join(repoRoot, 'bundle', 'gemini.js');
+    const freshnessPaths = [
+      path.join(repoRoot, 'packages', 'core', 'src', 'core', 'client.ts'),
+      path.join(
+        repoRoot,
+        'packages',
+        'core',
+        'src',
+        'pollux',
+        'observer',
+        'sensors',
+        'toolPattern.ts',
+      ),
+      path.join(repoRoot, 'packages', 'core', 'src', 'pollux', 'prompts.ts'),
+      path.join(repoRoot, 'scripts', 'pollux-deepswe-runner.mjs'),
+      path.join(repoRoot, 'scripts', 'pollux-deepswe-runner-lib.mjs'),
+    ];
+    const bundleMtime = fs.existsSync(bundlePath)
+      ? fs.statSync(bundlePath).mtimeMs
+      : 0;
+    const newerInputs = freshnessPaths
+      .filter((candidate) => fs.existsSync(candidate))
+      .filter((candidate) => fs.statSync(candidate).mtimeMs > bundleMtime)
+      .map((candidate) => path.relative(repoRoot, candidate));
+    report.checks.push({
+      id: 'bundle_fresh_for_pollux',
+      ok: fs.existsSync(bundlePath) && newerInputs.length === 0,
+      required: false,
+      detail: {
+        bundlePath,
+        newerInputs,
+        behavior:
+          'Paid bundle-entrypoint runs should rebuild with npm.cmd run bundle when this check warns.',
+      },
+    });
+  }
   report.ok = report.checks.every((check) => check.ok || !check.required);
   return report;
 }
@@ -993,6 +1273,7 @@ async function runOne(params) {
     timedOut: false,
     terminationReason: null,
   };
+  let launchedCliArgs = null;
   if (!args.verifierOnly) {
     if (args.goldPatchMode) {
       await applySolutionPatch(task, workDir);
@@ -1011,6 +1292,10 @@ async function runOne(params) {
           resolveRepoPath(repoRoot, args.fakeResponsesPath),
         );
       }
+      launchedCliArgs = redactCliArgs([
+        ...entrypoint.initialArgs,
+        ...geminiArgs,
+      ]);
       result = await runGemini(geminiArgs, {
         cwd: workDir,
         homeDir,
@@ -1070,6 +1355,29 @@ async function runOne(params) {
     condition,
     args,
   );
+  const traceText = fs.existsSync(tracePath)
+    ? fs.readFileSync(tracePath, 'utf8')
+    : '';
+  const approvalModeAnalysis = analyzeApprovalModeContamination(
+    [traceText, result.stderr, result.stdout].join('\n'),
+  );
+  const approvalModeContamination =
+    approvalModeAnalysis.approval_mode_contamination;
+  if (fdCheckpointAudit && approvalModeContamination) {
+    fdCheckpointAudit.approval_mode_contamination = true;
+    fdCheckpointAudit.complete = false;
+    fdCheckpointAudit.diagnostic_reason = 'approval_mode_contamination';
+  }
+  if (approvalModeContamination) {
+    classification.valid_for_score = false;
+    classification.score_bucket = 'invalid';
+    classification.resolved = false;
+    classification.invalidation_reason = 'approval_mode_contamination';
+    classification.tool_policy_failure = 'approval_mode_contamination';
+    classification.warnings = mergeWarnings(classification.warnings ?? [], [
+      'approval_mode_contamination',
+    ]);
+  }
   if (fdCheckpointAudit && !fdCheckpointAudit.complete) {
     classification.warnings = mergeWarnings(
       classification.warnings ?? [],
@@ -1109,6 +1417,18 @@ async function runOne(params) {
     timed_out: result.timedOut,
     termination_reason: result.terminationReason,
     exit_code: result.code,
+    launched_cli_args: launchedCliArgs,
+    approval_mode_contamination: approvalModeContamination,
+    approval_mode_observed: approvalModeAnalysis.approval_mode_observed,
+    approval_mode_recovered: approvalModeAnalysis.approval_mode_recovered,
+    approval_mode_active_at_end:
+      approvalModeAnalysis.approval_mode_active_at_end,
+    approval_mode_enter_count: approvalModeAnalysis.approval_mode_enter_count,
+    approval_mode_exit_count: approvalModeAnalysis.approval_mode_exit_count,
+    approval_mode_source_write_attempted:
+      approvalModeAnalysis.approval_mode_source_write_attempted,
+    approval_mode_execution_after_exit:
+      approvalModeAnalysis.approval_mode_execution_after_exit,
     patch_chars: patch.length,
     contract_checklist: contractChecklist,
     contract_hazards: contractHazards,
@@ -1166,18 +1486,32 @@ async function rescoreOne(params) {
     condition,
     args,
   );
-  const sourceWarnings = mergeWarnings(
-    sourceRecord.warnings ?? [],
-    fdCheckpointAudit && !fdCheckpointAudit.complete
-      ? ['fd_checkpoint_incomplete']
-      : [],
-  );
   const sourceStdout = fs.existsSync(sourceStdoutPath)
     ? fs.readFileSync(sourceStdoutPath, 'utf8')
     : '';
   const sourceStderr = fs.existsSync(sourceStderrPath)
     ? fs.readFileSync(sourceStderrPath, 'utf8')
     : '';
+  const sourceTrace = fs.existsSync(sourceTracePath)
+    ? fs.readFileSync(sourceTracePath, 'utf8')
+    : '';
+  const approvalModeAnalysis = analyzeApprovalModeContamination(
+    [sourceTrace, sourceStderr, sourceStdout].join('\n'),
+  );
+  const approvalModeContamination =
+    approvalModeAnalysis.approval_mode_contamination;
+  if (fdCheckpointAudit && approvalModeContamination) {
+    fdCheckpointAudit.approval_mode_contamination = true;
+    fdCheckpointAudit.complete = false;
+    fdCheckpointAudit.diagnostic_reason = 'approval_mode_contamination';
+  }
+  const sourceWarnings = mergeWarnings(
+    sourceRecord.warnings ?? [],
+    fdCheckpointAudit && !fdCheckpointAudit.complete
+      ? ['fd_checkpoint_incomplete']
+      : [],
+    approvalModeContamination ? ['approval_mode_contamination'] : [],
+  );
   const patch = fs.existsSync(sourcePatchPath)
     ? fs.readFileSync(sourcePatchPath, 'utf8')
     : '';
@@ -1206,6 +1540,18 @@ async function rescoreOne(params) {
     source_sample_id: sourceRecord.sample_id,
     source_run_dir: sourceRunDir,
     source_raw_dir: sourceRawDir,
+    launched_cli_args: sourceRecord.launched_cli_args ?? null,
+    approval_mode_contamination: approvalModeContamination,
+    approval_mode_observed: approvalModeAnalysis.approval_mode_observed,
+    approval_mode_recovered: approvalModeAnalysis.approval_mode_recovered,
+    approval_mode_active_at_end:
+      approvalModeAnalysis.approval_mode_active_at_end,
+    approval_mode_enter_count: approvalModeAnalysis.approval_mode_enter_count,
+    approval_mode_exit_count: approvalModeAnalysis.approval_mode_exit_count,
+    approval_mode_source_write_attempted:
+      approvalModeAnalysis.approval_mode_source_write_attempted,
+    approval_mode_execution_after_exit:
+      approvalModeAnalysis.approval_mode_execution_after_exit,
     ...telemetryFieldsFromSource(sourceRecord),
   };
 
@@ -1291,6 +1637,16 @@ async function rescoreOne(params) {
     responseCeilingExceeded: false,
     scorePolicy: args.scorePolicy,
   });
+  if (approvalModeContamination) {
+    classification.valid_for_score = false;
+    classification.score_bucket = 'invalid';
+    classification.resolved = false;
+    classification.invalidation_reason = 'approval_mode_contamination';
+    classification.tool_policy_failure = 'approval_mode_contamination';
+    classification.warnings = mergeWarnings(classification.warnings ?? [], [
+      'approval_mode_contamination',
+    ]);
+  }
   const mergedWarnings = mergeWarnings(
     sourceWarnings,
     classification.warnings ?? [],
@@ -1385,6 +1741,61 @@ function readRunRecords(runDir) {
     }
   }
   return records;
+}
+
+function buildRunnerExceptionRecord({
+  args,
+  condition,
+  runDir,
+  taskEntry,
+  task,
+  error,
+}) {
+  const sampleId = [
+    condition.id,
+    task.taskId,
+    `r${String(taskEntry.repeat).padStart(2, '0')}`,
+  ].join('__');
+  const rawDir = path.join(runDir, 'raw', condition.id, task.taskId, sampleId);
+  ensureDir(rawDir);
+  const message = error instanceof Error ? error.stack : String(error);
+  fs.writeFileSync(path.join(rawDir, 'runner-error.txt'), `${message}\n`);
+  const record = {
+    task_id: task.taskId,
+    sample_id: sampleId,
+    repeat: taskEntry.repeat,
+    repo: task.repository,
+    condition: condition.id,
+    benchmark: 'DeepSWE',
+    lane: 'secondary',
+    model_name_or_path: `pollux-${condition.id.toLowerCase()}-${condition.modelName}`,
+    score_policy: args.scorePolicy,
+    model_patch: '',
+    work_dir: null,
+    timed_out: false,
+    termination_reason: null,
+    exit_code: null,
+    patch_chars: 0,
+    apiResponses: 0,
+    executorTokens: 0,
+    advisorTokens: 0,
+    totalTokens: 0,
+    advisorCalls: 0,
+    valid_for_score: false,
+    invalidation_reason: 'runner_exception',
+    score_bucket: 'invalid',
+    patch_stats: analyzePatch(''),
+    warnings: ['runner_exception'],
+    runner_error: firstLine(message),
+    verifier_exit_code: null,
+    verifier_skipped: true,
+    resolved: false,
+  };
+  fs.writeFileSync(
+    path.join(rawDir, 'run.json'),
+    `${JSON.stringify(record, null, 2)}\n`,
+  );
+  return record;
 }
 
 async function main() {
@@ -1486,10 +1897,22 @@ async function main() {
     args.dependencyPreflight || args.dependencyWarmup
       ? await runDependencyPreflightForTasks({ args, runDir, selected })
       : null;
+  const preflightBaselineVerifier =
+    args.baselineVerifierPreflight && args.mode === 'preflight'
+      ? await runBaselineVerifierPreflightForTasks({
+          args,
+          runDir,
+          selected,
+          dependencyPreflight,
+        })
+      : null;
   if (args.mode === 'preflight') {
     const dependencyOk = dependencyPreflight?.ok ?? true;
+    const baselineVerifierOk = preflightBaselineVerifier?.ok ?? true;
     console.log(
-      `[deepswe] preflight ${preflight.ok && dependencyOk ? 'ok' : 'failed'}`,
+      `[deepswe] preflight ${
+        preflight.ok && dependencyOk && baselineVerifierOk ? 'ok' : 'failed'
+      }`,
     );
     console.log(`[deepswe] wrote ${path.join(runDir, 'preflight.json')}`);
     if (dependencyPreflight) {
@@ -1497,7 +1920,12 @@ async function main() {
         `[deepswe] wrote ${path.join(runDir, 'dependency-preflight.json')}`,
       );
     }
-    if (!preflight.ok || !dependencyOk) {
+    if (preflightBaselineVerifier) {
+      console.log(
+        `[deepswe] wrote ${path.join(runDir, 'baseline-verifier-preflight.json')}`,
+      );
+    }
+    if (!preflight.ok || !dependencyOk || !baselineVerifierOk) {
       process.exitCode = 1;
     }
     return;
@@ -1509,6 +1937,23 @@ async function main() {
   ) {
     throw new Error(
       `Dependency preflight failed. See ${path.join(runDir, 'dependency-preflight.json')}.`,
+    );
+  }
+  if (args.mode === 'run') {
+    assertNonInteractiveAuthReady(runDir);
+  }
+  const baselineVerifierPreflight =
+    args.baselineVerifierPreflight && args.mode === 'run'
+      ? await runBaselineVerifierPreflightForTasks({
+          args,
+          runDir,
+          selected,
+          dependencyPreflight,
+        })
+      : null;
+  if (baselineVerifierPreflight && !baselineVerifierPreflight.ok) {
+    throw new Error(
+      `Baseline verifier preflight failed before model launch. See ${path.join(runDir, 'baseline-verifier-preflight.json')}.`,
     );
   }
   const deepsweGitSha = await readGitSha(args.deepsweRepo);
@@ -1537,6 +1982,7 @@ async function main() {
         dependencyPreflight: args.dependencyPreflight,
         dependencyWarmup: args.dependencyWarmup,
         networkedVerifierPreflight: args.networkedVerifierPreflight,
+        baselineVerifierPreflight: args.baselineVerifierPreflight,
         entrypoint: args.entrypoint,
         binaryPath: args.binaryPath ?? null,
         fakeResponsesPath:
@@ -1577,51 +2023,63 @@ async function main() {
       const sourceRecord = sourceRecordMap?.get(
         sourceRecordKey(condition.id, task.taskId, taskEntry.repeat),
       );
-      const record =
-        args.mode === 'rescore'
-          ? sourceRecord
-            ? await rescoreOne({
+      let record;
+      try {
+        record =
+          args.mode === 'rescore'
+            ? sourceRecord
+              ? await rescoreOne({
+                  args,
+                  condition,
+                  runDir,
+                  sourceRunDir: args.sourceRun,
+                  sourceRecord,
+                  taskEntry,
+                  task,
+                  dependencyPreflight,
+                })
+              : {
+                  task_id: task.taskId,
+                  sample_id: [
+                    condition.id,
+                    task.taskId,
+                    `r${String(taskEntry.repeat).padStart(2, '0')}`,
+                  ].join('__'),
+                  repeat: taskEntry.repeat,
+                  repo: task.repository,
+                  condition: condition.id,
+                  benchmark: 'DeepSWE',
+                  lane: 'secondary',
+                  rescore_only: true,
+                  model_reused_from_run: path.basename(args.sourceRun),
+                  source_sample_id: null,
+                  model_patch: '',
+                  patch_apply_status: 'source_record_missing',
+                  valid_for_score: false,
+                  invalidation_reason: 'source_record_missing',
+                  score_bucket: 'invalid',
+                  patch_stats: analyzePatch(''),
+                  warnings: [],
+                }
+            : await runOne({
                 args,
                 condition,
+                entrypoint,
                 runDir,
-                sourceRunDir: args.sourceRun,
-                sourceRecord,
                 taskEntry,
                 task,
                 dependencyPreflight,
-              })
-            : {
-                task_id: task.taskId,
-                sample_id: [
-                  condition.id,
-                  task.taskId,
-                  `r${String(taskEntry.repeat).padStart(2, '0')}`,
-                ].join('__'),
-                repeat: taskEntry.repeat,
-                repo: task.repository,
-                condition: condition.id,
-                benchmark: 'DeepSWE',
-                lane: 'secondary',
-                rescore_only: true,
-                model_reused_from_run: path.basename(args.sourceRun),
-                source_sample_id: null,
-                model_patch: '',
-                patch_apply_status: 'source_record_missing',
-                valid_for_score: false,
-                invalidation_reason: 'source_record_missing',
-                score_bucket: 'invalid',
-                patch_stats: analyzePatch(''),
-                warnings: [],
-              }
-          : await runOne({
-              args,
-              condition,
-              entrypoint,
-              runDir,
-              taskEntry,
-              task,
-              dependencyPreflight,
-            });
+              });
+      } catch (error) {
+        record = buildRunnerExceptionRecord({
+          args,
+          condition,
+          runDir,
+          taskEntry,
+          task,
+          error,
+        });
+      }
       if (args.mode === 'rescore' && !sourceRecord) {
         const rawDir = path.join(
           runDir,

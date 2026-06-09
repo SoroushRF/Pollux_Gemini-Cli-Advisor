@@ -9,6 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  analyzeApprovalModeContamination,
   analyzeContractChecklistHazards,
   auditStrictFdCheckpointTrace,
   buildDeepSweConditions,
@@ -16,10 +17,14 @@ import {
   buildDeepSwePrompt,
   buildDependencyPreflightDockerArgs,
   buildPreflightReport,
+  buildProjectDependencyInstallDockerArgs,
   buildVerifierDockerArgs,
+  classifyVerifierBaselinePreflight,
   classifyVerifierResult,
   copyDirectoryNormalizedForVerifier,
   deepsweConditions,
+  detectApprovalModeContamination,
+  inspectNonInteractiveAuthReadiness,
   inferDependencyPreflight,
   loadDeepSweManifest,
   loadDeepSweTask,
@@ -27,6 +32,7 @@ import {
   parseDeepSweRunnerArgs,
   parseSimpleToml,
   selectDeepSweTasks,
+  STRICT_FD_CHECKPOINT_REASONS,
   summarizeDeepSweRecords,
 } from '../pollux-deepswe-runner-lib.mjs';
 
@@ -247,6 +253,8 @@ allow_internet = false
     expect(
       inferDependencyPreflight('bash /app/test.sh base', {
         language: 'typescript',
+        taskId: 'ts-pattern-match-each',
+        repository: 'gvergnaud/ts-pattern',
         testPatchText: '+  npx jest --no-coverage tests/foo.test.ts',
       }),
     ).toMatchObject({
@@ -254,6 +262,18 @@ allow_internet = false
       required: true,
       command: expect.stringContaining('jest'),
       warmupCommand: expect.stringContaining('npm exec --yes --package jest'),
+      extraWarmupPackages: ['@unrs/resolver-binding-linux-x64-gnu@1.11.1'],
+    });
+    expect(
+      inferDependencyPreflight('bash /app/test.sh base && npx vitest run', {
+        language: 'typescript',
+        taskId: 'true-myth-iterable-collection-combinators',
+        repository: 'true-myth/true-myth',
+      }),
+    ).toMatchObject({
+      kind: 'npm',
+      warmupCommand: expect.stringContaining('vitest'),
+      extraWarmupPackages: [],
     });
   });
 
@@ -288,6 +308,53 @@ allow_internet = false
         cacheDir: '/cache/task-a',
       }),
     ).toContain('/cache/task-a:/dependency-cache');
+  });
+
+  it('builds verifier preflight args that can warm dependencies online', () => {
+    const args = buildVerifierDockerArgs({
+      dockerImage: 'example/demo:latest',
+      workDir: '/work',
+      testsDir: '/tests',
+      verifierLogDir: '/logs/verifier',
+      artifactDir: '/logs/artifacts',
+      dependencyCacheDir: '/cache/task-a',
+      dependencyOffline: false,
+      network: 'bridge',
+    });
+    expect(args).toContain('bridge');
+    expect(args).toContain('/cache/task-a:/dependency-cache');
+    expect(args).toContain('npm_config_prefer_offline=true');
+    expect(args).not.toContain('npm_config_offline=true');
+  });
+
+  it('builds project dependency install args for verifier containers', () => {
+    const args = buildProjectDependencyInstallDockerArgs({
+      dockerImage: 'example/demo:latest',
+      workDir: '/work',
+      dependencyCacheDir: '/cache/task-a',
+      dependencyOffline: false,
+      network: 'bridge',
+    });
+    expect(args).toContain('/work:/app');
+    expect(args).toContain('/cache/task-a:/dependency-cache');
+    expect(args).toContain('bridge');
+    expect(args.at(-1)).toContain('pnpm install --frozen-lockfile');
+    expect(args.at(-1)).not.toContain(
+      'pnpm install --frozen-lockfile --prefer-online',
+    );
+    expect(args.at(-1)).toContain('allowBuilds');
+    expect(args.at(-1)).toContain('esbuild: true');
+    expect(args.at(-1)).toContain('npm ci --prefer-online');
+    expect(args).not.toContain('npm_config_offline=true');
+
+    const offlineArgs = buildProjectDependencyInstallDockerArgs({
+      dockerImage: 'example/demo:latest',
+      workDir: '/work',
+      dependencyCacheDir: '/cache/task-a',
+      dependencyOffline: true,
+    });
+    expect(offlineArgs).toContain('npm_config_offline=true');
+    expect(offlineArgs.at(-1)).toContain('npm ci --prefer-offline');
   });
 
   it('normalizes verifier text files to LF before Docker mounts them', () => {
@@ -433,6 +500,92 @@ allow_internet = false
     });
   });
 
+  it('treats native optional package verifier failures as dependency infra', () => {
+    const verifierLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verifier-'));
+    fs.writeFileSync(path.join(verifierLogDir, 'reward.txt'), '0\n');
+
+    expect(
+      classifyVerifierResult({
+        exitCode: 0,
+        verifierLogDir,
+        scorePolicy: 'strict',
+        stdout: '[verifier] Baseline exit code: 1\n',
+        stderr:
+          'Error: Cannot find module @rollup/rollup-linux-x64-gnu. npm has a bug related to optional dependencies.',
+      }),
+    ).toMatchObject({
+      score_bucket: 'invalid',
+      verifier_failure_kind: 'dependency_failure',
+      verifier_dependency_failure: true,
+      verifier_invalidation_reason: 'verifier_infra_failure',
+    });
+  });
+
+  it('classifies baseline verifier preflight without requiring hidden new tests to pass', () => {
+    expect(
+      classifyVerifierBaselinePreflight({
+        exitCode: 0,
+        stdout:
+          '[verifier] Baseline exit code: 0\n[verifier] New tests exit code: 1\n',
+        stderr: '',
+      }),
+    ).toMatchObject({
+      ok: true,
+      verifier_baseline_exit_code: 0,
+      verifier_new_tests_exit_code: 1,
+      failure_kind: null,
+    });
+
+    expect(
+      classifyVerifierBaselinePreflight({
+        exitCode: 0,
+        stdout: '[verifier] Baseline exit code: 1\n',
+        stderr:
+          'Cannot find module @rollup/rollup-linux-x64-gnu. npm has a bug related to optional dependencies.',
+      }),
+    ).toMatchObject({
+      ok: false,
+      dependency_failure: true,
+      failure_kind: 'dependency_failure',
+    });
+
+    expect(
+      classifyVerifierBaselinePreflight({
+        exitCode: 0,
+        stdout: '[verifier] Baseline exit code: 1\n',
+        stderr: 'AssertionError: expected baseline fixture to pass',
+      }),
+    ).toMatchObject({
+      ok: false,
+      dependency_failure: false,
+      failure_kind: 'baseline_failure',
+    });
+  });
+
+  it('detects non-interactive auth readiness from env or seeded Gemini files', () => {
+    expect(
+      inspectNonInteractiveAuthReadiness({
+        GEMINI_API_KEY: 'test-key',
+      }),
+    ).toMatchObject({ ok: true, hasApiKey: true });
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-auth-'));
+    fs.mkdirSync(path.join(root, '.gemini'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.gemini', 'oauth_creds.json'), '{}\n');
+    expect(
+      inspectNonInteractiveAuthReadiness({
+        HOME: root,
+      }),
+    ).toMatchObject({ ok: true, hasOauthCreds: true });
+
+    expect(
+      inspectNonInteractiveAuthReadiness({ HOME: root + '-missing' }),
+    ).toMatchObject({
+      ok: false,
+      failure_kind: 'noninteractive_auth_missing',
+    });
+  });
+
   it('keeps DeepSWE condition semantics aligned with Pollux A/FD/E', () => {
     expect(deepsweConditions.A.pollux.enabled).toBe(false);
     expect(deepsweConditions.E.modelName).toBe('gemini-3.1-pro-preview');
@@ -442,21 +595,23 @@ allow_internet = false
       advisorModel: 'gemini-3.1-pro-preview',
       advisorTriggerMode: 'hybrid',
       advisorExecutorProfile: 'strict_fd',
-      maxAdvisorCallsPerTurn: 6,
-      maxAdvisorCallsPerSession: 12,
+      maxAdvisorCallsPerTurn: 3,
+      maxAdvisorCallsPerSession: 6,
       executorCheckpoints: {
         enabled: true,
         enforceRequired: true,
         reserveRequiredPrimarySlots: true,
-        minGuidanceWords: 40,
+        minGuidanceWords: 24,
         rejectTruncatedGuidance: true,
         requireStructuredGuidance: true,
         finalGate: true,
         requiredReasons: [
           'contract extraction before source edit',
-          'mid-run risk review after edits or failed tests',
           'final diff audit before completion',
         ],
+      },
+      detector: {
+        selfReport: { enabled: false, promptPrimingEnabled: false },
       },
     });
     expect(buildDeepSweConditions('detector').FD.pollux).toMatchObject({
@@ -466,7 +621,25 @@ allow_internet = false
     });
   });
 
-  it('adds FD advisor checkpoint instructions without changing A/E prompts', () => {
+  it('treats networked verifier preflight as a baseline verifier preflight gate', () => {
+    expect(
+      parseDeepSweRunnerArgs(['--networked-verifier-preflight']),
+    ).toMatchObject({
+      networkedVerifierPreflight: true,
+      baselineVerifierPreflight: true,
+    });
+    expect(
+      parseDeepSweRunnerArgs([
+        '--networked-verifier-preflight',
+        '--no-baseline-verifier-preflight',
+      ]),
+    ).toMatchObject({
+      networkedVerifierPreflight: true,
+      baselineVerifierPreflight: false,
+    });
+  });
+
+  it('adds FD execution notes without model-visible checkpoint choreography', () => {
     const task = {
       taskId: 'demo-task',
       repository: 'acme/demo',
@@ -481,27 +654,69 @@ allow_internet = false
         conditionId: 'A',
         contractChecklist: checklist,
       }),
-    ).not.toContain('Pollux FD steering requirements');
+    ).not.toContain('Pollux Flash-plus-advisor execution notes');
     expect(
       buildDeepSwePrompt(task, {
         conditionId: 'FD',
         contractChecklist: checklist,
       }),
+    ).toContain('Pollux Flash-plus-advisor execution notes');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).toContain('Work normally: inspect, edit, and verify');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).toContain('Do not create implementation-plan files or enter Plan Mode');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).not.toContain('<pollux:advisor_request');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).not.toContain('ADVISOR_REQUEST');
+    expect(
+      buildDeepSwePrompt(
+        { ...task, language: 'go' },
+        {
+          conditionId: 'FD',
+          contractChecklist: checklist,
+        },
+      ),
     ).toContain(
-      '<pollux:advisor_request reason="contract extraction before source edit"',
+      'FD means Flash-plus-advisor in this benchmark, not file descriptors',
     );
     expect(
-      buildDeepSwePrompt(task, {
-        conditionId: 'FD',
-        contractChecklist: checklist,
-      }),
-    ).toContain('wait for hidden advisor guidance');
+      buildDeepSwePrompt(
+        { ...task, language: 'go' },
+        {
+          conditionId: 'FD',
+          contractChecklist: checklist,
+        },
+      ),
+    ).toContain('run `gofmt` on modified Go files and a focused `go test`');
     expect(
       buildDeepSwePrompt(task, {
         conditionId: 'FD',
         contractChecklist: checklist,
       }),
-    ).toContain('shell echo, comment, or no-op command');
+    ).toContain('For JavaScript/TypeScript tasks');
+    expect(
+      buildDeepSwePrompt(task, {
+        conditionId: 'FD',
+        contractChecklist: checklist,
+      }),
+    ).toContain('npx tsc --noEmit');
   });
 
   it('audits complete strict FD checkpoint traces', () => {
@@ -581,6 +796,15 @@ allow_internet = false
           outcome: 'consulted',
         },
       },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: {
+            command: 'go test ./experimental/...',
+          },
+        },
+      },
     ]
       .map((entry) => JSON.stringify(entry))
       .join('\n');
@@ -599,7 +823,321 @@ allow_internet = false
       ],
       requested_but_not_consulted: [],
       missing: [],
+      final_verification_observed: true,
+      final_verification_command: expect.stringContaining(
+        'go test ./experimental/...',
+      ),
     });
+  });
+
+  it('keeps r4-style all-consulted-good traces incomplete without final verification', () => {
+    const trace = [
+      ...STRICT_FD_CHECKPOINT_REASONS.flatMap((reason) => [
+        {
+          type: 'checkpoint_state',
+          payload: {
+            reason,
+            status: 'consulted_good',
+            attemptKind: 'primary',
+            outcome: 'consulted',
+          },
+        },
+      ]),
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: false,
+      consulted_good: STRICT_FD_CHECKPOINT_REASONS,
+      final_verification_observed: false,
+      final_verification_missing: true,
+      diagnostic_reason: 'final_verification_missing',
+    });
+  });
+
+  it('does not keep stale final_verification_missing after later verification', () => {
+    const trace = [
+      ...STRICT_FD_CHECKPOINT_REASONS.map((reason) => ({
+        type: 'checkpoint_state',
+        payload: {
+          reason,
+          status: 'consulted_good',
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      })),
+      {
+        type: 'checkpoint_state',
+        payload: {
+          reason: 'final diff audit before completion',
+          status: 'final_verification_missing',
+          failureKind: 'final_verification_missing',
+          mutationCount: 0,
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: {
+            command:
+              'gofmt -w experimental/snapshot/snapshot.go && go test -v ./experimental/snapshot/...',
+          },
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    const audit = auditStrictFdCheckpointTrace(trace);
+
+    expect(audit).toMatchObject({
+      complete: true,
+      final_verification_observed: true,
+      final_verification_missing: false,
+      final_verification_after_latest_mutation: true,
+      diagnostic_reason: undefined,
+    });
+    expect(audit.failed).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          failure_kind: 'final_verification_missing',
+        }),
+      ]),
+    );
+  });
+
+  it('treats JavaScript and TypeScript test/build commands as final verification', () => {
+    const trace = [
+      ...STRICT_FD_CHECKPOINT_REASONS.map((reason) => ({
+        type: 'checkpoint_state',
+        payload: {
+          reason,
+          status: 'consulted_good',
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      })),
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: {
+            command: 'npx tsc --noEmit && npx jest tests/matchEach.test.ts',
+          },
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: true,
+      final_verification_observed: true,
+      final_verification_missing: false,
+      final_verification_after_latest_mutation: true,
+      final_verification_command: expect.stringContaining('npx tsc --noEmit'),
+    });
+  });
+
+  it('keeps final verification incomplete when a later source mutation happens', () => {
+    const trace = [
+      ...STRICT_FD_CHECKPOINT_REASONS.map((reason) => ({
+        type: 'checkpoint_state',
+        payload: {
+          reason,
+          status: 'consulted_good',
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      })),
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: { command: 'go test ./experimental/snapshot/...' },
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'replace',
+          args: { file_path: 'experimental/snapshot/snapshot.go' },
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: false,
+      final_verification_observed: true,
+      final_verification_missing: true,
+      final_verification_after_latest_mutation: false,
+      post_final_audit_mutation_count: 1,
+      diagnostic_reason: 'final_verification_missing',
+    });
+  });
+
+  it('detects Plan Mode contamination in benchmark artifacts', () => {
+    const text = [
+      '# Active Approval Mode: Plan',
+      'You are operating in **Plan Mode**.',
+      'Error executing tool write_file: Tool execution denied by policy. You are in Plan Mode and cannot modify source code.',
+    ].join('\n');
+
+    expect(detectApprovalModeContamination(text)).toBe(true);
+    expect(auditStrictFdCheckpointTrace(text)).toMatchObject({
+      complete: false,
+      approval_mode_contamination: true,
+      diagnostic_reason: 'approval_mode_contamination',
+    });
+  });
+
+  it('does not treat recovered Plan Mode as score contamination', () => {
+    const trace = [
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'enter_plan_mode',
+          args: { reason: 'design implementation' },
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'write_file',
+          args: { file_path: 'experimental/snapshot/snapshot.go' },
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'exit_plan_mode',
+          args: { plan_filename: 'implementation.md' },
+        },
+      },
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'write_file',
+          args: { file_path: 'experimental/snapshot/snapshot.go' },
+        },
+      },
+      ...STRICT_FD_CHECKPOINT_REASONS.map((reason) => ({
+        type: 'checkpoint_state',
+        payload: {
+          reason,
+          status: 'consulted_good',
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      })),
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: { command: 'go test -v ./experimental/snapshot' },
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(detectApprovalModeContamination(trace)).toBe(false);
+    expect(analyzeApprovalModeContamination(trace)).toMatchObject({
+      approval_mode_observed: true,
+      approval_mode_recovered: true,
+      approval_mode_active_at_end: false,
+      approval_mode_contamination: false,
+      approval_mode_source_write_attempted: true,
+      approval_mode_execution_after_exit: true,
+    });
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: true,
+      approval_mode_observed: true,
+      approval_mode_recovered: true,
+      approval_mode_contamination: false,
+      diagnostic_reason: undefined,
+    });
+  });
+
+  it('treats unrecovered Plan Mode as contamination', () => {
+    const trace = [
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'enter_plan_mode',
+          args: { reason: 'design implementation' },
+        },
+      },
+      ...STRICT_FD_CHECKPOINT_REASONS.map((reason) => ({
+        type: 'checkpoint_state',
+        payload: {
+          reason,
+          status: 'consulted_good',
+          attemptKind: 'primary',
+          outcome: 'consulted',
+        },
+      })),
+      {
+        type: 'tool_call_request',
+        payload: {
+          name: 'run_shell_command',
+          args: { command: 'go test -v ./experimental/snapshot' },
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    expect(analyzeApprovalModeContamination(trace)).toMatchObject({
+      approval_mode_observed: true,
+      approval_mode_recovered: false,
+      approval_mode_active_at_end: true,
+      approval_mode_contamination: true,
+    });
+    expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
+      complete: false,
+      approval_mode_contamination: true,
+      diagnostic_reason: 'approval_mode_contamination',
+    });
+  });
+
+  it('records off-domain strict FD guidance as failed audit evidence', () => {
+    const trace = [
+      {
+        type: 'advisor_attempt',
+        payload: {
+          reasonCode: 'pollux.escalation.executor_advisor_request',
+          checkpointReason: 'mid-run risk review after edits or failed tests',
+          checkpointConsultedGood: false,
+          strictCheckpointFailureKind: 'off_domain_guidance',
+          attemptKind: 'primary',
+          parserOutcome: 'parse_error',
+          outcome: 'parse_error',
+        },
+      },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n');
+
+    const audit = auditStrictFdCheckpointTrace(trace);
+
+    expect(audit).toMatchObject({
+      complete: false,
+      off_domain_guidance: true,
+      diagnostic_reason: 'off_domain_guidance',
+    });
+    expect(audit.failed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          reason: 'mid-run risk review after edits or failed tests',
+          failure_kind: 'off_domain_guidance',
+        }),
+      ]),
+    );
   });
 
   it('audits requested-but-not-consulted and missing strict FD checkpoints', () => {
@@ -643,7 +1181,7 @@ allow_internet = false
       complete: false,
       consulted: ['contract extraction before source edit'],
       requested_but_not_consulted: ['final diff audit before completion'],
-      missing: ['mid-run risk review after edits or failed tests'],
+      missing: [],
     });
   });
 
@@ -701,10 +1239,7 @@ allow_internet = false
     expect(auditStrictFdCheckpointTrace(trace)).toMatchObject({
       complete: false,
       consulted: ['final diff audit before completion'],
-      requested_but_not_consulted: [
-        'contract extraction before source edit',
-        'mid-run risk review after edits or failed tests',
-      ],
+      requested_but_not_consulted: ['contract extraction before source edit'],
       missing: [],
     });
   });
@@ -781,7 +1316,6 @@ allow_internet = false
       consulted_good: [],
       requested_but_not_consulted: [
         'contract extraction before source edit',
-        'mid-run risk review after edits or failed tests',
         'final diff audit before completion',
       ],
       missing: [],

@@ -56,34 +56,43 @@ export const STRICT_FD_CHECKPOINT_REASONS = [
   'final diff audit before completion',
 ];
 
+export const STRICT_FD_REQUIRED_CHECKPOINT_REASONS = [
+  'contract extraction before source edit',
+  'final diff audit before completion',
+];
+
 export const strictFdSettings = {
   advisorTriggerMode: 'hybrid',
   advisorBudgetMode: 'fixed',
   advisorExecutorProfile: 'strict_fd',
-  maxAdvisorCallsPerTurn: 6,
-  maxAdvisorCallsPerSession: 12,
-  maxAdvisorCallsShortTask: 6,
-  maxAdvisorCallsLongTask: 8,
+  maxAdvisorCallsPerTurn: 3,
+  maxAdvisorCallsPerSession: 6,
+  maxAdvisorCallsShortTask: 3,
+  maxAdvisorCallsLongTask: 5,
   executorCheckpoints: {
     enabled: true,
-    requiredReasons: STRICT_FD_CHECKPOINT_REASONS,
+    requiredReasons: STRICT_FD_REQUIRED_CHECKPOINT_REASONS,
     enforceRequired: true,
     reserveRequiredPrimarySlots: true,
-    minGuidanceWords: 40,
+    minGuidanceWords: 24,
     rejectTruncatedGuidance: true,
     requireStructuredGuidance: true,
     finalGate: true,
   },
   detector: {
     ...detectorSettings.detector,
+    selfReport: { enabled: false, promptPrimingEnabled: false },
     timing: {
       sameTurnEnabled: true,
-      maxSameTurnEscalationsPerTurn: 3,
+      maxSameTurnEscalationsPerTurn: 2,
     },
   },
 };
 
 export const VALID_DEEPSWE_FD_PROFILES = new Set(['detector', 'strict']);
+
+const STRICT_FD_FINAL_VERIFICATION_COMMAND_RE =
+  /\b(?:gofmt|go\s+test(?:\s|$)|go\s+vet|npm\s+(?:run\s+)?(?:test|build|typecheck)|npm\s+test|npx\s+(?:jest|vitest|tsc)|pnpm\s+(?:test|run\s+test|run\s+build|run\s+typecheck|exec\s+(?:jest|vitest|tsc))|yarn\s+(?:test|build|typecheck)|jest(?:\s|$)|vitest(?:\s|$)|tsc\s+--noEmit)/i;
 
 export function buildDeepSweConditions(fdProfile = 'strict') {
   if (!VALID_DEEPSWE_FD_PROFILES.has(fdProfile)) {
@@ -173,6 +182,7 @@ export function parseDeepSweRunnerArgs(argv, now = new Date()) {
     dependencyPreflight: false,
     dependencyWarmup: false,
     networkedVerifierPreflight: false,
+    baselineVerifierPreflight: false,
     fdProfile: 'strict',
   };
 
@@ -258,6 +268,11 @@ export function parseDeepSweRunnerArgs(argv, now = new Date()) {
       out.dependencyPreflight = true;
     } else if (arg === '--networked-verifier-preflight') {
       out.networkedVerifierPreflight = true;
+      out.baselineVerifierPreflight = true;
+    } else if (arg === '--baseline-verifier-preflight') {
+      out.baselineVerifierPreflight = true;
+    } else if (arg === '--no-baseline-verifier-preflight') {
+      out.baselineVerifierPreflight = false;
     } else if (arg === '--fd-profile' && next) {
       out.fdProfile = next;
       i++;
@@ -729,6 +744,136 @@ function uniqueKnownFdCheckpointReasons(reasons) {
   return out;
 }
 
+function isSourceMutationRequestText(requestText) {
+  return (
+    /\b(?:write_file|replace|edit|modify|patch)\b/i.test(requestText) &&
+    /\.(?:go|ts|tsx|js|jsx|py|rs|java|c|cc|cpp|h|hpp|cs|rb|php|swift|kt|kts)\b|(?:^|[\\/])(?:src|lib|packages|internal|cmd|experimental)[\\/]/i.test(
+      requestText,
+    )
+  );
+}
+
+function isExecutionRequestText(requestText) {
+  return (
+    isSourceMutationRequestText(requestText) ||
+    /\b(?:run_shell_command|shell_command)\b/i.test(requestText)
+  );
+}
+
+export function analyzeApprovalModeContamination(text) {
+  const value = String(text ?? '');
+  let hasStructuredEvents = false;
+  let planModeActive = false;
+  let enterCount = 0;
+  let exitCount = 0;
+  let lastEnterLine = 0;
+  let lastExitLine = 0;
+  let sourceMutationAttemptedInPlanMode = false;
+  let sourceMutationAfterLatestExit = false;
+  let executionAfterLatestExit = false;
+  let lineNumber = 0;
+
+  for (const rawLine of value.split(/\r?\n/g)) {
+    lineNumber += 1;
+    if (!rawLine.trim()) {
+      continue;
+    }
+    let event;
+    try {
+      event = JSON.parse(rawLine);
+    } catch {
+      continue;
+    }
+    hasStructuredEvents = true;
+    if (event?.type !== 'tool_call_request') {
+      continue;
+    }
+    const payload = event.payload ?? {};
+    const toolName = String(payload.name ?? '');
+    const requestText = [
+      toolName,
+      payload.args ? JSON.stringify(payload.args) : '',
+    ].join('\n');
+    if (toolName === 'enter_plan_mode') {
+      planModeActive = true;
+      enterCount += 1;
+      lastEnterLine = lineNumber;
+      sourceMutationAfterLatestExit = false;
+      executionAfterLatestExit = false;
+      continue;
+    }
+    if (toolName === 'exit_plan_mode') {
+      planModeActive = false;
+      exitCount += 1;
+      lastExitLine = lineNumber;
+      sourceMutationAfterLatestExit = false;
+      executionAfterLatestExit = false;
+      continue;
+    }
+    if (planModeActive && isSourceMutationRequestText(requestText)) {
+      sourceMutationAttemptedInPlanMode = true;
+    }
+    if (!planModeActive && lastExitLine > lastEnterLine) {
+      if (isSourceMutationRequestText(requestText)) {
+        sourceMutationAfterLatestExit = true;
+      }
+      if (isExecutionRequestText(requestText)) {
+        executionAfterLatestExit = true;
+      }
+    }
+  }
+
+  const textualPlanMode = (
+    /Active Approval Mode:\s*Plan/i.test(value) ||
+    /You are operating in \*\*Plan Mode\*\*/i.test(value) ||
+    /ONLY FOR PLANS/i.test(value) ||
+    /Tool execution denied by policy\.[^\n\r]*You are in Plan Mode/i.test(
+      value,
+    ) ||
+    (/implementation plan/i.test(value) &&
+      /\.gemini[\\/]+tmp[\\/].*?[\\/]+plans[\\/]/i.test(value))
+  );
+  const textualWriteDenied =
+    /Tool execution denied by policy\.[^\n\r]*You are in Plan Mode/i.test(
+      value,
+    );
+
+  if (!hasStructuredEvents) {
+    return {
+      approval_mode_observed: textualPlanMode,
+      approval_mode_recovered: false,
+      approval_mode_active_at_end: textualPlanMode,
+      approval_mode_enter_count: 0,
+      approval_mode_exit_count: 0,
+      approval_mode_source_write_attempted: textualWriteDenied,
+      approval_mode_source_mutation_after_exit: false,
+      approval_mode_execution_after_exit: false,
+      approval_mode_contamination: textualPlanMode,
+    };
+  }
+
+  const approvalModeObserved = enterCount > 0 || textualPlanMode;
+  const activeAtEnd =
+    enterCount > 0 && (planModeActive || lastEnterLine > lastExitLine);
+  const recovered = enterCount > 0 && !activeAtEnd && exitCount > 0;
+  return {
+    approval_mode_observed: approvalModeObserved,
+    approval_mode_recovered: recovered,
+    approval_mode_active_at_end: activeAtEnd,
+    approval_mode_enter_count: enterCount,
+    approval_mode_exit_count: exitCount,
+    approval_mode_source_write_attempted:
+      sourceMutationAttemptedInPlanMode || textualWriteDenied,
+    approval_mode_source_mutation_after_exit: sourceMutationAfterLatestExit,
+    approval_mode_execution_after_exit: executionAfterLatestExit,
+    approval_mode_contamination: activeAtEnd,
+  };
+}
+
+export function detectApprovalModeContamination(text) {
+  return analyzeApprovalModeContamination(text).approval_mode_contamination;
+}
+
 export function auditStrictFdCheckpointTrace(traceText) {
   const requested = [];
   const primaryAttempted = [];
@@ -737,6 +882,19 @@ export function auditStrictFdCheckpointTrace(traceText) {
   const failed = [];
   const budgetBlocked = [];
   const pendingDecisionReasons = [];
+  const approvalModeAnalysis = analyzeApprovalModeContamination(traceText);
+  const approvalModeContamination =
+    approvalModeAnalysis.approval_mode_contamination;
+  let finalAuditConsultedGoodSeen = false;
+  let finalAuditConsultedGoodCount = 0;
+  let finalAuditMutationCount = undefined;
+  let finalVerificationObserved = false;
+  let finalVerificationCommand = undefined;
+  let finalVerificationObservedAtMutationCount = undefined;
+  let offDomainGuidance = false;
+  let finalVerificationMissingEvents = 0;
+  let sourceMutationCount = 0;
+  let postFinalAuditMutationCount = 0;
   const canonicalReason = (reason) =>
     uniqueKnownFdCheckpointReasons([reason])[0];
   const addReason = (list, reason) => {
@@ -765,6 +923,11 @@ export function auditStrictFdCheckpointTrace(traceText) {
       reason: canonical,
       ...details,
     });
+  };
+  const noteFinalAuditConsultedGood = () => {
+    finalAuditConsultedGoodSeen = true;
+    finalAuditConsultedGoodCount += 1;
+    finalAuditMutationCount = sourceMutationCount;
   };
 
   for (const rawLine of String(traceText ?? '').split(/\r?\n/g)) {
@@ -801,6 +964,27 @@ export function auditStrictFdCheckpointTrace(traceText) {
       if (payload.status === 'consulted_good') {
         addReason(consulted, reason);
         addReason(consultedGood, reason);
+        if (reason === 'final diff audit before completion') {
+          noteFinalAuditConsultedGood();
+        }
+      } else if (
+        payload.status === 'final_verification_observed' &&
+        reason === 'final diff audit before completion'
+      ) {
+        finalVerificationObserved = true;
+        if (typeof payload.command === 'string') {
+          finalVerificationCommand = payload.command;
+        }
+        if (Number.isFinite(payload.mutationCount)) {
+          finalVerificationObservedAtMutationCount = payload.mutationCount;
+        } else {
+          finalVerificationObservedAtMutationCount = sourceMutationCount;
+        }
+      } else if (
+        payload.status === 'final_verification_missing' &&
+        reason === 'final diff audit before completion'
+      ) {
+        finalVerificationMissingEvents += 1;
       } else if (
         payload.status === 'consulted_weak' ||
         payload.status === 'failed' ||
@@ -816,6 +1000,9 @@ export function auditStrictFdCheckpointTrace(traceText) {
           truncated: payload.truncated,
           failure_kind: payload.failureKind,
         });
+        if (payload.failureKind === 'off_domain_guidance') {
+          offDomainGuidance = true;
+        }
       } else if (payload.status === 'budget_blocked') {
         addBudgetBlocked(reason, {
           status: payload.status,
@@ -850,28 +1037,63 @@ export function auditStrictFdCheckpointTrace(traceText) {
           addReason(consulted, reason);
           if (payload.checkpointConsultedGood === true) {
             addReason(consultedGood, reason);
+            if (reason === 'final diff audit before completion') {
+              noteFinalAuditConsultedGood();
+            }
           } else {
+            const failureKind =
+              payload.strictCheckpointFailureKind ?? 'weak_guidance';
             addFailure(reason, {
               outcome: payload.outcome,
               attempt_kind: payload.attemptKind,
               finish_reason: payload.outputFinishReason,
               parser_outcome: payload.parserOutcome,
               truncated: payload.truncated,
-              failure_kind:
-                payload.strictCheckpointFailureKind ?? 'weak_guidance',
+              failure_kind: failureKind,
             });
+            if (failureKind === 'off_domain_guidance') {
+              offDomainGuidance = true;
+            }
           }
         } else {
+          const failureKind =
+            payload.strictCheckpointFailureKind ?? payload.failureKind;
           addFailure(reason, {
             outcome: payload.outcome,
             attempt_kind: payload.attemptKind,
             finish_reason: payload.outputFinishReason,
             parser_outcome: payload.parserOutcome,
             truncated: payload.truncated,
-            failure_kind:
-              payload.strictCheckpointFailureKind ?? payload.failureKind,
+            failure_kind: failureKind,
           });
+          if (failureKind === 'off_domain_guidance') {
+            offDomainGuidance = true;
+          }
         }
+      }
+    }
+
+    if (event?.type === 'tool_call_request') {
+      const commandText = textFragments.join('\n');
+      const requestText = [
+        payload.name,
+        commandText,
+        payload.args ? JSON.stringify(payload.args) : '',
+      ].join('\n');
+      const sourceMutation = isSourceMutationRequestText(requestText);
+      if (sourceMutation) {
+        sourceMutationCount += 1;
+        if (finalAuditConsultedGoodSeen) {
+          postFinalAuditMutationCount += 1;
+        }
+      }
+      if (
+        finalAuditConsultedGoodSeen &&
+        STRICT_FD_FINAL_VERIFICATION_COMMAND_RE.test(commandText)
+      ) {
+        finalVerificationObserved = true;
+        finalVerificationCommand = commandText;
+        finalVerificationObservedAtMutationCount = sourceMutationCount;
       }
     }
   }
@@ -891,15 +1113,51 @@ export function auditStrictFdCheckpointTrace(traceText) {
     ...failed.map((entry) => entry.reason),
     ...budgetBlocked.map((entry) => entry.reason),
   ]);
-  const missing = STRICT_FD_CHECKPOINT_REASONS.filter(
+  const requiredReasons = STRICT_FD_REQUIRED_CHECKPOINT_REASONS;
+  const missing = requiredReasons.filter(
     (reason) => !observedSet.has(reason),
   );
-  const requestedButNotConsulted = STRICT_FD_CHECKPOINT_REASONS.filter(
+  const requestedButNotConsulted = requiredReasons.filter(
     (reason) => requestedSet.has(reason) && !consultedGoodSet.has(reason),
   );
+  const hasAllRequiredConsultedGood = requiredReasons.every(
+    (reason) => consultedGoodSet.has(reason),
+  );
+  const finalVerificationAfterLatestMutation =
+    finalVerificationObserved &&
+    finalVerificationObservedAtMutationCount !== undefined &&
+    finalVerificationObservedAtMutationCount >= sourceMutationCount;
+  const finalVerificationMissing =
+    hasAllRequiredConsultedGood && !finalVerificationAfterLatestMutation;
+  if (
+    requiredReasons.every((reason) => consultedGoodSet.has(reason)) &&
+    finalVerificationMissing
+  ) {
+    addFailure('final diff audit before completion', {
+      status: 'final_verification_missing',
+      failure_kind: 'final_verification_missing',
+      observed_events: finalVerificationMissingEvents,
+    });
+  }
+  const diagnosticReason = approvalModeContamination
+    ? 'approval_mode_contamination'
+    : offDomainGuidance
+    ? 'off_domain_guidance'
+    : finalVerificationMissing
+      ? 'final_verification_missing'
+      : missing.length > 0 || requestedButNotConsulted.length > 0
+        ? 'fd_checkpoint_incomplete'
+        : undefined;
+  const complete =
+    hasAllRequiredConsultedGood &&
+    !approvalModeContamination &&
+    !offDomainGuidance &&
+    finalVerificationAfterLatestMutation &&
+    diagnosticReason === undefined;
 
   return {
-    required: STRICT_FD_CHECKPOINT_REASONS,
+    required: requiredReasons,
+    recognized: STRICT_FD_CHECKPOINT_REASONS,
     requested: canonicalRequested,
     primary_attempted: canonicalPrimaryAttempted,
     consulted: canonicalConsulted,
@@ -908,9 +1166,26 @@ export function auditStrictFdCheckpointTrace(traceText) {
     budget_blocked: budgetBlocked,
     requested_but_not_consulted: requestedButNotConsulted,
     missing,
-    complete: STRICT_FD_CHECKPOINT_REASONS.every((reason) =>
-      consultedGoodSet.has(reason),
-    ),
+    final_verification_observed: finalVerificationObserved,
+    final_verification_command: finalVerificationCommand,
+    off_domain_guidance: offDomainGuidance,
+    final_verification_missing: finalVerificationMissing,
+    approval_mode_contamination: approvalModeContamination,
+    approval_mode_observed: approvalModeAnalysis.approval_mode_observed,
+    approval_mode_recovered: approvalModeAnalysis.approval_mode_recovered,
+    approval_mode_active_at_end: approvalModeAnalysis.approval_mode_active_at_end,
+    approval_mode_enter_count: approvalModeAnalysis.approval_mode_enter_count,
+    approval_mode_exit_count: approvalModeAnalysis.approval_mode_exit_count,
+    approval_mode_source_write_attempted:
+      approvalModeAnalysis.approval_mode_source_write_attempted,
+    approval_mode_execution_after_exit:
+      approvalModeAnalysis.approval_mode_execution_after_exit,
+    final_audit_repeated_count: Math.max(0, finalAuditConsultedGoodCount - 1),
+    post_final_audit_mutation_count: postFinalAuditMutationCount,
+    final_verification_after_latest_mutation:
+      finalVerificationAfterLatestMutation,
+    diagnostic_reason: diagnosticReason,
+    complete,
   };
 }
 
@@ -921,14 +1196,12 @@ export function buildDeepSwePrompt(task, options = {}) {
     conditionId === 'FD'
       ? [
           '',
-          'Pollux FD steering requirements:',
-          '- Before the first source edit, request advisor contract extraction with exactly: <pollux:advisor_request reason="contract extraction before source edit" timing="now"/>',
-          '- After substantial source edits or repeated failed tests, request advisor risk review with: <pollux:advisor_request reason="mid-run risk review after edits or failed tests" timing="now"/>',
-          '- Before final completion, request final diff audit with: <pollux:advisor_request reason="final diff audit before completion" timing="now"/>',
-          '- A shell echo, comment, or no-op command that merely says you are requesting an advisor is not a checkpoint; emit the actual advisor request tag.',
-          '- Emit the final diff audit request before any final answer text, then wait for hidden advisor guidance before claiming completion.',
-          '- Do not claim completion until final diff audit guidance has been received and considered.',
-          '- Treat advisor guidance as hidden implementation constraints; do not mention Pollux in the final answer.',
+          'Pollux Flash-plus-advisor execution notes:',
+          '- FD means Flash-plus-advisor in this benchmark, not file descriptors.',
+          '- Work normally: inspect, edit, and verify the repository directly. Do not create implementation-plan files or enter Plan Mode.',
+          '- Hidden advisor checks may provide guidance automatically; apply any guidance you receive without mentioning Pollux in the final answer.',
+          '- For Go tasks: before final completion, run `gofmt` on modified Go files and a focused `go test` for the touched package unless impossible; if impossible, explain the blocker.',
+          '- For JavaScript/TypeScript tasks: before final completion, run a focused project check such as `npm test`, `npx jest`, `npx tsc --noEmit`, `npm run build`, or the repository equivalent unless impossible; if impossible, explain the blocker.',
         ]
       : [];
   return [
@@ -989,13 +1262,12 @@ export function buildVerifierDockerArgs(params) {
     `${artifactDir}:/logs/artifacts`,
   ];
   if (params.dependencyCacheDir) {
+    const dependencyOffline = params.dependencyOffline !== false;
     args.push(
       '-v',
       `${params.dependencyCacheDir}:/dependency-cache`,
       '-e',
       'npm_config_cache=/dependency-cache/npm',
-      '-e',
-      'npm_config_offline=true',
       '-e',
       'npm_config_prefer_offline=true',
       '-e',
@@ -1003,6 +1275,9 @@ export function buildVerifierDockerArgs(params) {
       '-e',
       'PNPM_HOME=/dependency-cache/pnpm-home',
     );
+    if (dependencyOffline) {
+      args.push('-e', 'npm_config_offline=true');
+    }
   }
   args.push(
     dockerImage,
@@ -1015,9 +1290,80 @@ export function buildVerifierDockerArgs(params) {
   return args;
 }
 
+export function buildProjectDependencyInstallDockerArgs(params) {
+  if (!params.dockerImage) {
+    throw new Error(
+      'DeepSWE task.toml did not specify environment.docker_image.',
+    );
+  }
+  const dependencyOffline = params.dependencyOffline === true;
+  const npmPreferMode = dependencyOffline ? '--prefer-offline' : '--prefer-online';
+  const pnpmPreferMode = dependencyOffline ? '--prefer-offline' : '';
+  const pnpmAllowEsbuildScript =
+    'node -e "const fs=require(\'fs\'); const p=\'pnpm-workspace.yaml\'; let s=fs.existsSync(p)?fs.readFileSync(p,\'utf8\'):\'\'; if (/esbuild:\\s*(set this to true or false|false)/.test(s)) { s=s.replace(/esbuild:\\s*(set this to true or false|false)/g, \'esbuild: true\'); } else if (!/^\\s*esbuild:/m.test(s)) { if (/^allowBuilds:\\s*$/m.test(s)) { s=s.replace(/^allowBuilds:\\s*$/m, \'allowBuilds:\\n  esbuild: true\'); } else { s=s.trimEnd()+(s.trim()?\'\\\\n\':\'\')+\'allowBuilds:\\n  esbuild: true\\n\'; } } fs.writeFileSync(p,s);"';
+  const installCommand = [
+    'set -e',
+    'mkdir -p /dependency-cache/npm /dependency-cache/yarn /dependency-cache/pnpm-home /dependency-cache/pnpm-store /dependency-cache/corepack',
+    'if [ -f pnpm-lock.yaml ]; then',
+    '  export PATH="/dependency-cache/pnpm-home:$PATH"',
+    '  corepack enable >/dev/null 2>&1 || true',
+    '  if ! command -v pnpm >/dev/null 2>&1; then npm install -g pnpm --no-audit --progress=false; fi',
+    '  pnpm config set store-dir /dependency-cache/pnpm-store >/dev/null 2>&1 || true',
+    `  ${pnpmAllowEsbuildScript}`,
+    `  pnpm install --frozen-lockfile ${pnpmPreferMode}`.trimEnd() +
+      ` || pnpm install --no-frozen-lockfile ${pnpmPreferMode}`.trimEnd(),
+    'elif [ -f yarn.lock ]; then',
+    '  corepack enable >/dev/null 2>&1 || true',
+    `  yarn install --frozen-lockfile ${dependencyOffline ? '--offline' : ''}`,
+    'elif [ -f package-lock.json ]; then',
+    `  npm ci ${npmPreferMode} --no-audit --progress=false`,
+    'elif [ -f package.json ]; then',
+    `  npm install ${npmPreferMode} --no-audit --progress=false`,
+    'else',
+    '  true',
+    'fi',
+  ].join('\n');
+  const args = [
+    'run',
+    '--rm',
+    '--network',
+    params.network ?? 'none',
+    '--workdir',
+    '/app',
+    '-v',
+    `${params.workDir}:/app`,
+  ];
+  if (params.dependencyCacheDir) {
+    args.push(
+      '-v',
+      `${params.dependencyCacheDir}:/dependency-cache`,
+      '-e',
+      'npm_config_cache=/dependency-cache/npm',
+      '-e',
+      'npm_config_prefer_offline=true',
+      '-e',
+      'YARN_CACHE_FOLDER=/dependency-cache/yarn',
+      '-e',
+      'PNPM_HOME=/dependency-cache/pnpm-home',
+      '-e',
+      'COREPACK_HOME=/dependency-cache/corepack',
+    );
+    if (dependencyOffline) {
+      args.push('-e', 'npm_config_offline=true');
+    }
+  }
+  args.push(params.dockerImage, 'bash', '-lc', installCommand);
+  return args;
+}
+
 export function inferDependencyPreflight(testScriptText, options = {}) {
   const language = options.language?.toLowerCase?.() ?? '';
   const text = `${testScriptText}\n${options.testPatchText ?? ''}`.toLowerCase();
+  const extraNpmPackages = inferExtraNpmWarmupPackages({
+    taskId: options.taskId,
+    repository: options.repository,
+    text,
+  });
   if (/\b(pnpm|pnpm dlx)\b/.test(text)) {
     const pkg = text.includes('vitest')
       ? 'vitest'
@@ -1058,6 +1404,10 @@ export function inferDependencyPreflight(testScriptText, options = {}) {
       : text.includes('jest')
         ? 'jest'
         : null;
+    const extraWarmup =
+      extraNpmPackages.length > 0
+        ? ` && npm install --prefer-online --no-audit --progress=false --no-save ${extraNpmPackages.join(' ')}`
+        : '';
     return {
       kind: 'npm',
       required: true,
@@ -1065,8 +1415,9 @@ export function inferDependencyPreflight(testScriptText, options = {}) {
         ? `npm --version && npm view ${pkg} version --prefer-online`
         : 'npm --version && npm ping',
       warmupCommand: pkg
-        ? `npm --version && npm exec --yes --package ${pkg} ${pkg} -- --version`
-        : 'npm --version && npm ping',
+        ? `npm --version && npm exec --yes --package ${pkg} ${pkg} -- --version${extraWarmup}`
+        : `npm --version && npm ping${extraWarmup}`,
+      extraWarmupPackages: extraNpmPackages,
     };
   }
   if (/\b(uv|pip|pip3|python -m pip|python3 -m pip)\b/.test(text)) {
@@ -1098,6 +1449,36 @@ export function inferDependencyPreflight(testScriptText, options = {}) {
     command: 'true',
     warmupCommand: 'true',
   };
+}
+
+function inferExtraNpmWarmupPackages(params) {
+  const taskId = params.taskId ?? '';
+  const repository = params.repository ?? '';
+  const text = params.text ?? '';
+  const packages = [];
+  const add = (pkg) => {
+    if (!packages.includes(pkg)) {
+      packages.push(pkg);
+    }
+  };
+  if (
+    taskId === 'ts-pattern-match-each' ||
+    /gvergnaud\/ts-pattern/i.test(repository) ||
+    /@unrs\/resolver-binding/i.test(text)
+  ) {
+    add('@unrs/resolver-binding-linux-x64-gnu@1.11.1');
+  }
+  if (
+    taskId === 'true-myth-iterable-collection-combinators' ||
+    /true-myth\/true-myth/i.test(repository) ||
+    /@rollup\/rollup-linux-x64-gnu/i.test(text)
+  ) {
+    // Rollup's platform-native optional package is installed reliably by the
+    // project-level pnpm/npm install inside the verifier container. Installing
+    // the native package standalone has hit npm resolver bugs, so do not add it
+    // to the generic package warmup command.
+  }
+  return packages;
 }
 
 export function buildDependencyPreflightDockerArgs(params) {
@@ -1171,10 +1552,70 @@ export function isVerifierDependencyFailure(text) {
     /pip .*((timed? ?out)|connection|index)/i,
     /uv .*((timed? ?out)|connection|index)/i,
     /git (clone|fetch).*failed/i,
+    /Cannot find module ['"]?@rollup\/rollup-[\w-]+/i,
+    /Cannot find module ['"]?@unrs\/resolver-binding-[\w-]+/i,
+    /npm has a bug related to optional dependencies/i,
+    /Preset ts-jest not found relative to rootDir/i,
   ];
   return dependencyFailurePatterns.some((pattern) =>
     pattern.test(text),
   );
+}
+
+export function classifyVerifierBaselinePreflight(params) {
+  const outputText = `${params.stdout ?? ''}\n${params.stderr ?? ''}`;
+  const phaseExitCodes = parseVerifierPhaseExitCodes(outputText);
+  const dependencyFailure =
+    params.dependencyPreflightFailed === true ||
+    isVerifierDependencyFailure(outputText);
+  const baselineMissing = phaseExitCodes.baseline === null;
+  const baselineFailed =
+    phaseExitCodes.baseline !== null && phaseExitCodes.baseline !== 0;
+  const infraExit =
+    params.exitCode !== 0 && baselineMissing && phaseExitCodes.newTests === null;
+  const ok = !dependencyFailure && !baselineMissing && !baselineFailed && !infraExit;
+  return {
+    ok,
+    required: true,
+    exitCode: params.exitCode ?? null,
+    verifier_baseline_exit_code: phaseExitCodes.baseline,
+    verifier_new_tests_exit_code: phaseExitCodes.newTests,
+    dependency_failure: dependencyFailure,
+    failure_kind: ok
+      ? null
+      : dependencyFailure
+        ? 'dependency_failure'
+        : baselineFailed
+          ? 'baseline_failure'
+          : baselineMissing
+            ? 'baseline_not_observed'
+            : 'infra_failure',
+  };
+}
+
+export function inspectNonInteractiveAuthReadiness(env = process.env, homeDir) {
+  const sourceGeminiDir =
+    env.GEMINI_CLI_HOME ??
+    path.join(env.USERPROFILE ?? env.HOME ?? '', '.gemini');
+  const hasApiKey = Boolean(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
+  const hasAdc = Boolean(env.GOOGLE_APPLICATION_CREDENTIALS);
+  const hasOauthCreds =
+    Boolean(sourceGeminiDir) &&
+    fs.existsSync(path.join(sourceGeminiDir, 'oauth_creds.json'));
+  const hasGoogleAccounts =
+    Boolean(sourceGeminiDir) &&
+    fs.existsSync(path.join(sourceGeminiDir, 'google_accounts.json'));
+  const ok = hasApiKey || hasAdc || hasOauthCreds || hasGoogleAccounts;
+  return {
+    ok,
+    sourceGeminiDir,
+    checkedHomeDir: homeDir ?? null,
+    hasApiKey,
+    hasAdc,
+    hasOauthCreds,
+    hasGoogleAccounts,
+    failure_kind: ok ? null : 'noninteractive_auth_missing',
+  };
 }
 
 export function classifyVerifierResult(params) {
