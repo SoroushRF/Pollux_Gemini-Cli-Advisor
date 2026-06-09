@@ -7546,6 +7546,597 @@ ${JSON.stringify(
       });
     });
 
+    it('rejects off-domain strict FD guidance for Go/Wazero checkpoints', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['mid-run risk review after edits or failed tests'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      client['polluxActiveUserPromptText'] =
+        'Repository: tetratelabs/wazero\nTask: wazero-multi-module-snapshots\nLanguage: go\nEdit experimental/snapshot/snapshot.go';
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    guidance:
+                      '1. Add O_CLOEXEC handling in src/connection.c before accepting sockets. 2. Prefer dup3 over dup2 to keep descriptors close-on-exec. 3. Recheck epoll_create usage before finishing. 4. This is unrelated to the Go snapshot package and should be rejected.',
+                    must_include: ['src/connection.c O_CLOEXEC handling'],
+                    must_forbid: ['missing dup3 migration'],
+                    verify_before_done: ['run the C networking tests'],
+                    confidence: 3,
+                  }),
+                },
+              ],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'constraint_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'mid-run risk review after edits or failed tests',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        parserOutcome: 'parse_error',
+        strictCheckpointFailureKind: 'off_domain_guidance',
+        strictCheckpointConsultedGood: false,
+      });
+    });
+
+    it('rejects strict FD final-audit guidance without executable verification for Go tasks', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['final diff audit before completion'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      client['polluxActiveUserPromptText'] =
+        'Repository: tetratelabs/wazero\nTask: snapshot diff\nLanguage: go\nTouch experimental/snapshot/snapshot.go';
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    guidance:
+                      '1. Recheck Snapshot.Compare direction so OldValue remains from the receiver snapshot and NewValue remains from the other snapshot. 2. Inspect the changed DiffEntry construction for stable module ordering. 3. Ensure nil modules and empty memories remain valid without inventing unrelated behavior.',
+                    must_include: ['OldValue from receiver snapshot'],
+                    must_forbid: ['NewValue from receiver/base data'],
+                    verify_before_done: ['manually inspect the final diff'],
+                    confidence: 7,
+                  }),
+                },
+              ],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'final_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'final diff audit before completion',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        parserOutcome: 'parse_error',
+        strictCheckpointFailureKind: 'missing_final_verification',
+        strictCheckpointConsultedGood: false,
+      });
+    });
+
+    it('rejects generic planning-only guidance for strict FD checkpoints', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['mid-run risk review after edits or failed tests'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      client['polluxActiveUserPromptText'] =
+        'Repository: tetratelabs/wazero\nTask: wazero-multi-module-snapshots\nLanguage: go\nEdit experimental/snapshot/snapshot.go';
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    guidance:
+                      '1. Create an implementation plan before doing more work. 2. Update the plan file with all current constraints. 3. Wait for approval before proceeding with implementation. 4. Continue with the plan once approval is granted.',
+                    must_include: ['implementation plan'],
+                    must_forbid: ['unapproved implementation'],
+                    verify_before_done: ['review the plan'],
+                    confidence: 4,
+                  }),
+                },
+              ],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'constraint_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'mid-run risk review after edits or failed tests',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: false,
+        strictCheckpointFailureKind: 'generic_planning_guidance',
+        strictCheckpointConsultedGood: false,
+      });
+    });
+
+    it('accepts strict FD final-audit guidance with gofmt and focused go test', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['final diff audit before completion'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      client['polluxActiveUserPromptText'] =
+        'Repository: tetratelabs/wazero\nTask: snapshot diff\nLanguage: go\nTouch experimental/snapshot/snapshot.go';
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    guidance:
+                      '1. Recheck receiver.Compare(other) direction so OldValue comes from the receiver/base snapshot and NewValue comes from the other snapshot. 2. Inspect each DiffEntry construction and verify module grouping plus ascending offsets. 3. Confirm imports remain before declarations and no unused imports were introduced.',
+                    must_include: ['OldValue from receiver snapshot'],
+                    must_forbid: ['NewValue from receiver/base data'],
+                    verify_before_done: [
+                      'gofmt -w experimental/snapshot/snapshot.go',
+                      'go test ./experimental/...',
+                    ],
+                    confidence: 8,
+                  }),
+                },
+              ],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'final_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'final diff audit before completion',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: true,
+        strictCheckpointConsultedGood: true,
+      });
+    });
+
+    it('accepts strict FD final-audit guidance with TypeScript checks', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['final diff audit before completion'],
+          enforceRequired: true,
+          minGuidanceWords: 40,
+          rejectTruncatedGuidance: true,
+          requireStructuredGuidance: true,
+        },
+      });
+      client['polluxActiveUserPromptText'] =
+        'Repository: gvergnaud/ts-pattern\nTask: ts-pattern-match-each\nLanguage: typescript\nTouch src/match.ts and src/types/MatchEach.ts';
+      vi.spyOn(client, 'generateContent').mockResolvedValue({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    guidance:
+                      '1. Recheck that matchEach preserves ts-pattern builder semantics and does not weaken existing match overloads. 2. Inspect the src/types/MatchEach.ts declarations for result inference and exhaustive behavior. 3. Verify the export path in src/index.ts remains narrow and repository-local.',
+                    must_include: ['src/types/MatchEach.ts result inference'],
+                    must_forbid: ['package-lock churn'],
+                    verify_before_done: [
+                      'npx tsc --noEmit',
+                      'npx jest tests/matchEach.test.ts',
+                    ],
+                    confidence: 8,
+                  }),
+                },
+              ],
+            },
+            finishReason: FinishReason.STOP,
+          },
+        ],
+      } as GenerateContentResponse);
+
+      const result = await client['attemptPolluxAdvisorConsultationWithModel']({
+        turnId: 'test-turn',
+        attemptIndex: 1,
+        attemptKind: 'primary',
+        advisorModelId: DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.advisorModel,
+        advisorPrompt: 'advisor prompt',
+        advisorMode: 'final_audit',
+        advisorExecutorProfile: 'strict_fd',
+        checkpointReason: 'final diff audit before completion',
+        advisorSignal: new AbortController().signal,
+        executorModel: 'gemini-3-flash-preview',
+        escalationMeta: undefined,
+      });
+
+      expect(result).toMatchObject({
+        consultationSucceeded: true,
+        strictCheckpointConsultedGood: true,
+      });
+    });
+
+    it('suppresses duplicate strict FD final-audit advisor requests after one good consultation', async () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+        executorCheckpoints: {
+          ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG.executorCheckpoints,
+          enabled: true,
+          requiredReasons: ['final diff audit before completion'],
+          enforceRequired: true,
+        },
+      });
+      const traceSpy = vi.spyOn(
+        client as unknown as { recordPolluxDiagnosticTrace: Mock },
+        'recordPolluxDiagnosticTrace',
+      );
+      const consultSpy = vi.spyOn(
+        client as unknown as {
+          executePolluxAdvisorConsultation: Mock;
+        },
+        'executePolluxAdvisorConsultation',
+      );
+      client['noteStrictCheckpointAttempt'](
+        'final diff audit before completion',
+        {
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          model: 'advisor',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse: '{}',
+          truncated: false,
+          guidanceTooShort: false,
+          retryableForRepair: false,
+          retryableForFallback: false,
+          strictCheckpointConsultedGood: true,
+        },
+      );
+
+      const outcome = await client[
+        'maybeRunPolluxAdvisorConsultationForIntent'
+      ](
+        [{ text: 'done' }],
+        new AbortController().signal,
+        'test-prompt',
+        PolluxRuntimeSurface.LEGACY_NON_INTERACTIVE,
+        {
+          timing: 'next_turn',
+          reasonCode: PolluxEscalationReasonCode.EXECUTOR_ADVISOR_REQUEST,
+          netScore: 3,
+          queuedAtMs: Date.now(),
+          contributingSignalIds: ['self.advisor_request'],
+          contributingSignalAttributions: [
+            'advisor_request reason="final diff audit before completion"',
+          ],
+        },
+      );
+
+      expect(outcome).toBe('skipped');
+      expect(consultSpy).not.toHaveBeenCalled();
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'duplicate_suppressed',
+        failureKind: 'final_audit_already_consulted',
+        mutationCount: 0,
+        finalVerificationPending: true,
+      });
+    });
+
+    it('records final_verification_missing when strict final audit is followed by completion only', () => {
+      const traceSpy = vi.spyOn(
+        client as unknown as { recordPolluxDiagnosticTrace: Mock },
+        'recordPolluxDiagnosticTrace',
+      );
+      client['noteStrictCheckpointAttempt'](
+        'final diff audit before completion',
+        {
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          model: 'advisor',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse: '{}',
+          truncated: false,
+          guidanceTooShort: false,
+          retryableForRepair: false,
+          retryableForFallback: false,
+          strictCheckpointConsultedGood: true,
+        },
+      );
+
+      client['noteStrictFinalVerificationMissing']();
+
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'final_verification_missing',
+        failureKind: 'final_verification_missing',
+        mutationCount: 0,
+      });
+    });
+
+    it('clears stale final_verification_missing when verification runs later', () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+      });
+      const traceSpy = vi.spyOn(
+        client as unknown as { recordPolluxDiagnosticTrace: Mock },
+        'recordPolluxDiagnosticTrace',
+      );
+      client['polluxStrictFinalGateContinuationUsedThisTurn'] = true;
+      client['noteStrictCheckpointAttempt'](
+        'final diff audit before completion',
+        {
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          model: 'advisor',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse: '{}',
+          truncated: false,
+          guidanceTooShort: false,
+          retryableForRepair: false,
+          retryableForFallback: false,
+          strictCheckpointConsultedGood: true,
+        },
+      );
+      client['noteStrictFinalVerificationMissing']();
+
+      client['maybeNoteStrictFinalVerificationFromToolCall']({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId: 'go-test',
+          name: 'run_shell_command',
+          args: {
+            command: 'go test -v ./experimental/snapshot/...',
+          },
+          isClientInitiated: false,
+          prompt_id: 'prompt-1',
+        },
+      });
+
+      const state = [...client['polluxStrictCheckpointStates'].values()].find(
+        (entry) => entry.reason === 'final diff audit before completion',
+      );
+      expect(state).toMatchObject({
+        failed: false,
+        finalVerificationObserved: true,
+        finalVerificationObservedAtMutationCount: 0,
+        finalVerificationPending: false,
+      });
+      expect(state?.lastFailureKind).toBeUndefined();
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'final_verification_observed',
+        command: 'go test -v ./experimental/snapshot/...',
+        mutationCount: 0,
+      });
+    });
+
+    it('accepts JavaScript and TypeScript final verification commands', () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+      });
+      const traceSpy = vi.spyOn(
+        client as unknown as { recordPolluxDiagnosticTrace: Mock },
+        'recordPolluxDiagnosticTrace',
+      );
+      client['polluxStrictFinalGateContinuationUsedThisTurn'] = true;
+      client['noteStrictCheckpointAttempt'](
+        'final diff audit before completion',
+        {
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          model: 'advisor',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse: '{}',
+          truncated: false,
+          guidanceTooShort: false,
+          retryableForRepair: false,
+          retryableForFallback: false,
+          strictCheckpointConsultedGood: true,
+        },
+      );
+
+      client['maybeNoteStrictFinalVerificationFromToolCall']({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId: 'ts-check',
+          name: 'run_shell_command',
+          args: {
+            command: 'npx tsc --noEmit && npx jest tests/matchEach.test.ts',
+          },
+          isClientInitiated: false,
+          prompt_id: 'prompt-1',
+        },
+      });
+
+      const state = [...client['polluxStrictCheckpointStates'].values()].find(
+        (entry) => entry.reason === 'final diff audit before completion',
+      );
+      expect(state).toMatchObject({
+        finalVerificationObserved: true,
+        finalVerificationObservedAtMutationCount: 0,
+        finalVerificationPending: false,
+      });
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'final_verification_observed',
+        command: 'npx tsc --noEmit && npx jest tests/matchEach.test.ts',
+        mutationCount: 0,
+      });
+    });
+
+    it('requires final verification after a later source mutation', () => {
+      vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
+        ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,
+        advisorExecutorProfile: 'strict_fd',
+      });
+      const traceSpy = vi.spyOn(
+        client as unknown as { recordPolluxDiagnosticTrace: Mock },
+        'recordPolluxDiagnosticTrace',
+      );
+      client['polluxStrictFinalGateContinuationUsedThisTurn'] = true;
+      client['noteStrictCheckpointAttempt'](
+        'final diff audit before completion',
+        {
+          attemptIndex: 1,
+          attemptKind: 'primary',
+          model: 'advisor',
+          parserOutcome: 'direct',
+          outcome: 'consulted',
+          consultationSucceeded: true,
+          rawResponse: '{}',
+          truncated: false,
+          guidanceTooShort: false,
+          retryableForRepair: false,
+          retryableForFallback: false,
+          strictCheckpointConsultedGood: true,
+        },
+      );
+      client['maybeNoteStrictFinalVerificationFromToolCall']({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId: 'go-vet',
+          name: 'run_shell_command',
+          args: { command: 'go vet ./experimental/...' },
+          isClientInitiated: false,
+          prompt_id: 'prompt-1',
+        },
+      });
+      client['maybeNoteStrictFdSourceMutationFromToolCall']({
+        type: GeminiEventType.ToolCallRequest,
+        value: {
+          callId: 'edit-go',
+          name: 'replace',
+          args: { file_path: 'experimental/snapshot/snapshot.go' },
+          isClientInitiated: false,
+          prompt_id: 'prompt-1',
+        },
+      });
+      client['noteStrictFinalVerificationMissing']();
+
+      const state = [...client['polluxStrictCheckpointStates'].values()].find(
+        (entry) => entry.reason === 'final diff audit before completion',
+      );
+      expect(state).toMatchObject({
+        failed: true,
+        finalVerificationObserved: false,
+        finalVerificationPending: true,
+        finalVerificationObservedAtMutationCount: 0,
+      });
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'final_verification_invalidated',
+        mutationCount: 1,
+      });
+      expect(traceSpy).toHaveBeenCalledWith('checkpoint_state', {
+        reason: 'final diff audit before completion',
+        status: 'final_verification_missing',
+        failureKind: 'final_verification_missing',
+        mutationCount: 1,
+      });
+    });
+
     it('uses final-audit budgets for strict FD final checkpoints', async () => {
       vi.mocked(mockConfig.getPolluxExperimentalConfig).mockReturnValue({
         ...DEFAULT_POLLUX_EXPERIMENTAL_CONFIG,

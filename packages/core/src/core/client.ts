@@ -316,6 +316,11 @@ interface PolluxStrictCheckpointState {
   consultedGood: boolean;
   failed: boolean;
   budgetBlocked: boolean;
+  finalVerificationObserved: boolean;
+  finalVerificationCommand?: string;
+  finalAuditConsultedAtMutationCount?: number;
+  finalVerificationObservedAtMutationCount?: number;
+  finalVerificationPending?: boolean;
   lastOutcome?: PolluxAdvisorAttemptOutcome | 'budget_exhausted';
   lastParserOutcome?: PolluxAdvisorAttemptParserOutcome;
   lastFinishReason?: string;
@@ -391,6 +396,107 @@ function isFlashLiteGuidanceTooShort(params: {
     return false;
   }
   return countWords(params.guidance) < 20;
+}
+
+const STRICT_FD_CONTRACT_REASON = 'contract extraction before source edit';
+const STRICT_FD_MID_RUN_REASON =
+  'mid-run risk review after edits or failed tests';
+const STRICT_FD_FINAL_AUDIT_REASON = 'final diff audit before completion';
+const STRICT_FD_KNOWN_CHECKPOINT_REASONS = [
+  STRICT_FD_CONTRACT_REASON,
+  STRICT_FD_MID_RUN_REASON,
+  STRICT_FD_FINAL_AUDIT_REASON,
+] as const;
+
+const STRICT_FD_GO_OFF_DOMAIN_GUIDANCE_RE =
+  /\b(O_CLOEXEC|SOCK_CLOEXEC|dup2|dup3|epoll_create)\b|src\/(?:connection|net_handler)\.c/i;
+
+const STRICT_FD_GO_TASK_RE =
+  /\b(wazero|golang|go task|go benchmark|\.go\b|go\s+module|experimental\/|snapshot\.go)\b/i;
+
+const STRICT_FD_GO_FINAL_VERIFICATION_RE =
+  /\b(?:gofmt|go\s+test(?:\s|$)|go\s+vet|compile check|build check|syntax check|imports?\s+after\s+declarations|unused imports?)/i;
+
+const STRICT_FD_JS_TS_TASK_RE =
+  /\b(?:javascript|typescript|ts-pattern|true-myth|\.tsx?\b|\.jsx?\b|package\.json|pnpm-lock\.yaml|package-lock\.json|npm|pnpm|yarn|jest|vitest|tsc)\b/i;
+
+const STRICT_FD_JS_TS_FINAL_VERIFICATION_RE =
+  /\b(?:npm\s+(?:run\s+)?(?:test|build|typecheck)|npm\s+test|npx\s+(?:jest|vitest|tsc)|pnpm\s+(?:test|run\s+test|run\s+build|run\s+typecheck|exec\s+(?:jest|vitest|tsc))|yarn\s+(?:test|build|typecheck)|jest(?:\s|$)|vitest(?:\s|$)|tsc\s+--noEmit)/i;
+
+const STRICT_FD_FINAL_VERIFICATION_RE = new RegExp(
+  `${STRICT_FD_GO_FINAL_VERIFICATION_RE.source}|${STRICT_FD_JS_TS_FINAL_VERIFICATION_RE.source}`,
+  'i',
+);
+
+const STRICT_FD_SOURCE_MUTATION_TOOL_RE =
+  /\b(?:write_file|replace|edit|modify|patch)\b/i;
+
+const STRICT_FD_SOURCE_PATH_RE =
+  /\.(?:go|ts|tsx|js|jsx|py|rs|java|c|cc|cpp|h|hpp|cs|rb|php|swift|kt|kts)\b|(?:^|[\\/])(?:src|lib|packages|internal|cmd|experimental)[\\/]/i;
+
+const STRICT_FD_GENERIC_PLANNING_GUIDANCE_RE =
+  /\b(?:create|write|draft|update)\s+(?:an?\s+)?implementation plan\b|\bplan file\b|\bwait for (?:user )?approval\b|\bproceed with (?:the )?(?:plan|implementation)\b/i;
+
+function collectAdvisorGuidanceText(params: {
+  readonly guidance: string;
+  readonly mustInclude?: readonly string[];
+  readonly mustForbid?: readonly string[];
+  readonly verifyBeforeDone?: readonly string[];
+}): string {
+  return [
+    params.guidance,
+    ...(params.mustInclude ?? []),
+    ...(params.mustForbid ?? []),
+    ...(params.verifyBeforeDone ?? []),
+  ].join('\n');
+}
+
+function strictFdContextLooksLikeGoTask(contextText: string): boolean {
+  return STRICT_FD_GO_TASK_RE.test(contextText);
+}
+
+function strictFdContextLooksLikeJsTsTask(contextText: string): boolean {
+  return STRICT_FD_JS_TS_TASK_RE.test(contextText);
+}
+
+function strictFdHasExecutableFinalVerification(
+  verifyBeforeDone: readonly string[] | undefined,
+): boolean {
+  return STRICT_FD_FINAL_VERIFICATION_RE.test(
+    (verifyBeforeDone ?? []).join('\n'),
+  );
+}
+
+function toolCallRequestTextFromArgs(args: Record<string, unknown>): string {
+  const pieces: string[] = [];
+  for (const key of ['description', 'command', 'instruction']) {
+    const value = args[key];
+    if (typeof value === 'string') {
+      pieces.push(value);
+    }
+  }
+  return pieces.join('\n');
+}
+
+function strictFdToolCallLooksLikeSourceMutation(
+  event: ServerGeminiStreamEvent,
+): boolean {
+  if (event.type !== GeminiEventType.ToolCallRequest) {
+    return false;
+  }
+  if (!STRICT_FD_SOURCE_MUTATION_TOOL_RE.test(event.value.name)) {
+    return false;
+  }
+  const text = `${event.value.name}\n${JSON.stringify(event.value.args)}`;
+  return STRICT_FD_SOURCE_PATH_RE.test(text);
+}
+
+function extractPromptMetadataField(
+  promptText: string,
+  label: string,
+): string | null {
+  const pattern = new RegExp(`^${label}:\\s*(.+)$`, 'im');
+  return pattern.exec(promptText)?.[1]?.trim() ?? null;
 }
 
 function normalizedPolluxCheckpointReason(reason: string): string {
@@ -542,6 +648,7 @@ export class GeminiClient {
     string,
     PolluxStrictCheckpointState
   >();
+  private polluxStrictSourceMutationCount = 0;
   private polluxStrictFinalGateContinuationUsedThisTurn = false;
   private polluxActiveObserver: LiveExecutorObserver | undefined;
   private polluxActiveObserverPromptId: string | undefined;
@@ -1101,9 +1208,19 @@ export class GeminiClient {
       return undefined;
     }
     const normalized = normalizedPolluxCheckpointReason(reason);
-    return experimental.executorCheckpoints.requiredReasons.find(
+    const required = experimental.executorCheckpoints.requiredReasons.find(
       (candidate) => normalizedPolluxCheckpointReason(candidate) === normalized,
     );
+    if (required) {
+      return required;
+    }
+    if (experimental.advisorExecutorProfile === 'strict_fd') {
+      return STRICT_FD_KNOWN_CHECKPOINT_REASONS.find(
+        (candidate) =>
+          normalizedPolluxCheckpointReason(candidate) === normalized,
+      );
+    }
+    return undefined;
   }
 
   private strictCheckpointReasonFromIntent(
@@ -1158,6 +1275,8 @@ export class GeminiClient {
         consultedGood: false,
         failed: false,
         budgetBlocked: false,
+        finalVerificationObserved: false,
+        finalVerificationPending: false,
       };
       this.polluxStrictCheckpointStates.set(key, state);
     }
@@ -1190,6 +1309,42 @@ export class GeminiClient {
     });
   }
 
+  private shouldSuppressStrictFinalAuditAdvisorRequest(
+    reason: string | undefined,
+  ): boolean {
+    if (
+      normalizedPolluxCheckpointReason(reason ?? '') !==
+      normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON)
+    ) {
+      return false;
+    }
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (experimental.advisorExecutorProfile !== 'strict_fd') {
+      return false;
+    }
+    const state = this.polluxStrictCheckpointStates.get(
+      normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON),
+    );
+    return state?.consultedGood === true;
+  }
+
+  private noteStrictFinalAuditDuplicateSuppressed(
+    reason: string | undefined,
+  ): void {
+    if (!reason) {
+      return;
+    }
+    const state = this.getOrCreateStrictCheckpointState(reason);
+    state.requested = true;
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason,
+      status: 'duplicate_suppressed',
+      failureKind: 'final_audit_already_consulted',
+      mutationCount: this.polluxStrictSourceMutationCount,
+      finalVerificationPending: state.finalVerificationPending,
+    });
+  }
+
   private noteStrictCheckpointAttempt(
     reason: string | undefined,
     result: PolluxAdvisorAttemptResult,
@@ -1210,6 +1365,22 @@ export class GeminiClient {
     if (result.strictCheckpointConsultedGood === true) {
       state.consultedGood = true;
       state.failed = false;
+      if (
+        normalizedPolluxCheckpointReason(reason) ===
+        normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON)
+      ) {
+        state.finalAuditConsultedAtMutationCount =
+          this.polluxStrictSourceMutationCount;
+        state.finalVerificationPending =
+          state.finalVerificationObservedAtMutationCount !==
+          this.polluxStrictSourceMutationCount;
+        state.finalVerificationObserved =
+          state.finalVerificationObservedAtMutationCount ===
+          this.polluxStrictSourceMutationCount;
+        if (state.finalVerificationPending) {
+          state.finalVerificationCommand = undefined;
+        }
+      }
     } else if (
       !result.consultationSucceeded ||
       result.strictCheckpointFailureKind
@@ -1231,6 +1402,116 @@ export class GeminiClient {
       truncated: result.truncated,
       failureKind: result.strictCheckpointFailureKind ?? result.failOpenKind,
     });
+  }
+
+  private noteStrictFinalVerificationObserved(command: string): void {
+    const state = this.getOrCreateStrictCheckpointState(
+      STRICT_FD_FINAL_AUDIT_REASON,
+    );
+    if (
+      !state.consultedGood ||
+      state.finalVerificationObservedAtMutationCount ===
+        this.polluxStrictSourceMutationCount
+    ) {
+      return;
+    }
+    state.finalVerificationObserved = true;
+    state.finalVerificationObservedAtMutationCount =
+      this.polluxStrictSourceMutationCount;
+    state.finalVerificationPending = false;
+    if (state.lastFailureKind === 'final_verification_missing') {
+      state.failed = false;
+      state.lastFailureKind = undefined;
+    }
+    state.finalVerificationCommand = command;
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason: STRICT_FD_FINAL_AUDIT_REASON,
+      status: 'final_verification_observed',
+      command,
+      mutationCount: this.polluxStrictSourceMutationCount,
+    });
+  }
+
+  private noteStrictFinalVerificationMissing(): void {
+    const state = this.getOrCreateStrictCheckpointState(
+      STRICT_FD_FINAL_AUDIT_REASON,
+    );
+    if (
+      !state.consultedGood ||
+      state.finalVerificationObservedAtMutationCount ===
+        this.polluxStrictSourceMutationCount
+    ) {
+      return;
+    }
+    state.finalVerificationPending = true;
+    state.failed = true;
+    state.lastFailureKind = 'final_verification_missing';
+    this.recordPolluxDiagnosticTrace('checkpoint_state', {
+      reason: STRICT_FD_FINAL_AUDIT_REASON,
+      status: 'final_verification_missing',
+      failureKind: 'final_verification_missing',
+      mutationCount: this.polluxStrictSourceMutationCount,
+    });
+  }
+
+  private maybeNoteStrictFdSourceMutationFromToolCall(
+    event: ServerGeminiStreamEvent,
+  ): void {
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (
+      experimental.advisorExecutorProfile !== 'strict_fd' ||
+      !strictFdToolCallLooksLikeSourceMutation(event)
+    ) {
+      return;
+    }
+    this.polluxStrictSourceMutationCount += 1;
+    const state = this.polluxStrictCheckpointStates.get(
+      normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON),
+    );
+    if (!state?.consultedGood) {
+      return;
+    }
+    if (
+      state.finalVerificationObservedAtMutationCount !==
+      this.polluxStrictSourceMutationCount
+    ) {
+      state.finalVerificationObserved = false;
+      state.finalVerificationPending = true;
+      this.recordPolluxDiagnosticTrace('checkpoint_state', {
+        reason: STRICT_FD_FINAL_AUDIT_REASON,
+        status: 'final_verification_invalidated',
+        mutationCount: this.polluxStrictSourceMutationCount,
+      });
+    }
+  }
+
+  private maybeNoteStrictFinalVerificationFromToolCall(
+    event: ServerGeminiStreamEvent,
+  ): void {
+    if (event.type !== GeminiEventType.ToolCallRequest) {
+      return;
+    }
+    const experimental = this.config.getPolluxExperimentalConfig();
+    if (
+      experimental.advisorExecutorProfile !== 'strict_fd' ||
+      !this.polluxStrictFinalGateContinuationUsedThisTurn
+    ) {
+      return;
+    }
+    const state = this.polluxStrictCheckpointStates.get(
+      normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON),
+    );
+    if (
+      !state?.consultedGood ||
+      state.finalVerificationObservedAtMutationCount ===
+        this.polluxStrictSourceMutationCount
+    ) {
+      return;
+    }
+    const commandText = toolCallRequestTextFromArgs(event.value.args);
+    if (STRICT_FD_FINAL_VERIFICATION_RE.test(commandText)) {
+      this.noteStrictFinalVerificationObserved(commandText);
+    }
   }
 
   private strictCheckpointIsConsultedGood(reason: string | undefined): boolean {
@@ -1299,10 +1580,30 @@ export class GeminiClient {
       lastParserOutcome: state.lastParserOutcome,
       lastFinishReason: state.lastFinishReason,
       lastFailureKind: state.lastFailureKind,
+      finalVerificationObserved: state.finalVerificationObserved,
+      finalVerificationCommand: state.finalVerificationCommand,
+      finalAuditConsultedAtMutationCount:
+        state.finalAuditConsultedAtMutationCount,
+      finalVerificationObservedAtMutationCount:
+        state.finalVerificationObservedAtMutationCount,
+      finalVerificationPending: state.finalVerificationPending,
     }));
     const packet = {
       strictCheckpoint: {
         reason: params.reason,
+        repository: extractPromptMetadataField(
+          this.polluxActiveUserPromptText,
+          'Repository',
+        ),
+        taskId: extractPromptMetadataField(
+          this.polluxActiveUserPromptText,
+          'Task',
+        ),
+        language: extractPromptMetadataField(
+          this.polluxActiveUserPromptText,
+          'Language',
+        ),
+        instructionSummary: this.polluxActiveUserPromptText.slice(0, 1200),
         required:
           this.config.getPolluxExperimentalConfig().executorCheckpoints
             .requiredReasons,
@@ -2071,12 +2372,14 @@ export class GeminiClient {
 
   private classifyStrictCheckpointGuidanceFailure(params: {
     readonly checkpointReason?: string;
+    readonly advisorExecutorProfile: PolluxAdvisorExecutorProfile;
     readonly guidance: string;
     readonly mustInclude?: readonly string[];
     readonly mustForbid?: readonly string[];
     readonly verifyBeforeDone?: readonly string[];
     readonly parserOutcome: PolluxAdvisorAttemptParserOutcome;
     readonly truncated: boolean;
+    readonly contextText: string;
   }): string | undefined {
     if (!params.checkpointReason) {
       return undefined;
@@ -2103,6 +2406,38 @@ export class GeminiClient {
       (params.verifyBeforeDone?.length ?? 0) === 0
     ) {
       return 'unstructured_guidance';
+    }
+    if (params.advisorExecutorProfile === 'strict_fd') {
+      const guidanceText = collectAdvisorGuidanceText(params);
+      const hasConcreteRepoCheck =
+        STRICT_FD_SOURCE_PATH_RE.test(guidanceText) ||
+        STRICT_FD_FINAL_VERIFICATION_RE.test(guidanceText);
+      if (
+        STRICT_FD_GENERIC_PLANNING_GUIDANCE_RE.test(guidanceText) &&
+        !hasConcreteRepoCheck
+      ) {
+        return 'generic_planning_guidance';
+      }
+      const looksLikeGoTask = strictFdContextLooksLikeGoTask(
+        `${params.contextText}\n${this.polluxActiveUserPromptText}`,
+      );
+      const looksLikeJsTsTask = strictFdContextLooksLikeJsTsTask(
+        `${params.contextText}\n${this.polluxActiveUserPromptText}`,
+      );
+      if (
+        looksLikeGoTask &&
+        STRICT_FD_GO_OFF_DOMAIN_GUIDANCE_RE.test(guidanceText)
+      ) {
+        return 'off_domain_guidance';
+      }
+      if (
+        (looksLikeGoTask || looksLikeJsTsTask) &&
+        normalizedPolluxCheckpointReason(params.checkpointReason) ===
+          normalizedPolluxCheckpointReason(STRICT_FD_FINAL_AUDIT_REASON) &&
+        !strictFdHasExecutableFinalVerification(params.verifyBeforeDone)
+      ) {
+        return 'missing_final_verification';
+      }
     }
     return undefined;
   }
@@ -2297,12 +2632,14 @@ export class GeminiClient {
       const strictCheckpointFailure =
         this.classifyStrictCheckpointGuidanceFailure({
           checkpointReason: params.checkpointReason,
+          advisorExecutorProfile: params.advisorExecutorProfile,
           guidance: parsedResponse.guidance,
           mustInclude: parsedResponse.mustInclude,
           mustForbid: parsedResponse.mustForbid,
           verifyBeforeDone: parsedResponse.verifyBeforeDone,
           parserOutcome: parsedResponse.parserOutcome,
           truncated,
+          contextText: this.polluxActiveUserPromptText,
         });
       if (
         (params.advisorExecutorProfile === 'flash_lite' &&
@@ -2616,6 +2953,10 @@ export class GeminiClient {
         : undefined;
     const checkpointReason = this.strictCheckpointReasonFromIntent(intent);
     this.noteStrictCheckpointRequested(checkpointReason);
+    if (this.shouldSuppressStrictFinalAuditAdvisorRequest(checkpointReason)) {
+      this.noteStrictFinalAuditDuplicateSuppressed(checkpointReason);
+      return 'skipped';
+    }
 
     const eligibility = checkPolluxEligibility({
       runtimeSurface,
@@ -2803,6 +3144,12 @@ export class GeminiClient {
     const experimental = this.config.getPolluxExperimentalConfig();
     const sameTurnEnabled = experimental.detector.timing.sameTurnEnabled;
     const checkpointReason = this.strictCheckpointReasonFromIntent(intent);
+    if (this.shouldSuppressStrictFinalAuditAdvisorRequest(checkpointReason)) {
+      this.noteStrictCheckpointRequested(checkpointReason);
+      this.noteStrictFinalAuditDuplicateSuppressed(checkpointReason);
+      polluxObserver.noteAdvisorSuccess(true, intent.contributingSignalIds);
+      return 'skipped';
+    }
 
     const executorRequestKey = polluxExecutorAdvisorRequestKey(intent);
     const canUseMultiCheckpointSlot =
@@ -3141,6 +3488,8 @@ export class GeminiClient {
     for await (const event of resultStream) {
       ingestPolluxObserverFailOpen(polluxObserver, event);
       this.tracePolluxStreamEvent(event);
+      this.maybeNoteStrictFdSourceMutationFromToolCall(event);
+      this.maybeNoteStrictFinalVerificationFromToolCall(event);
 
       // F.1.3 pre-tool same-turn handler: route through the generic consult
       // helper so single-shot, kill-switch, and budget guardrails apply
@@ -3202,7 +3551,15 @@ export class GeminiClient {
               this.flushPolluxPendingAdvisorGuidance();
               polluxStrictFinalGateContinuationRequest = [
                 {
-                  text: 'Continue after applying hidden advisor guidance. Make any needed code changes before final completion. Do not mention Pollux.',
+                  text: [
+                    'Continue after applying hidden final-audit advisor guidance.',
+                    'Run the required verification commands from verify_before_done.',
+                    'If verification fails, fix the issue before final completion.',
+                    'Do not finish until final verification has passed or a concrete blocker is reported.',
+                    'For Go tasks, if no command was named, run gofmt on modified Go files and a focused go test for the touched package.',
+                    'For JavaScript or TypeScript tasks, if no command was named, run a focused repository check such as npm test, npx jest, npx tsc --noEmit, npm run build, or the repository equivalent.',
+                    'Do not mention Pollux.',
+                  ].join(' '),
                 },
               ];
               break;
@@ -3282,6 +3639,14 @@ export class GeminiClient {
         }
       } else {
         yield event;
+      }
+
+      if (
+        event.type === GeminiEventType.Finished &&
+        this.polluxStrictFinalGateContinuationUsedThisTurn &&
+        !polluxStrictFinalGateContinuationRequest
+      ) {
+        this.noteStrictFinalVerificationMissing();
       }
 
       this.updateTelemetryTokenCount();
@@ -3488,6 +3853,7 @@ export class GeminiClient {
       this.lastPromptId = prompt_id;
       this.currentSequenceModel = null;
       this.polluxStrictCheckpointStates.clear();
+      this.polluxStrictSourceMutationCount = 0;
       this.polluxStrictFinalGateContinuationUsedThisTurn = false;
     }
 
