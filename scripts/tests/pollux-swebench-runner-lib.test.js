@@ -150,6 +150,8 @@ describe('pollux SWE benchmark runner library', () => {
     );
 
     expect(settings.sandbox).toBe(false);
+    expect(settings.plan).toBe(false);
+    expect(settings.planSettings).toEqual({ modelRouting: false });
     expect(settings.model).toMatchObject({
       name: 'gemini-3-flash-preview',
       disableLoopDetection: true,
@@ -185,6 +187,12 @@ describe('pollux SWE benchmark runner library', () => {
       'model_capacity_exhausted',
     );
     expect(classifyProviderFailure('', 'status: 429')).toBe('rate_limited');
+    expect(
+      classifyProviderFailure(
+        '',
+        'request to https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse failed, reason: getaddrinfo ENOTFOUND cloudcode-pa.googleapis.com',
+      ),
+    ).toBe('provider_network_failure');
     expect(
       classifyToolPolicyFailure(
         '',
@@ -224,6 +232,24 @@ describe('pollux SWE benchmark runner library', () => {
       valid_for_score: false,
       invalidation_reason: 'tool_policy_failure',
       tool_policy_failure: 'non_interactive_confirmation_required',
+      score_bucket: 'invalid',
+    });
+
+    expect(
+      classifyRunResult({
+        stdout: '',
+        stderr:
+          'FetchError: request to https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse failed, reason: getaddrinfo ENOTFOUND cloudcode-pa.googleapis.com',
+        exitCode: 3221225794,
+        timedOut: false,
+        patch: '',
+        patchCollectionFailed: true,
+        scorePolicy: 'strict',
+      }),
+    ).toMatchObject({
+      valid_for_score: false,
+      invalidation_reason: 'provider_failure',
+      provider_failure_kind: 'provider_network_failure',
       score_bucket: 'invalid',
     });
   });

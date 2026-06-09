@@ -204,6 +204,8 @@ export function buildSweBenchmarkSettings(
     ui: { useAlternateBuffer: true },
     ide: { enabled: false, hasSeenNudge: true },
     sandbox: false,
+    plan: false,
+    planSettings: { modelRouting: false },
     model: {
       name: condition.modelName,
       disableLoopDetection: true,
@@ -249,6 +251,13 @@ export function classifyProviderFailure(stdout, stderr) {
     )
   ) {
     return 'rate_limited';
+  }
+  if (
+    /\b(?:ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ECONNREFUSED)\b|getaddrinfo|fetch failed|network is unreachable|Temporary failure in name resolution|cloudcode-pa\.googleapis\.com/i.test(
+      text,
+    )
+  ) {
+    return 'provider_network_failure';
   }
   return null;
 }
