@@ -547,11 +547,15 @@ function buildAdvisorContractLines(
         ? 'strict final diff audit'
         : mode === 'constraint_audit'
           ? 'strict checkpoint audit'
-          : 'strict checkpoint guidance';
+          : 'strict Flash-plus-advisor checkpoint guidance';
     return [
       `Mode: ${label}`,
-      'You are the stronger advisor for a strict FD checkpoint. Give concrete patch-level guidance the executor can apply immediately.',
+      'You are the stronger advisor for a strict Flash-plus-advisor checkpoint. Give concrete patch-level guidance the executor can apply immediately.',
+      'FD here means Flash executor plus Pro advisor condition. It does not mean file descriptors.',
       'Return strict JSON: {"guidance":"1. ... 2. ...","must_include":["..."],"must_forbid":["..."],"verify_before_done":["..."],"confidence":1-10}',
+      'Ground every item in the current repository, task id, language, benchmark task title or instruction summary, checkpoint reason, and pending tool/diff context.',
+      'If your guidance mentions files/APIs unrelated to the current repository, task, or language, the response is invalid.',
+      'For Go tasks, require final checks where appropriate: gofmt, focused go test, no imports after declarations, and no unused imports.',
       'Target 120-260 words. Use exact files, APIs, invariants, old/new value directions, and forbidden implementation patterns from the context.',
       'Every array must contain at least one specific item. Prefer executable checks and hidden-test hazards over broad advice.',
       'No markdown. No user-facing prose. No code block unless an exact one-line pattern is essential.',
@@ -600,9 +604,23 @@ function buildAdvisorContractLines(
 export function buildAdvisorConsultationPrompt(
   input: AdvisorConsultationInput,
 ): string {
+  const strictFdGroundingLines =
+    input.advisorExecutorProfile === 'strict_fd'
+      ? [
+          '',
+          'Strict Flash-plus-advisor grounding fields to use from context:',
+          '- repository',
+          '- task id',
+          '- language',
+          '- benchmark task title or instruction summary',
+          '- current checkpoint reason',
+          '- pending tool/diff context',
+        ]
+      : [];
   const lines = [
     `Tool: ${ADVISOR_CONSULTATION_TOOL_NAME}`,
     ...buildAdvisorContractLines(input.mode, input.advisorExecutorProfile),
+    ...strictFdGroundingLines,
     '',
     'Context:',
     input.body,

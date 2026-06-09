@@ -368,6 +368,38 @@ describe('pollux/prompts', () => {
       expect(p).toContain('120-220 words');
       expect(p).toContain('protected tests/docs/readmes');
     });
+
+    it('domain-locks strict FD as Flash-plus-advisor, not file descriptors', () => {
+      const p = buildAdvisorConsultationPrompt({
+        ...minimalInput(
+          JSON.stringify({
+            repository: 'tetratelabs/wazero',
+            taskId: 'wazero-multi-module-snapshots',
+            language: 'go',
+            strictCheckpoint: {
+              reason: 'final diff audit before completion',
+            },
+          }),
+        ),
+        mode: 'final_audit',
+        advisorExecutorProfile: 'strict_fd',
+      });
+
+      expect(p).toContain('strict Flash-plus-advisor checkpoint');
+      expect(p).toContain(
+        'FD here means Flash executor plus Pro advisor condition. It does not mean file descriptors.',
+      );
+      expect(p).toContain('Return strict JSON');
+      expect(p).toContain('repository');
+      expect(p).toContain('task id');
+      expect(p).toContain('language');
+      expect(p).toContain('current checkpoint reason');
+      expect(p).toContain('pending tool/diff context');
+      expect(p).toContain('gofmt');
+      expect(p).toContain('focused go test');
+      expect(p).toContain('no imports after declarations');
+      expect(p).toContain('no unused imports');
+    });
   });
 
   describe('buildAdvisorConsultationRepairPrompt', () => {
@@ -381,6 +413,23 @@ describe('pollux/prompts', () => {
       expect(p).toContain('Failure: parse_error');
       expect(p).toContain('Previous response:');
       expect(p).toContain('"oops"');
+    });
+
+    it('preserves strict FD domain-locking in repair prompts', () => {
+      const p = buildAdvisorConsultationRepairPrompt({
+        input: {
+          ...minimalInput('Repository: tetratelabs/wazero\nLanguage: go'),
+          mode: 'final_audit',
+          advisorExecutorProfile: 'strict_fd',
+        },
+        previousResponse: 'Use O_CLOEXEC in src/connection.c',
+        previousFailure: 'parse_error',
+      });
+
+      expect(p).toContain('Flash-plus-advisor');
+      expect(p).toContain('does not mean file descriptors');
+      expect(p).toContain('If your guidance mentions files/APIs unrelated');
+      expect(p).toContain('verify_before_done');
     });
   });
 });
