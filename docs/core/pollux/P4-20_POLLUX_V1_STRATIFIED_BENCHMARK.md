@@ -106,6 +106,18 @@ FD is still marked diagnostic/non-publishable in the existing real-run condition
 configuration. A final value claim should either update that condition policy or
 explicitly describe FD as the detector-only diagnostic track.
 
+When FD is run in the strict Flash-plus-advisor profile, checkpoint completion
+requires task-grounded advisor evidence plus final verification after the final
+diff audit. A trace where all advisor checkpoints fired but no relevant
+verification ran is incomplete, even if `consulted_good` appears for every
+required checkpoint.
+
+Off-domain advisor guidance is itself a failed FD diagnostic. It must not be
+counted as product-value evidence, and reports should separate syntax/build
+verifier failures from hidden-test semantic failures. For Go/Wazero-style tasks,
+claiming completion requires format/syntax/build validation such as `gofmt` and
+a focused `go test` unless a concrete blocker is recorded.
+
 `selected-task-set.v1.1.json` records the intended post-calibration freeze. Its
 `frozenAt` field must be finalized only after A/E calibration artifacts are
 reviewed.

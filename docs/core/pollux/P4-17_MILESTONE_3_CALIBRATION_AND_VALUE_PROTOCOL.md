@@ -150,6 +150,23 @@ evidence on the frozen selected set. A zero-advisor or generic-safety-only `F`
 suite is diagnostic-only detector-miss evidence, not valid product-value
 evidence.
 
+Strict FD interpretation requires more than low cost or checkpoint traffic. A
+strict FD run with unusually low token use is not automatically efficiency
+evidence if it ended early because of an invalid patch, syntax error, missing
+verification, or other verifier-visible failure. In that case, report the low
+token/cost result as early-exit diagnostic evidence.
+
+Strict FD checkpoint completion means the required advisor checkpoints produced
+useful, task-grounded guidance and the executor performed final verification
+after the final diff audit. Off-domain advisor guidance, including advice about
+files, APIs, or languages unrelated to the task, is diagnostic failure evidence
+rather than product-value evidence.
+
+For DeepSWE Wazero-style Go tasks, final verification must include syntax,
+format, or build/test validation before claiming completion. Syntax/build
+failures such as imports after declarations or unused imports should be reported
+separately from hidden-test semantic failures.
+
 ## Artifact Layout
 
 Calibration:
