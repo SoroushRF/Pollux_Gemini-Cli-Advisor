@@ -348,7 +348,13 @@ allow_internet = false
     );
     expect(args.at(-1)).toContain('allowBuilds');
     expect(args.at(-1)).toContain('esbuild: true');
-    expect(args.at(-1)).toContain('npm ci --prefer-online');
+    expect(args.at(-1)).toContain('export NODE_ENV=development');
+    expect(args.at(-1)).toContain('export npm_config_production=false');
+    expect(args.at(-1)).toContain('npm ci --prefer-online --include=dev');
+    expect(args.at(-1)).toContain('npm install --prefer-online --include=dev');
+    expect(args.at(-1)).toContain(
+      'yarn install --frozen-lockfile --production=false',
+    );
     expect(args).not.toContain('npm_config_offline=true');
 
     const offlineArgs = buildProjectDependencyInstallDockerArgs({
@@ -361,7 +367,9 @@ allow_internet = false
     expect(offlineArgs.at(-1)).toContain(
       'pnpm install --frozen-lockfile --offline',
     );
-    expect(offlineArgs.at(-1)).toContain('npm ci --prefer-offline');
+    expect(offlineArgs.at(-1)).toContain(
+      'npm ci --prefer-offline --include=dev',
+    );
   });
 
   it('normalizes verifier text files to LF before Docker mounts them', () => {
