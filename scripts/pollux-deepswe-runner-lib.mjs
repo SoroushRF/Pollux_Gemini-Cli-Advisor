@@ -1298,12 +1298,16 @@ export function buildProjectDependencyInstallDockerArgs(params) {
   }
   const dependencyOffline = params.dependencyOffline === true;
   const npmPreferMode = dependencyOffline ? '--prefer-offline' : '--prefer-online';
-  const pnpmPreferMode = dependencyOffline ? '--prefer-offline' : '';
+  const pnpmPreferMode = dependencyOffline ? '--offline' : '';
   const pnpmAllowEsbuildScript =
     'node -e "const fs=require(\'fs\'); const p=\'pnpm-workspace.yaml\'; let s=fs.existsSync(p)?fs.readFileSync(p,\'utf8\'):\'\'; if (/esbuild:\\s*(set this to true or false|false)/.test(s)) { s=s.replace(/esbuild:\\s*(set this to true or false|false)/g, \'esbuild: true\'); } else if (!/^\\s*esbuild:/m.test(s)) { if (/^allowBuilds:\\s*$/m.test(s)) { s=s.replace(/^allowBuilds:\\s*$/m, \'allowBuilds:\\n  esbuild: true\'); } else { s=s.trimEnd()+(s.trim()?\'\\\\n\':\'\')+\'allowBuilds:\\n  esbuild: true\\n\'; } } fs.writeFileSync(p,s);"';
   const installCommand = [
     'set -e',
     'mkdir -p /dependency-cache/npm /dependency-cache/yarn /dependency-cache/pnpm-home /dependency-cache/pnpm-store /dependency-cache/corepack',
+    'if [ -d node_modules ]; then',
+    '  echo "[pollux] node_modules already present; skipping verifier dependency install"',
+    '  exit 0',
+    'fi',
     'if [ -f pnpm-lock.yaml ]; then',
     '  export PATH="/dependency-cache/pnpm-home:$PATH"',
     '  corepack enable >/dev/null 2>&1 || true',
@@ -1354,6 +1358,16 @@ export function buildProjectDependencyInstallDockerArgs(params) {
   }
   args.push(params.dockerImage, 'bash', '-lc', installCommand);
   return args;
+}
+
+export function finalVerifierNetworkPolicy(args = {}) {
+  const networkedDependencyInstall =
+    args.networkedVerifierPreflight === true;
+  return {
+    dependencyOffline: !networkedDependencyInstall,
+    dependencyInstallNetwork: networkedDependencyInstall ? 'bridge' : 'none',
+    verifierNetwork: 'none',
+  };
 }
 
 export function inferDependencyPreflight(testScriptText, options = {}) {

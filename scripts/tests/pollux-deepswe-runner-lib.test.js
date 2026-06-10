@@ -24,6 +24,7 @@ import {
   copyDirectoryNormalizedForVerifier,
   deepsweConditions,
   detectApprovalModeContamination,
+  finalVerifierNetworkPolicy,
   inspectNonInteractiveAuthReadiness,
   inferDependencyPreflight,
   loadDeepSweManifest,
@@ -342,6 +343,9 @@ allow_internet = false
     expect(args.at(-1)).not.toContain(
       'pnpm install --frozen-lockfile --prefer-online',
     );
+    expect(args.at(-1)).toContain(
+      '[pollux] node_modules already present; skipping verifier dependency install',
+    );
     expect(args.at(-1)).toContain('allowBuilds');
     expect(args.at(-1)).toContain('esbuild: true');
     expect(args.at(-1)).toContain('npm ci --prefer-online');
@@ -354,6 +358,9 @@ allow_internet = false
       dependencyOffline: true,
     });
     expect(offlineArgs).toContain('npm_config_offline=true');
+    expect(offlineArgs.at(-1)).toContain(
+      'pnpm install --frozen-lockfile --offline',
+    );
     expect(offlineArgs.at(-1)).toContain('npm ci --prefer-offline');
   });
 
@@ -636,6 +643,21 @@ allow_internet = false
     ).toMatchObject({
       networkedVerifierPreflight: true,
       baselineVerifierPreflight: false,
+    });
+  });
+
+  it('keeps final verifier tests offline while allowing networked dependency install', () => {
+    expect(finalVerifierNetworkPolicy({})).toEqual({
+      dependencyOffline: true,
+      dependencyInstallNetwork: 'none',
+      verifierNetwork: 'none',
+    });
+    expect(
+      finalVerifierNetworkPolicy({ networkedVerifierPreflight: true }),
+    ).toEqual({
+      dependencyOffline: false,
+      dependencyInstallNetwork: 'bridge',
+      verifierNetwork: 'none',
     });
   });
 

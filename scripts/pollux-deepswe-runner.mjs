@@ -29,6 +29,7 @@ import {
   classifyVerifierResult,
   copyDirectoryNormalizedForVerifier,
   analyzeApprovalModeContamination,
+  finalVerifierNetworkPolicy,
   inspectNonInteractiveAuthReadiness,
   inferDependencyPreflight,
   loadDeepSweManifest,
@@ -43,6 +44,7 @@ import {
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), '..');
+const VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 const authSeedFiles = [
   'oauth_creds.json',
   'google_accounts.json',
@@ -64,6 +66,43 @@ function execFile(command, args, options = {}) {
     let child;
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    let timedOut = false;
+    let timer;
+    const finish = (result) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (result.code === 0 || options.allowFailure) {
+        resolve(result);
+      } else {
+        const error = new Error(
+          `${command} ${args.join(' ')} failed with code ${result.code}\n${result.stderr}`,
+        );
+        error.code = result.code;
+        error.stdout = result.stdout;
+        error.stderr = result.stderr;
+        reject(error);
+      }
+    };
+    const terminateProcessTree = () => {
+      timedOut = true;
+      stderr += `\nProcess timed out after ${options.timeoutMs}ms.`;
+      if (process.platform === 'win32' && child?.pid) {
+        spawn(
+          process.env.ComSpec ?? 'cmd.exe',
+          ['/d', '/s', '/c', 'taskkill', '/PID', String(child.pid), '/T', '/F'],
+          { windowsHide: true },
+        );
+        return;
+      }
+      child?.kill('SIGTERM');
+      setTimeout(() => child?.kill('SIGKILL'), 10_000).unref();
+    };
     try {
       child = spawn(command, args, {
         cwd: options.cwd ?? repoRoot,
@@ -77,6 +116,7 @@ function execFile(command, args, options = {}) {
           code: null,
           stdout,
           stderr: error instanceof Error ? error.message : String(error),
+          timedOut,
         });
         return;
       }
@@ -89,29 +129,26 @@ function execFile(command, args, options = {}) {
     child.stderr?.on('data', (chunk) => {
       stderr += chunk.toString();
     });
+    if (Number.isFinite(options.timeoutMs) && options.timeoutMs > 0) {
+      timer = setTimeout(terminateProcessTree, options.timeoutMs);
+    }
     child.on('error', (error) => {
       if (options.allowFailure) {
-        resolve({
+        finish({
           code: null,
           stdout,
           stderr: `${stderr}\n${error instanceof Error ? error.message : String(error)}`,
+          timedOut,
         });
       } else {
+        if (timer) {
+          clearTimeout(timer);
+        }
         reject(error);
       }
     });
     child.on('close', (code) => {
-      if (code === 0 || options.allowFailure) {
-        resolve({ code, stdout, stderr });
-      } else {
-        const error = new Error(
-          `${command} ${args.join(' ')} failed with code ${code}\n${stderr}`,
-        );
-        error.code = code;
-        error.stdout = stdout;
-        error.stderr = stderr;
-        reject(error);
-      }
+      finish({ code, stdout, stderr, timedOut });
     });
   });
 }
@@ -679,7 +716,7 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
     workDir,
     dependencyCacheDir: options.dependencyCacheDir,
     dependencyOffline: options.dependencyOffline !== false,
-    network: options.network ?? 'none',
+    network: options.dependencyInstallNetwork ?? options.network ?? 'none',
   });
   fs.writeFileSync(
     path.join(rawDir, 'verifier-dependency-install-command.json'),
@@ -688,6 +725,7 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
   const installResult = await execFile(args.dockerCommand, installDockerArgs, {
     cwd: workDir,
     allowFailure: true,
+    timeoutMs: VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS,
   });
   fs.writeFileSync(
     path.join(rawDir, 'verifier-dependency-install-stdout.txt'),
@@ -720,7 +758,7 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
     timeoutSec: task.verifierTimeoutSec,
     dependencyCacheDir: options.dependencyCacheDir,
     dependencyOffline: options.dependencyOffline,
-    network: options.network,
+    network: options.verifierNetwork ?? options.network,
   });
   fs.writeFileSync(
     path.join(rawDir, 'verifier-command.json'),
@@ -797,6 +835,7 @@ async function runBaselineVerifierPreflightForTasks(params) {
     const installResult = await execFile(args.dockerCommand, installDockerArgs, {
       cwd: workDir,
       allowFailure: true,
+      timeoutMs: VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS,
     });
     fs.writeFileSync(
       path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
@@ -1401,6 +1440,7 @@ async function runOne(params) {
         params.dependencyPreflight,
         task.taskId,
       ),
+      ...finalVerifierNetworkPolicy(args),
     });
     verifierClassification = verifier.classification;
   }
@@ -1662,6 +1702,7 @@ async function rescoreOne(params) {
           params.dependencyPreflight,
           task.taskId,
         ),
+        ...finalVerifierNetworkPolicy(args),
       })
     : null;
   const verifierClassification = verifier?.classification ?? {};
