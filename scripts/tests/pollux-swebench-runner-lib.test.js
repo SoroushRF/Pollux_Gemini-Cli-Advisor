@@ -4,15 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   analyzePatch,
+  applyPolluxVertexEnv,
   buildEntrypointMetadata,
   buildSweBenchmarkSettings,
+  extractProviderFailureDetails,
   classifyProviderFailure,
   classifyRunResult,
   classifyToolPolicyFailure,
+  loadPolluxDotEnvFile,
   parseRunnerArgs,
   resolveCliEntrypoint,
   summarizeRecords,
@@ -151,6 +156,7 @@ describe('pollux SWE benchmark runner library', () => {
 
     expect(settings.sandbox).toBe(false);
     expect(settings.plan).toBe(false);
+    expect(settings.security.auth.selectedType).toBe('vertex-ai');
     expect(settings.planSettings).toEqual({ modelRouting: false });
     expect(settings.model).toMatchObject({
       name: 'gemini-3-flash-preview',
@@ -171,6 +177,26 @@ describe('pollux SWE benchmark runner library', () => {
         includeModelThoughts: 'summary',
       },
     });
+  });
+
+  it('loads .env values and applies Vertex child env without Gemini API key shadowing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pollux-dotenv-'));
+    const envPath = path.join(tmp, '.env');
+    fs.writeFileSync(
+      envPath,
+      'GOOGLE_CLOUD_PROJECT=proj-from-file\nGOOGLE_CLOUD_LOCATION=global\n',
+    );
+    const env = {};
+    loadPolluxDotEnvFile(envPath, env);
+    expect(env.GOOGLE_CLOUD_PROJECT).toBe('proj-from-file');
+    const clean = applyPolluxVertexEnv({
+      GEMINI_API_KEY: 'should-be-removed',
+      GOOGLE_CLOUD_PROJECT: 'proj-from-file',
+      GOOGLE_CLOUD_LOCATION: 'global',
+    });
+    expect(clean.GOOGLE_GENAI_USE_VERTEXAI).toBe('true');
+    expect(clean.GOOGLE_CLOUD_LOCATION).toBe('global');
+    expect(clean.GEMINI_API_KEY).toBeUndefined();
   });
 
   it('classifies quota, capacity, rate-limit, and tool-policy failures', () => {
@@ -199,6 +225,20 @@ describe('pollux SWE benchmark runner library', () => {
         'Shell tool requires user confirmation, which is not supported in non-interactive mode.',
       ),
     ).toBe('non_interactive_confirmation_required');
+
+    expect(
+      extractProviderFailureDetails(
+        '',
+        'Attempt 1 failed: No capacity available for model gemini-3.1-pro-preview on the server. status: 429 MODEL_CAPACITY_EXHAUSTED cloudcode-pa.googleapis.com',
+      ),
+    ).toMatchObject({
+      kind: 'model_capacity_exhausted',
+      model: 'gemini-3.1-pro-preview',
+      status: 429,
+      reason: 'MODEL_CAPACITY_EXHAUSTED',
+      backend: 'cloudcode-pa.googleapis.com',
+      account_quota_signal: false,
+    });
   });
 
   it('marks provider and policy failures invalid instead of unresolved', () => {
@@ -280,6 +320,11 @@ describe('pollux SWE benchmark runner library', () => {
       invalidation_reason: null,
       provider_failure_kind: null,
       provider_failure_warning: 'model_capacity_exhausted',
+      provider_failure_warning_details: {
+        kind: 'model_capacity_exhausted',
+        model: 'gemini-3-flash-preview',
+        reason: 'MODEL_CAPACITY_EXHAUSTED',
+      },
       warnings: ['model_capacity_retry'],
       score_bucket: 'unresolved',
     });

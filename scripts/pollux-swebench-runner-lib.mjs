@@ -184,6 +184,81 @@ export function resolveCliEntrypoint(options) {
   };
 }
 
+/** Auth type written into isolated benchmark settings.json. */
+export const POLLUX_BENCHMARK_AUTH_TYPE = 'vertex-ai';
+
+/**
+ * Load KEY=VALUE pairs from a `.env` file without overriding existing process env.
+ * Returns the parsed map (including keys already present in `env`).
+ */
+export function loadPolluxDotEnvFile(envPath, env = process.env) {
+  const parsed = {};
+  if (!envPath || !fs.existsSync(envPath)) {
+    return parsed;
+  }
+  const text = fs.readFileSync(envPath, 'utf8');
+  for (const rawLine of text.split(/\r?\n/g)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) {
+      continue;
+    }
+    const eq = line.indexOf('=');
+    if (eq <= 0) {
+      continue;
+    }
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    parsed[key] = value;
+    if (env[key] === undefined || env[key] === '') {
+      env[key] = value;
+    }
+  }
+  return parsed;
+}
+
+/**
+ * Resolve Vertex env for Pollux benchmark child processes.
+ * Prefers already-set process env; falls back to repo `.env` values when provided.
+ */
+export function resolvePolluxVertexEnv(env = process.env, defaults = {}) {
+  const project =
+    env.GOOGLE_CLOUD_PROJECT ||
+    env.GOOGLE_CLOUD_PROJECT_ID ||
+    defaults.GOOGLE_CLOUD_PROJECT ||
+    '';
+  const location =
+    env.GOOGLE_CLOUD_LOCATION || defaults.GOOGLE_CLOUD_LOCATION || 'global';
+  return {
+    GOOGLE_CLOUD_PROJECT: project,
+    GOOGLE_CLOUD_LOCATION: location,
+    GOOGLE_GENAI_USE_VERTEXAI: 'true',
+  };
+}
+
+/**
+ * Apply Vertex AI auth env onto a cleaned child-process env.
+ * Unsets Gemini Developer API key so Vertex/ADC is not shadowed.
+ */
+export function applyPolluxVertexEnv(cleanEnv, options = {}) {
+  const defaults = options.defaults ?? {};
+  const vertex = resolvePolluxVertexEnv(cleanEnv, defaults);
+  if (vertex.GOOGLE_CLOUD_PROJECT) {
+    cleanEnv.GOOGLE_CLOUD_PROJECT = vertex.GOOGLE_CLOUD_PROJECT;
+  }
+  cleanEnv.GOOGLE_CLOUD_LOCATION = vertex.GOOGLE_CLOUD_LOCATION;
+  cleanEnv.GOOGLE_GENAI_USE_VERTEXAI = 'true';
+  // Prefer Vertex ADC / GOOGLE_API_KEY over Gemini Developer API key.
+  delete cleanEnv.GEMINI_API_KEY;
+  delete cleanEnv.GOOGLE_GENAI_USE_GCA;
+  return cleanEnv;
+}
+
 export function buildSweBenchmarkSettings(
   condition,
   telemetryPath,
@@ -198,7 +273,7 @@ export function buildSweBenchmarkSettings(
       outfile: telemetryPath,
     },
     security: {
-      auth: { selectedType: 'oauth-personal' },
+      auth: { selectedType: POLLUX_BENCHMARK_AUTH_TYPE },
       folderTrust: { enabled: false },
     },
     ui: { useAlternateBuffer: true },
@@ -260,6 +335,37 @@ export function classifyProviderFailure(stdout, stderr) {
     return 'provider_network_failure';
   }
   return null;
+}
+
+export function extractProviderFailureDetails(stdout, stderr) {
+  const text = `${stdout ?? ''}\n${stderr ?? ''}`;
+  const kind = classifyProviderFailure(stdout ?? '', stderr ?? '');
+  if (!kind) {
+    return null;
+  }
+  const modelMatch =
+    text.match(/\bmodel\s+([A-Za-z0-9._-]+)\b/i) ??
+    text.match(/["']model["']\s*:\s*["']([^"']+)["']/i);
+  const statusMatch =
+    text.match(/\bstatus\s*[:=]\s*(\d{3})\b/i) ??
+    text.match(/["']code["']\s*:\s*(\d{3})/i);
+  const reasonMatch = text.match(
+    /\b(MODEL_CAPACITY_EXHAUSTED|RESOURCE_EXHAUSTED|RATE_LIMIT_EXCEEDED|QUOTA_EXHAUSTED|QUOTA_EXCEEDED)\b/i,
+  );
+  const backendMatch = text.match(
+    /\b(cloudcode-pa\.googleapis\.com|generativelanguage\.googleapis\.com)\b/i,
+  );
+  return {
+    kind,
+    model: modelMatch?.[1] ?? null,
+    status: statusMatch ? Number(statusMatch[1]) : null,
+    reason: reasonMatch?.[1]?.toUpperCase() ?? null,
+    backend: backendMatch?.[1] ?? null,
+    account_quota_signal:
+      /\b(QUOTA_EXHAUSTED|QUOTA_EXCEEDED)\b|exhausted your capacity|quota will reset/i.test(
+        text,
+      ),
+  };
 }
 
 export function classifyToolPolicyFailure(stdout, stderr) {
@@ -336,6 +442,10 @@ export function classifyRunResult(params) {
     params.stdout ?? '',
     params.stderr ?? '',
   );
+  const providerFailureDetails = extractProviderFailureDetails(
+    params.stdout ?? '',
+    params.stderr ?? '',
+  );
   const rawToolPolicyFailure = classifyToolPolicyFailure(
     params.stdout ?? '',
     params.stderr ?? '',
@@ -393,9 +503,16 @@ export function classifyRunResult(params) {
     valid_for_score: validForScore,
     invalidation_reason: invalidationReason,
     provider_failure_kind: providerFailureKind,
+    provider_failure_details: providerFailureKind
+      ? providerFailureDetails
+      : null,
     provider_failure_warning: providerFailureKind
       ? null
       : (rawProviderFailureKind ?? null),
+    provider_failure_warning_details:
+      providerFailureKind || !rawProviderFailureKind
+        ? null
+        : providerFailureDetails,
     tool_policy_failure: toolPolicyFailure,
     tool_policy_warning: toolPolicyFailure ? null : (rawToolPolicyFailure ?? null),
     warnings,

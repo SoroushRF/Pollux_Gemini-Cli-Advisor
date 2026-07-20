@@ -10,16 +10,20 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   analyzePatch,
+  applyPolluxVertexEnv,
   buildEntrypointMetadata,
   buildSweBenchmarkSettings,
   classifyRunResult,
+  loadPolluxDotEnvFile,
   parseRunnerArgs,
   resolveCliEntrypoint,
   summarizeRecords,
 } from './pollux-swebench-runner-lib.mjs';
+import { inspectNonInteractiveAuthReadiness } from './pollux-deepswe-runner-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), '..');
+loadPolluxDotEnvFile(path.join(repoRoot, '.env'));
 const benchmarkRoot = path.join(
   repoRoot,
   'evaluation_results',
@@ -250,7 +254,7 @@ function buildCleanGeminiEnv(homeDir) {
   cleanEnv.NO_COLOR = '1';
   cleanEnv.GEMINI_CLI_HOME = homeDir;
   cleanEnv.GEMINI_PTY_INFO = 'child_process';
-  return cleanEnv;
+  return applyPolluxVertexEnv(cleanEnv);
 }
 
 async function ensureBareRepo(instance) {
@@ -765,6 +769,18 @@ const selectedConditions = args.conditions.map((id) => {
 });
 const runDir = path.join(benchmarkRoot, 'runs', args.runId);
 ensureDir(runDir);
+{
+  const readiness = inspectNonInteractiveAuthReadiness(process.env);
+  fs.writeFileSync(
+    path.join(runDir, 'auth-preflight.json'),
+    `${JSON.stringify(readiness, null, 2)}\n`,
+  );
+  if (!readiness.ok) {
+    throw new Error(
+      `Non-interactive auth preflight failed (expected Vertex AI). Set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION=global, and ADC (gcloud auth application-default login) or GOOGLE_API_KEY. See ${path.join(runDir, 'auth-preflight.json')}.`,
+    );
+  }
+}
 fs.writeFileSync(
   path.join(runDir, 'manifest.json'),
   `${JSON.stringify(
