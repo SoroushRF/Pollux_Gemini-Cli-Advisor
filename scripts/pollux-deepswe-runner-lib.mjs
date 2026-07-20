@@ -150,6 +150,36 @@ export const deepsweConditions = {
   },
 };
 
+export function resolveDeepSweEphemeralWorkspacesRoot(scratchRoot, runId) {
+  return path.join(scratchRoot, 'workspaces', runId);
+}
+
+export function resolveDeepSweVerifierWorkspaceRoot(
+  scratchRoot,
+  sampleId,
+) {
+  return path.join(scratchRoot, 'verifier-workspaces', sampleId);
+}
+
+export function shouldStageDeepSweVerifierCheckout(
+  platform = process.platform,
+) {
+  return platform === 'win32';
+}
+
+export function resolveDeepSweDependencyCacheDir(scratchRoot, taskId) {
+  return path.join(scratchRoot, 'dependency-cache', taskId);
+}
+
+/**
+ * Ephemeral task checkouts are pruned after scoring by default.
+ * Keep them for --mode prepare and when --keep-workspaces is set.
+ * Telemetry under raw/ is never pruned by this policy.
+ */
+export function shouldRetainDeepSweWorkspace(args) {
+  return args?.keepWorkspaces === true || args?.mode === 'prepare';
+}
+
 export function parseDeepSweRunnerArgs(argv, now = new Date()) {
   const out = {
     mode: 'run',
@@ -184,6 +214,9 @@ export function parseDeepSweRunnerArgs(argv, now = new Date()) {
     networkedVerifierPreflight: false,
     baselineVerifierPreflight: false,
     fdProfile: 'strict',
+    // Default false: prune ephemeral git worktrees after each sample.
+    // Telemetry under raw/ is always retained.
+    keepWorkspaces: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -276,6 +309,10 @@ export function parseDeepSweRunnerArgs(argv, now = new Date()) {
     } else if (arg === '--fd-profile' && next) {
       out.fdProfile = next;
       i++;
+    } else if (arg === '--keep-workspaces') {
+      out.keepWorkspaces = true;
+    } else if (arg === '--no-keep-workspaces') {
+      out.keepWorkspaces = false;
     }
   }
 
@@ -1580,12 +1617,94 @@ export function isVerifierDependencyFailure(text) {
   );
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizePatchFile(file) {
+  return String(file ?? '').replace(/\\/g, '/').replace(/^\.?\//, '');
+}
+
+function outputReferencesPatchedFile(outputText, patchStats) {
+  const files = Array.isArray(patchStats?.files) ? patchStats.files : [];
+  const normalizedOutput = String(outputText ?? '').replace(/\\/g, '/');
+  return files.some((file) => {
+    const normalized = normalizePatchFile(file);
+    if (!normalized) {
+      return false;
+    }
+    const pattern = new RegExp(
+      `(^|[^A-Za-z0-9_./-])${escapeRegExp(normalized)}(?=$|[:\\s"'\\)\\]])`,
+      'i',
+    );
+    return pattern.test(normalizedOutput);
+  });
+}
+
+function verifierOutputLooksLikeBuildFailure(outputText) {
+  return /\b(build failed|failed to compile|compilation failed|compile error|syntax\s*error|SyntaxError|undefined:|imported and not used|cannot find name|TS\d{4}|error\[E\d+\])\b/i.test(
+    outputText,
+  );
+}
+
+export function classifyVerifierBaselineFailure(params) {
+  const outputText = `${params.stdout ?? ''}\n${params.stderr ?? ''}`;
+  if (!outputReferencesPatchedFile(outputText, params.patchStats)) {
+    return {
+      verifier_failure_kind: 'baseline_failure',
+      verifier_model_failure: false,
+      verifier_invalidation_reason: 'verifier_infra_failure',
+    };
+  }
+  return {
+    verifier_failure_kind: verifierOutputLooksLikeBuildFailure(outputText)
+      ? 'model_build_failure'
+      : 'baseline_model_failure',
+    verifier_model_failure: true,
+    verifier_invalidation_reason: null,
+  };
+}
+
 export function classifyVerifierBaselinePreflight(params) {
   const outputText = `${params.stdout ?? ''}\n${params.stderr ?? ''}`;
   const phaseExitCodes = parseVerifierPhaseExitCodes(outputText);
   const dependencyFailure =
     params.dependencyPreflightFailed === true ||
     isVerifierDependencyFailure(outputText);
+  const testPatchApplied =
+    /Applying test\.patch\b/i.test(outputText) &&
+    !/test\.patch failed to apply/i.test(outputText);
+  const verifierCompleted =
+    params.exitCode === 0 &&
+    /===== grade =====/i.test(outputText) &&
+    /reward\.json=/i.test(outputText);
+  const repositoryFailure =
+    /fatal:\s+not a git repository|test\.patch failed to apply/i.test(
+      outputText,
+    );
+  // DeepSWE v1.1 task verifiers do not uniformly emit the legacy
+  // "Baseline exit code" / "New tests exit code" markers. A pristine
+  // no-solution preflight can legitimately build-fail the new tests and still
+  // be a valid infrastructure smoke test when the verifier applies the test
+  // patch, grades, and emits reward.json successfully.
+  if (
+    !dependencyFailure &&
+    testPatchApplied &&
+    verifierCompleted &&
+    !repositoryFailure
+  ) {
+    return {
+      ok: true,
+      required: true,
+      exitCode: params.exitCode ?? null,
+      verifier_baseline_exit_code: phaseExitCodes.baseline,
+      verifier_new_tests_exit_code: phaseExitCodes.newTests,
+      dependency_failure: false,
+      test_patch_applied: true,
+      verifier_completed: true,
+      failure_kind: null,
+    };
+  }
   const baselineMissing = phaseExitCodes.baseline === null;
   const baselineFailed =
     phaseExitCodes.baseline !== null && phaseExitCodes.baseline !== 0;
@@ -1599,6 +1718,8 @@ export function classifyVerifierBaselinePreflight(params) {
     verifier_baseline_exit_code: phaseExitCodes.baseline,
     verifier_new_tests_exit_code: phaseExitCodes.newTests,
     dependency_failure: dependencyFailure,
+    test_patch_applied: testPatchApplied,
+    verifier_completed: verifierCompleted,
     failure_kind: ok
       ? null
       : dependencyFailure
@@ -1611,28 +1732,87 @@ export function classifyVerifierBaselinePreflight(params) {
   };
 }
 
+function resolveWellKnownAdcPath(env = process.env) {
+  if (env.GOOGLE_APPLICATION_CREDENTIALS) {
+    return env.GOOGLE_APPLICATION_CREDENTIALS;
+  }
+  if (env.APPDATA) {
+    return path.join(
+      env.APPDATA,
+      'gcloud',
+      'application_default_credentials.json',
+    );
+  }
+  const home = env.HOME || env.USERPROFILE || '';
+  if (!home) {
+    return null;
+  }
+  return path.join(
+    home,
+    '.config',
+    'gcloud',
+    'application_default_credentials.json',
+  );
+}
+
+/**
+ * Non-interactive auth preflight for Pollux runners.
+ * Vertex AI (current default) needs project + location and ADC or a Vertex API key.
+ * Legacy Gemini API key / OAuth seed files remain accepted for local debugging.
+ */
 export function inspectNonInteractiveAuthReadiness(env = process.env, homeDir) {
   const sourceGeminiDir =
     env.GEMINI_CLI_HOME ??
     path.join(env.USERPROFILE ?? env.HOME ?? '', '.gemini');
-  const hasApiKey = Boolean(env.GEMINI_API_KEY || env.GOOGLE_API_KEY);
-  const hasAdc = Boolean(env.GOOGLE_APPLICATION_CREDENTIALS);
+  const hasGeminiApiKey = Boolean(env.GEMINI_API_KEY);
+  const hasGoogleApiKey = Boolean(env.GOOGLE_API_KEY);
+  const hasApiKey = hasGeminiApiKey || hasGoogleApiKey;
+  const adcPath = resolveWellKnownAdcPath(env);
+  const hasAdcEnv = Boolean(env.GOOGLE_APPLICATION_CREDENTIALS);
+  const hasAdcFile = Boolean(adcPath) && fs.existsSync(adcPath);
+  const hasAdc = hasAdcEnv || hasAdcFile;
   const hasOauthCreds =
     Boolean(sourceGeminiDir) &&
     fs.existsSync(path.join(sourceGeminiDir, 'oauth_creds.json'));
   const hasGoogleAccounts =
     Boolean(sourceGeminiDir) &&
     fs.existsSync(path.join(sourceGeminiDir, 'google_accounts.json'));
-  const ok = hasApiKey || hasAdc || hasOauthCreds || hasGoogleAccounts;
+  const cloudProject =
+    env.GOOGLE_CLOUD_PROJECT || env.GOOGLE_CLOUD_PROJECT_ID || '';
+  const cloudLocation = env.GOOGLE_CLOUD_LOCATION || '';
+  const hasVertexProjectLocation = Boolean(cloudProject && cloudLocation);
+  const vertexReady =
+    hasVertexProjectLocation && (hasAdc || hasGoogleApiKey);
+  const legacyReady = hasGeminiApiKey || hasOauthCreds || hasGoogleAccounts;
+  const ok = vertexReady || legacyReady;
+  let failure_kind = null;
+  if (!ok) {
+    if (hasVertexProjectLocation && !hasAdc && !hasGoogleApiKey) {
+      failure_kind = 'noninteractive_vertex_adc_missing';
+    } else if (!hasVertexProjectLocation && (hasAdc || hasGoogleApiKey)) {
+      failure_kind = 'noninteractive_vertex_project_location_missing';
+    } else {
+      failure_kind = 'noninteractive_auth_missing';
+    }
+  }
   return {
     ok,
+    authMode: vertexReady ? 'vertex-ai' : legacyReady ? 'legacy' : null,
     sourceGeminiDir,
     checkedHomeDir: homeDir ?? null,
     hasApiKey,
+    hasGeminiApiKey,
+    hasGoogleApiKey,
     hasAdc,
+    hasAdcEnv,
+    hasAdcFile,
+    adcPath: adcPath || null,
     hasOauthCreds,
     hasGoogleAccounts,
-    failure_kind: ok ? null : 'noninteractive_auth_missing',
+    hasVertexProjectLocation,
+    googleCloudProject: cloudProject || null,
+    googleCloudLocation: cloudLocation || null,
+    failure_kind,
   };
 }
 
@@ -1663,21 +1843,44 @@ export function classifyVerifierResult(params) {
     };
   }
   if (dependencyFailure || baselineFailed || (params.exitCode !== 0 && missingMeaningfulPhase)) {
+    const baselineFailure = baselineFailed
+      ? classifyVerifierBaselineFailure({
+          stdout: params.stdout,
+          stderr: params.stderr,
+          patchStats: params.patchStats,
+        })
+      : null;
+    const verifierFailureKind = dependencyFailure
+      ? 'dependency_failure'
+      : baselineFailed
+        ? baselineFailure.verifier_failure_kind
+        : 'infra_failure';
+    const verifierInvalidationReason = dependencyFailure
+      ? 'verifier_infra_failure'
+      : baselineFailed
+        ? baselineFailure.verifier_invalidation_reason
+        : 'verifier_infra_failure';
     return {
       verifier_skipped: false,
       verifier_reward: null,
       score_bucket:
-        params.scorePolicy === 'diagnostic' ? 'unresolved' : 'invalid',
+        verifierInvalidationReason === null
+          ? 'unresolved'
+          : params.scorePolicy === 'diagnostic'
+            ? 'unresolved'
+            : 'invalid',
       resolved: false,
       verifier_baseline_exit_code: phaseExitCodes.baseline,
       verifier_new_tests_exit_code: phaseExitCodes.newTests,
-      verifier_failure_kind: dependencyFailure
-        ? 'dependency_failure'
-        : baselineFailed
-          ? 'baseline_failure'
-          : 'infra_failure',
+      verifier_failure_kind: verifierFailureKind,
       verifier_dependency_failure: dependencyFailure,
-      verifier_invalidation_reason: 'verifier_infra_failure',
+      verifier_model_failure:
+        !dependencyFailure && baselineFailed
+          ? baselineFailure.verifier_model_failure
+          : false,
+      ...(verifierInvalidationReason
+        ? { verifier_invalidation_reason: verifierInvalidationReason }
+        : {}),
     };
   }
   if (params.exitCode === 0 && reward === '1') {

@@ -19,6 +19,7 @@ import {
   buildPreflightReport,
   buildProjectDependencyInstallDockerArgs,
   buildVerifierDockerArgs,
+  classifyVerifierBaselineFailure,
   classifyVerifierBaselinePreflight,
   classifyVerifierResult,
   copyDirectoryNormalizedForVerifier,
@@ -31,6 +32,11 @@ import {
   loadDeepSweTask,
   normalizeTextForVerifier,
   parseDeepSweRunnerArgs,
+  resolveDeepSweDependencyCacheDir,
+  resolveDeepSweEphemeralWorkspacesRoot,
+  resolveDeepSweVerifierWorkspaceRoot,
+  shouldStageDeepSweVerifierCheckout,
+  shouldRetainDeepSweWorkspace,
   parseSimpleToml,
   selectDeepSweTasks,
   STRICT_FD_CHECKPOINT_REASONS,
@@ -63,7 +69,34 @@ describe('pollux DeepSWE runner library', () => {
       timeoutMs: 7_200_000,
       entrypoint: 'bundle',
       fdProfile: 'strict',
+      keepWorkspaces: false,
     });
+  });
+
+  it('defaults to pruning workspaces and keeps prepare/debug retain overrides', () => {
+    expect(
+      shouldRetainDeepSweWorkspace({ keepWorkspaces: false, mode: 'run' }),
+    ).toBe(false);
+    expect(
+      shouldRetainDeepSweWorkspace({ keepWorkspaces: true, mode: 'run' }),
+    ).toBe(true);
+    expect(
+      shouldRetainDeepSweWorkspace({ keepWorkspaces: false, mode: 'prepare' }),
+    ).toBe(true);
+    expect(parseDeepSweRunnerArgs(['--keep-workspaces']).keepWorkspaces).toBe(
+      true,
+    );
+    expect(resolveDeepSweEphemeralWorkspacesRoot('/scratch', 'run-1')).toBe(
+      path.join('/scratch', 'workspaces', 'run-1'),
+    );
+    expect(resolveDeepSweDependencyCacheDir('/scratch', 'opa-task')).toBe(
+      path.join('/scratch', 'dependency-cache', 'opa-task'),
+    );
+    expect(
+      resolveDeepSweVerifierWorkspaceRoot('/scratch', 'E__opa-task__r01'),
+    ).toBe(path.join('/scratch', 'verifier-workspaces', 'E__opa-task__r01'));
+    expect(shouldStageDeepSweVerifierCheckout('win32')).toBe(true);
+    expect(shouldStageDeepSweVerifierCheckout('linux')).toBe(false);
   });
 
   it('rejects invalid condition and patch-mode combinations', () => {
@@ -515,6 +548,62 @@ allow_internet = false
     });
   });
 
+  it('classifies baseline compiler failures in patched files as model failures', () => {
+    const verifierLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verifier-'));
+    fs.writeFileSync(path.join(verifierLogDir, 'reward.txt'), '0\n');
+    const patchStats = {
+      files: ['v1/rego/profile_disabled.go'],
+      sourceFiles: 1,
+      testFiles: 0,
+      docFiles: 0,
+      tempFiles: 0,
+      reproductionFiles: 0,
+    };
+
+    expect(
+      classifyVerifierBaselineFailure({
+        patchStats,
+        stderr:
+          '# github.com/open-policy-agent/opa/v1/rego\nv1/rego/profile_disabled.go:6:8: "strings" imported and not used\nv1/rego/profile_disabled.go:166:33: undefined: topdown\n',
+      }),
+    ).toMatchObject({
+      verifier_failure_kind: 'model_build_failure',
+      verifier_model_failure: true,
+      verifier_invalidation_reason: null,
+    });
+
+    expect(
+      classifyVerifierResult({
+        exitCode: 1,
+        verifierLogDir,
+        scorePolicy: 'strict',
+        stdout:
+          '[verifier] Baseline exit code: 1\n[verifier] New tests exit code: 1\n',
+        stderr:
+          '# github.com/open-policy-agent/opa/v1/rego\nv1/rego/profile_disabled.go:6:8: "strings" imported and not used\nv1/rego/profile_disabled.go:166:33: undefined: topdown\n',
+        patchStats,
+      }),
+    ).toMatchObject({
+      score_bucket: 'unresolved',
+      resolved: false,
+      verifier_failure_kind: 'model_build_failure',
+      verifier_model_failure: true,
+      verifier_dependency_failure: false,
+    });
+    expect(
+      classifyVerifierResult({
+        exitCode: 1,
+        verifierLogDir,
+        scorePolicy: 'strict',
+        stdout:
+          '[verifier] Baseline exit code: 1\n[verifier] New tests exit code: 1\n',
+        stderr:
+          '# github.com/open-policy-agent/opa/v1/rego\nv1/rego/profile_disabled.go:6:8: "strings" imported and not used\n',
+        patchStats,
+      }).verifier_invalidation_reason,
+    ).toBeUndefined();
+  });
+
   it('treats native optional package verifier failures as dependency infra', () => {
     const verifierLogDir = fs.mkdtempSync(path.join(os.tmpdir(), 'verifier-'));
     fs.writeFileSync(path.join(verifierLogDir, 'reward.txt'), '0\n');
@@ -554,6 +643,20 @@ allow_internet = false
     expect(
       classifyVerifierBaselinePreflight({
         exitCode: 0,
+        stdout:
+          '[verifier] Applying test.patch\n===== grade =====\n[verifier] reward.json={"reward": 0}\n',
+        stderr: '',
+      }),
+    ).toMatchObject({
+      ok: true,
+      test_patch_applied: true,
+      verifier_completed: true,
+      failure_kind: null,
+    });
+
+    expect(
+      classifyVerifierBaselinePreflight({
+        exitCode: 0,
         stdout: '[verifier] Baseline exit code: 1\n',
         stderr:
           'Cannot find module @rollup/rollup-linux-x64-gnu. npm has a bug related to optional dependencies.',
@@ -582,7 +685,23 @@ allow_internet = false
       inspectNonInteractiveAuthReadiness({
         GEMINI_API_KEY: 'test-key',
       }),
-    ).toMatchObject({ ok: true, hasApiKey: true });
+    ).toMatchObject({ ok: true, hasApiKey: true, authMode: 'legacy' });
+
+    expect(
+      inspectNonInteractiveAuthReadiness({
+        GOOGLE_CLOUD_PROJECT: 'proj',
+        GOOGLE_CLOUD_LOCATION: 'global',
+        GOOGLE_APPLICATION_CREDENTIALS: path.join(
+          os.tmpdir(),
+          'missing-adc.json',
+        ),
+        GOOGLE_API_KEY: 'vertex-key',
+      }),
+    ).toMatchObject({
+      ok: true,
+      authMode: 'vertex-ai',
+      hasVertexProjectLocation: true,
+    });
 
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gemini-auth-'));
     fs.mkdirSync(path.join(root, '.gemini'), { recursive: true });
