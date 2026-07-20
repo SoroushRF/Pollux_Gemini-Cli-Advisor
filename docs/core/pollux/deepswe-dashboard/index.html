@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pollux DeepSWE matrix tracker</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <div>
+          <h1>Pollux DeepSWE matrix tracker</h1>
+          <p class="sub" id="header-sub">Loading ledger…</p>
+        </div>
+        <div class="header-meta" id="header-meta"></div>
+      </header>
+
+      <section class="stat-strip" id="stat-strip" aria-label="Progress stats"></section>
+
+      <section class="panel" id="ops-health" aria-label="Ops health"></section>
+
+      <section class="panel">
+        <h2>Coverage by condition (n=4)</h2>
+        <div id="coverage-bars" class="coverage-bars"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Matrix heat map</h2>
+        <p class="hint">Click a cell to drill down. Color = credited samples 0–4.</p>
+        <div id="heat-map" class="heat-wrap"></div>
+      </section>
+
+      <div class="two-col">
+        <section class="panel">
+          <h2>Fresh5 FD credit</h2>
+          <div id="fresh5-panel"></div>
+        </section>
+        <section class="panel callout">
+          <h2>Fill order</h2>
+          <ol id="fill-order">
+            <li>Finish <strong>FD</strong> — Fresh5 +2 to n=4, then Remaining5 ×4</li>
+            <li>Run <strong>A</strong> × 10 × 4</li>
+            <li>Run <strong>E</strong> × 10 × 4</li>
+          </ol>
+          <p class="hint">Invalids do not count. Prefer n=4; floor n=3.</p>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>Campaigns</h2>
+        <div id="campaign-list" class="table-scroll"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Drill-down <span id="drill-title" class="muted"></span></h2>
+        <div id="drill-down" class="table-scroll">
+          <p class="hint">Select a heat-map cell or campaign row.</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

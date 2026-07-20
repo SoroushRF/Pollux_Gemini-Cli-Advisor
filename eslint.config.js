@@ -394,6 +394,15 @@ export default tseslint.config(
       },
     },
   },
+  // DeepSWE matrix dashboard is browser-side JS served statically
+  {
+    files: ['docs/core/pollux/deepswe-dashboard/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+      },
+    },
+  },
   // extra settings for scripts that we run directly with node
   {
     files: ['packages/vscode-ide-companion/scripts/**/*.js'],
