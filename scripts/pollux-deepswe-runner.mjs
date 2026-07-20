@@ -10,9 +10,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   analyzePatch,
+  applyPolluxVertexEnv,
   buildEntrypointMetadata,
   buildSweBenchmarkSettings,
   classifyRunResult,
+  loadPolluxDotEnvFile,
   resolveCliEntrypoint,
 } from './pollux-swebench-runner-lib.mjs';
 import {
@@ -36,14 +38,21 @@ import {
   loadDeepSweTask,
   normalizeTextForVerifier,
   parseDeepSweRunnerArgs,
+  resolveDeepSweDependencyCacheDir,
+  resolveDeepSweEphemeralWorkspacesRoot,
+  resolveDeepSweVerifierWorkspaceRoot,
   resolveDeepSweTaskDir,
   resolveRepoPath,
   selectDeepSweTasks,
+  shouldStageDeepSweVerifierCheckout,
+  shouldRetainDeepSweWorkspace,
   summarizeDeepSweRecords,
 } from './pollux-deepswe-runner-lib.mjs';
+import { tryUpdateLedgerFromSample } from './pollux-deepswe-ledger-lib.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const repoRoot = path.resolve(path.dirname(__filename), '..');
+loadPolluxDotEnvFile(path.join(repoRoot, '.env'));
 const VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS = 20 * 60 * 1000;
 const authSeedFiles = [
   'oauth_creds.json',
@@ -55,6 +64,21 @@ const authSeedFiles = [
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function noteLedgerSample(runDir, record, args) {
+  if (!record || args?.mode === 'prepare' || args?.mode === 'preflight') {
+    return;
+  }
+  const result = tryUpdateLedgerFromSample(repoRoot, record, {
+    runId: args?.runId ?? path.basename(runDir),
+    runDir,
+    allowCredit: true,
+    source: 'run',
+  });
+  if (!result.ok) {
+    console.warn(`[deepswe] ledger update skipped: ${result.error}`);
+  }
 }
 
 function sleep(ms) {
@@ -318,7 +342,7 @@ function buildCleanGeminiEnv(homeDir) {
   cleanEnv.NO_COLOR = '1';
   cleanEnv.GEMINI_CLI_HOME = homeDir;
   cleanEnv.GEMINI_PTY_INFO = 'child_process';
-  return cleanEnv;
+  return applyPolluxVertexEnv(cleanEnv);
 }
 
 function parseJsonObjects(text) {
@@ -553,42 +577,161 @@ async function ensureBareRepo(task, scratchRoot) {
   return bareDir;
 }
 
-async function createWorktree(task, sampleId, runDir, scratchRoot) {
+async function createWorktree(task, sampleId, workspacesRoot, scratchRoot) {
   const bareDir = await ensureBareRepo(task, scratchRoot);
-  const workDir = path.join(runDir, 'workspaces', sampleId);
+  const workDir = path.join(workspacesRoot, sampleId);
   if (fs.existsSync(workDir)) {
     throw new Error(`Workspace already exists: ${workDir}`);
   }
   ensureDir(path.dirname(workDir));
+  // Share objects with the bare cache instead of cloning a full pack per sample.
   await execFile('git', [
+    '-C',
+    bareDir,
     '-c',
     `safe.directory=${path.resolve(bareDir)}`,
     '-c',
     'core.autocrlf=false',
     '-c',
     'core.longpaths=true',
-    'clone',
-    '--no-checkout',
-    bareDir,
+    'worktree',
+    'add',
+    '--detach',
     workDir,
+    task.baseCommitHash,
   ]);
-  await execFile(
-    'git',
-    [
-      '-c',
-      'core.autocrlf=false',
-      '-c',
-      'core.longpaths=true',
-      'checkout',
-      task.baseCommitHash,
-    ],
-    { cwd: workDir },
-  );
   await gitConfig(['core.autocrlf', 'false'], { cwd: workDir });
   await gitConfig(['core.eol', 'lf'], { cwd: workDir });
   await gitConfig(['core.longpaths', 'true'], { cwd: workDir });
   await assertUsableCheckout(workDir);
-  return workDir;
+  return { workDir, bareDir };
+}
+
+async function createStandaloneVerifierCheckout(
+  task,
+  sampleId,
+  scratchRoot,
+) {
+  const bareDir = await ensureBareRepo(task, scratchRoot);
+  const workDir = resolveDeepSweVerifierWorkspaceRoot(scratchRoot, sampleId);
+  if (fs.existsSync(workDir)) {
+    throw new Error(`Verifier workspace already exists: ${workDir}`);
+  }
+  ensureDir(path.dirname(workDir));
+  try {
+    // A normal checkout gives Docker a .git directory instead of a linked
+    // worktree .git file containing a Windows-only administrative path.
+    await execFile(
+      'git',
+      [
+        '-c',
+        'core.longpaths=true',
+        'clone',
+        '--no-checkout',
+        '--no-hardlinks',
+        bareDir,
+        workDir,
+      ],
+      { cwd: scratchRoot },
+    );
+    await execFile(
+      'git',
+      ['checkout', '--detach', task.baseCommitHash],
+      { cwd: workDir },
+    );
+    await gitConfig(['core.autocrlf', 'false'], { cwd: workDir });
+    await gitConfig(['core.eol', 'lf'], { cwd: workDir });
+    await gitConfig(['core.longpaths', 'true'], { cwd: workDir });
+    await assertUsableCheckout(workDir);
+    return { workDir, staged: true };
+  } catch (error) {
+    if (fs.existsSync(workDir)) {
+      fs.rmSync(workDir, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
+
+async function createVerifierCheckout(
+  task,
+  sampleId,
+  scratchRoot,
+  agentCheckout,
+) {
+  if (!shouldStageDeepSweVerifierCheckout()) {
+    return { ...agentCheckout, staged: false };
+  }
+  return createStandaloneVerifierCheckout(task, sampleId, scratchRoot);
+}
+
+async function removeVerifierCheckout(verifierCheckout) {
+  if (verifierCheckout?.staged && verifierCheckout.workDir) {
+    fs.rmSync(verifierCheckout.workDir, { recursive: true, force: true });
+  }
+}
+
+async function maybePruneVerifierCheckout(args, verifierCheckout) {
+  if (!verifierCheckout?.staged) {
+    return;
+  }
+  if (shouldRetainDeepSweWorkspace(args)) {
+    return;
+  }
+  await removeVerifierCheckout(verifierCheckout);
+}
+
+async function removeWorktree(workDir, bareDir) {
+  if (!workDir) {
+    return;
+  }
+  if (bareDir && fs.existsSync(bareDir) && fs.existsSync(workDir)) {
+    await execFile(
+      'git',
+      [
+        '-C',
+        bareDir,
+        '-c',
+        `safe.directory=${path.resolve(bareDir)}`,
+        'worktree',
+        'remove',
+        '--force',
+        workDir,
+      ],
+      { allowFailure: true },
+    );
+  }
+  if (fs.existsSync(workDir)) {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
+  if (bareDir && fs.existsSync(bareDir)) {
+    await execFile(
+      'git',
+      [
+        '-C',
+        bareDir,
+        '-c',
+        `safe.directory=${path.resolve(bareDir)}`,
+        'worktree',
+        'prune',
+      ],
+      { allowFailure: true },
+    );
+  }
+}
+
+function ephemeralWorkspacesRoot(args) {
+  return resolveDeepSweEphemeralWorkspacesRoot(
+    resolveRepoPath(repoRoot, args.scratchRoot),
+    args.runId,
+  );
+}
+
+async function maybePruneWorktree(args, workDir, bareDir) {
+  if (shouldRetainDeepSweWorkspace(args)) {
+    return false;
+  }
+  await removeWorktree(workDir, bareDir);
+  return true;
 }
 
 async function assertUsableCheckout(workDir) {
@@ -665,9 +808,15 @@ function dependencyPreflightFailed(dependencyPreflight, taskId) {
   return record?.ok === false && record?.required !== false;
 }
 
-function dependencyPreflightCacheDir(dependencyPreflight, taskId) {
+function dependencyPreflightCacheDir(dependencyPreflight, taskId, scratchRoot) {
   const record = dependencyPreflightRecordForTask(dependencyPreflight, taskId);
-  return record?.cacheDir ?? null;
+  if (record?.cacheDir) {
+    return record.cacheDir;
+  }
+  if (!scratchRoot || !taskId) {
+    return null;
+  }
+  return resolveDeepSweDependencyCacheDir(scratchRoot, taskId);
 }
 
 function assertNonInteractiveAuthReady(runDir) {
@@ -678,7 +827,7 @@ function assertNonInteractiveAuthReady(runDir) {
   );
   if (!readiness.ok) {
     throw new Error(
-      `Non-interactive auth preflight failed. Provide GEMINI_API_KEY, GOOGLE_API_KEY, ADC, or Gemini OAuth files. See ${path.join(runDir, 'auth-preflight.json')}.`,
+      `Non-interactive auth preflight failed (expected Vertex AI). Set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION=global, and ADC (gcloud auth application-default login) or GOOGLE_API_KEY. See ${path.join(runDir, 'auth-preflight.json')}.`,
     );
   }
   return readiness;
@@ -776,6 +925,7 @@ async function runVerifier(task, workDir, rawDir, args, options = {}) {
     scorePolicy: args.scorePolicy,
     stdout: result.stdout,
     stderr: result.stderr,
+    patchStats: options.patchStats,
   });
   return { result, classification };
 }
@@ -795,57 +945,125 @@ async function runBaselineVerifierPreflightForTasks(params) {
     const task = loadDeepSweTask(taskDir, taskEntry);
     const rawDir = path.join(preflightRoot, task.taskId);
     ensureDir(rawDir);
-    const workDir = await createWorktree(
-      task,
-      `BASELINE_PREFLIGHT__${task.taskId}`,
-      path.join(runDir, 'baseline-verifier-preflight-workspaces'),
-      resolveRepoPath(repoRoot, args.scratchRoot),
-    );
-    const verifierLogDir = path.join(rawDir, 'verifier');
-    const artifactDir = path.join(rawDir, 'artifacts');
-    ensureDir(verifierLogDir);
-    ensureDir(artifactDir);
-    const testsDir = prepareVerifierTests(task, rawDir);
-    const dependencyCacheDir = dependencyPreflightCacheDir(
-      dependencyPreflight,
-      task.taskId,
-    );
-    const dockerArgs = buildVerifierDockerArgs({
-      dockerImage: task.dockerImage,
-      workDir,
-      testsDir,
-      verifierLogDir,
-      artifactDir,
-      timeoutSec: task.verifierTimeoutSec,
-      dependencyCacheDir,
-      dependencyOffline: !args.networkedVerifierPreflight,
-      network: args.networkedVerifierPreflight ? 'bridge' : 'none',
-    });
-    const installDockerArgs = buildProjectDependencyInstallDockerArgs({
-      dockerImage: task.dockerImage,
-      workDir,
-      dependencyCacheDir,
-      dependencyOffline: false,
-      network: args.networkedVerifierPreflight ? 'bridge' : 'none',
-    });
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-dependency-install-command.json'),
-      `${JSON.stringify({ command: args.dockerCommand, args: installDockerArgs }, null, 2)}\n`,
-    );
-    const installResult = await execFile(args.dockerCommand, installDockerArgs, {
-      cwd: workDir,
-      allowFailure: true,
-      timeoutMs: VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS,
-    });
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
-      installResult.stdout,
-    );
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-dependency-install-stderr.txt'),
-      installResult.stderr,
-    );
-    if (installResult.code !== 0) {
+    const scratchRoot = resolveRepoPath(repoRoot, args.scratchRoot);
+    let workDir = null;
+    let bareDir = null;
+    let agentWorkDir = null;
+    let agentBareDir = null;
+    let verifierCheckout = null;
+    try {
+      const agentCheckout = await createWorktree(
+        task,
+        `BASELINE_PREFLIGHT__${task.taskId}`,
+        ephemeralWorkspacesRoot(args),
+        scratchRoot,
+      );
+      agentWorkDir = agentCheckout.workDir;
+      agentBareDir = agentCheckout.bareDir;
+      verifierCheckout = await createVerifierCheckout(
+        task,
+        `BASELINE_PREFLIGHT__${task.taskId}`,
+        scratchRoot,
+        agentCheckout,
+      );
+      workDir = verifierCheckout.workDir;
+      bareDir = verifierCheckout.bareDir;
+      const verifierLogDir = path.join(rawDir, 'verifier');
+      const artifactDir = path.join(rawDir, 'artifacts');
+      ensureDir(verifierLogDir);
+      ensureDir(artifactDir);
+      const testsDir = prepareVerifierTests(task, rawDir);
+      const dependencyCacheDir = dependencyPreflightCacheDir(
+        dependencyPreflight,
+        task.taskId,
+        scratchRoot,
+      );
+      const dockerArgs = buildVerifierDockerArgs({
+        dockerImage: task.dockerImage,
+        workDir,
+        testsDir,
+        verifierLogDir,
+        artifactDir,
+        timeoutSec: task.verifierTimeoutSec,
+        dependencyCacheDir,
+        dependencyOffline: !args.networkedVerifierPreflight,
+        network: args.networkedVerifierPreflight ? 'bridge' : 'none',
+      });
+      const installDockerArgs = buildProjectDependencyInstallDockerArgs({
+        dockerImage: task.dockerImage,
+        workDir,
+        dependencyCacheDir,
+        dependencyOffline: false,
+        network: args.networkedVerifierPreflight ? 'bridge' : 'none',
+      });
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-dependency-install-command.json'),
+        `${JSON.stringify({ command: args.dockerCommand, args: installDockerArgs }, null, 2)}\n`,
+      );
+      const installResult = await execFile(args.dockerCommand, installDockerArgs, {
+        cwd: workDir,
+        allowFailure: true,
+        timeoutMs: VERIFIER_DEPENDENCY_INSTALL_TIMEOUT_MS,
+      });
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
+        installResult.stdout,
+      );
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-dependency-install-stderr.txt'),
+        installResult.stderr,
+      );
+      if (installResult.code !== 0) {
+        tasks.push({
+          taskId: task.taskId,
+          repository: task.repository,
+          dockerImage: task.dockerImage,
+          workDir,
+          dependencyCacheDir,
+          networked: args.networkedVerifierPreflight,
+          stdoutPath: path.join(
+            rawDir,
+            'baseline-verifier-dependency-install-stdout.txt',
+          ),
+          stderrPath: path.join(
+            rawDir,
+            'baseline-verifier-dependency-install-stderr.txt',
+          ),
+          ok: false,
+          required: true,
+          exitCode: installResult.code,
+          verifier_baseline_exit_code: null,
+          verifier_new_tests_exit_code: null,
+          dependency_failure: true,
+          failure_kind: 'dependency_install_failure',
+        });
+        continue;
+      }
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-preflight-command.json'),
+        `${JSON.stringify({ command: args.dockerCommand, args: dockerArgs }, null, 2)}\n`,
+      );
+      const result = await execFile(args.dockerCommand, dockerArgs, {
+        cwd: workDir,
+        allowFailure: true,
+      });
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
+        result.stdout,
+      );
+      fs.writeFileSync(
+        path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
+        result.stderr,
+      );
+      const classification = classifyVerifierBaselinePreflight({
+        exitCode: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        dependencyPreflightFailed: dependencyPreflightFailed(
+          dependencyPreflight,
+          task.taskId,
+        ),
+      });
       tasks.push({
         taskId: task.taskId,
         repository: task.repository,
@@ -853,54 +1071,30 @@ async function runBaselineVerifierPreflightForTasks(params) {
         workDir,
         dependencyCacheDir,
         networked: args.networkedVerifierPreflight,
-        stdoutPath: path.join(rawDir, 'baseline-verifier-dependency-install-stdout.txt'),
-        stderrPath: path.join(rawDir, 'baseline-verifier-dependency-install-stderr.txt'),
-        ok: false,
-        required: true,
-        exitCode: installResult.code,
-        verifier_baseline_exit_code: null,
-        verifier_new_tests_exit_code: null,
-        dependency_failure: true,
-        failure_kind: 'dependency_install_failure',
+        stdoutPath: path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
+        stderrPath: path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
+        ...classification,
       });
-      continue;
+    } finally {
+      await maybePruneVerifierCheckout(args, verifierCheckout);
+      if (agentWorkDir) {
+        const pruned = await maybePruneWorktree(
+          args,
+          agentWorkDir,
+          agentBareDir,
+        );
+        const last = tasks[tasks.length - 1];
+        if (last && last.taskId === task.taskId) {
+          last.workspace_retained = !pruned;
+          if (pruned) {
+            last.workDir = null;
+          }
+          if (verifierCheckout?.staged) {
+            last.verifier_workspace_staged = true;
+          }
+        }
+      }
     }
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-preflight-command.json'),
-      `${JSON.stringify({ command: args.dockerCommand, args: dockerArgs }, null, 2)}\n`,
-    );
-    const result = await execFile(args.dockerCommand, dockerArgs, {
-      cwd: workDir,
-      allowFailure: true,
-    });
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
-      result.stdout,
-    );
-    fs.writeFileSync(
-      path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
-      result.stderr,
-    );
-    const classification = classifyVerifierBaselinePreflight({
-      exitCode: result.code,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      dependencyPreflightFailed: dependencyPreflightFailed(
-        dependencyPreflight,
-        task.taskId,
-      ),
-    });
-    tasks.push({
-      taskId: task.taskId,
-      repository: task.repository,
-      dockerImage: task.dockerImage,
-      workDir,
-      dependencyCacheDir,
-      networked: args.networkedVerifierPreflight,
-      stdoutPath: path.join(rawDir, 'baseline-verifier-preflight-stdout.txt'),
-      stderrPath: path.join(rawDir, 'baseline-verifier-preflight-stderr.txt'),
-      ...classification,
-    });
   }
   const report = {
     generatedAt: new Date().toISOString(),
@@ -937,7 +1131,10 @@ async function runDependencyPreflightForTasks(params) {
       taskId: task.taskId,
       repository: task.repository,
     });
-    const cacheDir = path.join(rawDir, 'dependency-cache');
+    const cacheDir = resolveDeepSweDependencyCacheDir(
+      resolveRepoPath(repoRoot, args.scratchRoot),
+      task.taskId,
+    );
     ensureDir(cacheDir);
     const command =
       args.dependencyWarmup && spec.warmupCommand
@@ -1045,6 +1242,11 @@ function telemetryFieldsFromSource(record) {
     totalTokens: record.totalTokens ?? 0,
     advisorCalls: record.advisorCalls ?? 0,
   };
+}
+
+function telemetryFieldsFromSourceRawDir(sourceRawDir, record) {
+  const telemetry = summarizeTelemetry(path.join(sourceRawDir, 'telemetry.log'));
+  return telemetry.apiResponses > 0 ? telemetry : telemetryFieldsFromSource(record);
 }
 
 async function collectEntrypointMetadata(cliEntrypoint) {
@@ -1222,12 +1424,19 @@ async function runOne(params) {
   const homeGeminiDir = path.join(homeDir, '.gemini');
   const telemetryPath = path.join(rawDir, 'telemetry.log');
   const tracePath = path.join(rawDir, 'pollux-trace.jsonl');
-  const workDir = await createWorktree(
-    task,
-    sampleId,
-    runDir,
-    resolveRepoPath(repoRoot, args.scratchRoot),
-  );
+  const scratchRoot = resolveRepoPath(repoRoot, args.scratchRoot);
+  let workDir = null;
+  let bareDir = null;
+  let verifierCheckout = null;
+  try {
+    const created = await createWorktree(
+      task,
+      sampleId,
+      ephemeralWorkspacesRoot(args),
+      scratchRoot,
+    );
+    workDir = created.workDir;
+    bareDir = created.bareDir;
   const geminiDir = path.join(workDir, '.gemini');
   ensureDir(geminiDir);
   ensureDir(homeGeminiDir);
@@ -1284,6 +1493,7 @@ async function runOne(params) {
       model_patch: '',
       prepared_only: true,
       work_dir: workDir,
+      workspace_retained: true,
       tracked_files: files.stdout.trim().split(/\r?\n/g).filter(Boolean).length,
       timed_out: false,
       exit_code: 0,
@@ -1360,6 +1570,7 @@ async function runOne(params) {
     );
   }
   fs.writeFileSync(path.join(rawDir, 'model.patch'), patch);
+  const patchStats = analyzePatch(patch);
   const contractHazards = analyzeContractChecklistHazards(
     patch,
     contractChecklist,
@@ -1426,12 +1637,30 @@ async function runOne(params) {
 
   let verifier = null;
   let verifierClassification = {};
+  let verifierCheckout = null;
   if (
     classification.valid_for_score ||
     args.goldPatchMode ||
     args.nullPatchMode
   ) {
-    verifier = await runVerifier(task, workDir, rawDir, args, {
+    verifierCheckout = await createVerifierCheckout(
+      task,
+      sampleId,
+      scratchRoot,
+      { workDir, bareDir },
+    );
+    if (!args.nullPatchMode && patch.trim().length > 0) {
+      const verifierPatch = await applyModelPatch(
+        path.join(rawDir, 'model.patch'),
+        verifierCheckout.workDir,
+      );
+      if (verifierPatch.code !== 0) {
+        throw new Error(
+          `Failed to stage model patch for verifier checkout ${task.taskId}: ${verifierPatch.stderr || verifierPatch.stdout}`,
+        );
+      }
+    }
+    verifier = await runVerifier(task, verifierCheckout.workDir, rawDir, args, {
       dependencyPreflightFailed: dependencyPreflightFailed(
         params.dependencyPreflight,
         task.taskId,
@@ -1439,7 +1668,9 @@ async function runOne(params) {
       dependencyCacheDir: dependencyPreflightCacheDir(
         params.dependencyPreflight,
         task.taskId,
+        scratchRoot,
       ),
+      patchStats,
       ...finalVerifierNetworkPolicy(args),
     });
     verifierClassification = verifier.classification;
@@ -1477,6 +1708,9 @@ async function runOne(params) {
     ...classification,
     verifier_exit_code: verifier?.result.code ?? null,
     ...verifierClassification,
+    ...(verifierCheckout?.staged
+      ? { verifier_workspace_staged: true }
+      : {}),
   };
   if (record.valid_for_score && verifierClassification.score_bucket) {
     record.score_bucket = verifierClassification.score_bucket;
@@ -1486,11 +1720,26 @@ async function runOne(params) {
     record.invalidation_reason ??=
       verifierClassification.verifier_invalidation_reason;
   }
+  await maybePruneVerifierCheckout(args, verifierCheckout);
+  const pruned = await maybePruneWorktree(args, workDir, bareDir);
+  record.workspace_retained = !pruned;
+  if (pruned) {
+    record.work_dir = null;
+    workDir = null;
+  }
   fs.writeFileSync(
     path.join(rawDir, 'run.json'),
     `${JSON.stringify(record, null, 2)}\n`,
   );
   return record;
+  } finally {
+    if (verifierCheckout) {
+      await maybePruneVerifierCheckout(args, verifierCheckout);
+    }
+    if (workDir) {
+      await maybePruneWorktree(args, workDir, bareDir);
+    }
+  }
 }
 
 async function rescoreOne(params) {
@@ -1592,7 +1841,7 @@ async function rescoreOne(params) {
       approvalModeAnalysis.approval_mode_source_write_attempted,
     approval_mode_execution_after_exit:
       approvalModeAnalysis.approval_mode_execution_after_exit,
-    ...telemetryFieldsFromSource(sourceRecord),
+    ...telemetryFieldsFromSourceRawDir(sourceRawDir, sourceRecord),
   };
 
   const patchStats = analyzePatch(patch);
@@ -1625,12 +1874,18 @@ async function rescoreOne(params) {
     return record;
   }
 
-  const workDir = await createWorktree(
-    task,
-    sampleId,
-    runDir,
-    resolveRepoPath(repoRoot, args.scratchRoot),
-  );
+  const scratchRoot = resolveRepoPath(repoRoot, args.scratchRoot);
+  let workDir = null;
+  let bareDir = null;
+  try {
+    const created = await createWorktree(
+      task,
+      sampleId,
+      ephemeralWorkspacesRoot(args),
+      scratchRoot,
+    );
+    workDir = created.workDir;
+    bareDir = created.bareDir;
   const applyResult = await applyModelPatch(
     path.join(rawDir, 'model.patch'),
     workDir,
@@ -1638,11 +1893,13 @@ async function rescoreOne(params) {
   fs.writeFileSync(path.join(rawDir, 'patch-apply-stdout.txt'), applyResult.stdout);
   fs.writeFileSync(path.join(rawDir, 'patch-apply-stderr.txt'), applyResult.stderr);
   if (applyResult.code !== 0) {
+    const pruned = await maybePruneWorktree(args, workDir, bareDir);
     const record = {
       ...baseRecord,
       model_patch: patch,
       patch_apply_status: 'patch_apply_failed',
-      work_dir: workDir,
+      work_dir: pruned ? null : workDir,
+      workspace_retained: !pruned,
       timed_out: false,
       termination_reason: null,
       exit_code: 0,
@@ -1659,6 +1916,9 @@ async function rescoreOne(params) {
       verifier_skipped: true,
       resolved: false,
     };
+    if (pruned) {
+      workDir = null;
+    }
     fs.writeFileSync(
       path.join(rawDir, 'run.json'),
       `${JSON.stringify(record, null, 2)}\n`,
@@ -1692,8 +1952,25 @@ async function rescoreOne(params) {
     classification.warnings ?? [],
     contractHazards.length > 0 ? ['contract_forbidden_pattern'] : [],
   );
+  verifierCheckout = classification.valid_for_score
+    ? await createVerifierCheckout(task, sampleId, scratchRoot, {
+        workDir,
+        bareDir,
+      })
+    : null;
+  if (verifierCheckout?.staged) {
+    const verifierPatch = await applyModelPatch(
+      path.join(rawDir, 'model.patch'),
+      verifierCheckout.workDir,
+    );
+    if (verifierPatch.code !== 0) {
+      throw new Error(
+        `Failed to stage model patch for rescore verifier checkout ${task.taskId}: ${verifierPatch.stderr || verifierPatch.stdout}`,
+      );
+    }
+  }
   const verifier = classification.valid_for_score
-    ? await runVerifier(task, workDir, rawDir, args, {
+    ? await runVerifier(task, verifierCheckout.workDir, rawDir, args, {
         dependencyPreflightFailed: dependencyPreflightFailed(
           params.dependencyPreflight,
           task.taskId,
@@ -1701,7 +1978,9 @@ async function rescoreOne(params) {
         dependencyCacheDir: dependencyPreflightCacheDir(
           params.dependencyPreflight,
           task.taskId,
+          scratchRoot,
         ),
+        patchStats,
         ...finalVerifierNetworkPolicy(args),
       })
     : null;
@@ -1722,6 +2001,9 @@ async function rescoreOne(params) {
     warnings: mergedWarnings,
     verifier_exit_code: verifier?.result.code ?? null,
     ...verifierClassification,
+    ...(verifierCheckout?.staged
+      ? { verifier_workspace_staged: true }
+      : {}),
   };
   if (record.valid_for_score && verifierClassification.score_bucket) {
     record.score_bucket = verifierClassification.score_bucket;
@@ -1731,11 +2013,26 @@ async function rescoreOne(params) {
     record.invalidation_reason ??=
       verifierClassification.verifier_invalidation_reason;
   }
+  await maybePruneVerifierCheckout(args, verifierCheckout);
+  const pruned = await maybePruneWorktree(args, workDir, bareDir);
+  record.workspace_retained = !pruned;
+  if (pruned) {
+    record.work_dir = null;
+    workDir = null;
+  }
   fs.writeFileSync(
     path.join(rawDir, 'run.json'),
     `${JSON.stringify(record, null, 2)}\n`,
   );
   return record;
+  } finally {
+    if (verifierCheckout) {
+      await maybePruneVerifierCheckout(args, verifierCheckout);
+    }
+    if (workDir) {
+      await maybePruneWorktree(args, workDir, bareDir);
+    }
+  }
 }
 
 function writeConditionArtifacts(runDir, conditionId, records) {
@@ -1801,6 +2098,10 @@ function buildRunnerExceptionRecord({
   ensureDir(rawDir);
   const message = error instanceof Error ? error.stack : String(error);
   fs.writeFileSync(path.join(rawDir, 'runner-error.txt'), `${message}\n`);
+  const patchPath = path.join(rawDir, 'model.patch');
+  const patch = fs.existsSync(patchPath) ? fs.readFileSync(patchPath, 'utf8') : '';
+  const patchStats = analyzePatch(patch);
+  const telemetry = summarizeTelemetry(path.join(rawDir, 'telemetry.log'));
   const record = {
     task_id: task.taskId,
     sample_id: sampleId,
@@ -1811,21 +2112,17 @@ function buildRunnerExceptionRecord({
     lane: 'secondary',
     model_name_or_path: `pollux-${condition.id.toLowerCase()}-${condition.modelName}`,
     score_policy: args.scorePolicy,
-    model_patch: '',
+    model_patch: patch,
     work_dir: null,
     timed_out: false,
     termination_reason: null,
     exit_code: null,
-    patch_chars: 0,
-    apiResponses: 0,
-    executorTokens: 0,
-    advisorTokens: 0,
-    totalTokens: 0,
-    advisorCalls: 0,
+    patch_chars: patch.length,
+    ...telemetry,
     valid_for_score: false,
     invalidation_reason: 'runner_exception',
     score_bucket: 'invalid',
-    patch_stats: analyzePatch(''),
+    patch_stats: patchStats,
     warnings: ['runner_exception'],
     runner_error: firstLine(message),
     verifier_exit_code: null,
@@ -1895,9 +2192,13 @@ async function main() {
     `${JSON.stringify(preflight, null, 2)}\n`,
   );
 
+  // Auth readiness is checked for both preflight and run modes.
+  assertNonInteractiveAuthReady(runDir);
+
   if (args.mode === 'preflight' && !args.dependencyPreflight) {
     console.log(`[deepswe] preflight ${preflight.ok ? 'ok' : 'failed'}`);
     console.log(`[deepswe] wrote ${path.join(runDir, 'preflight.json')}`);
+    console.log(`[deepswe] wrote ${path.join(runDir, 'auth-preflight.json')}`);
     if (!preflight.ok) {
       process.exitCode = 1;
     }
@@ -1980,9 +2281,6 @@ async function main() {
       `Dependency preflight failed. See ${path.join(runDir, 'dependency-preflight.json')}.`,
     );
   }
-  if (args.mode === 'run') {
-    assertNonInteractiveAuthReady(runDir);
-  }
   const baselineVerifierPreflight =
     args.baselineVerifierPreflight && args.mode === 'run'
       ? await runBaselineVerifierPreflightForTasks({
@@ -2006,6 +2304,7 @@ async function main() {
         runId: args.runId,
         benchmark: 'DeepSWE',
         lane: 'secondary',
+        ledgerCredit: true,
         taskManifest: args.taskManifest,
         deepsweRepo: args.deepsweRepo,
         deepsweGitSha,
@@ -2135,6 +2434,7 @@ async function main() {
           `${JSON.stringify(record, null, 2)}\n`,
         );
       }
+      noteLedgerSample(runDir, record, args);
       byCondition.get(condition.id).push(record);
       writeConditionArtifacts(
         runDir,
