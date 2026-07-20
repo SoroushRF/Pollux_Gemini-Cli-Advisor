@@ -240,7 +240,10 @@ export async function runPolluxRealM3CalibrationCli() {
     pricingSnapshotPath: parseArg('--pricing-snapshot'),
     binaryPath: parseArg('--binary-path'),
     entrypointPreference: parseEntrypointPreference(parseArg('--entrypoint')),
-    keepScratchDirectories: parseBooleanArg('--keep-scratch-directories', true),
+    keepScratchDirectories: parseBooleanArg(
+      '--keep-scratch-directories',
+      false,
+    ),
     maxWallClockMs: parsePositiveNumberArg('--max-wall-clock-ms'),
     maxModelResponsesPerSample: parsePositiveNumberArg('--max-model-responses'),
     allowOverwrite: parseBooleanArg('--allow-overwrite', false),

@@ -1508,7 +1508,7 @@ export class PolluxLiveRunRig {
     this.pricingSnapshot = options.pricingSnapshot;
     this.binaryPath = options.binaryPath;
     this.entrypointPreference = options.entrypointPreference;
-    this.keepScratchDirectories = options.keepScratchDirectories ?? true;
+    this.keepScratchDirectories = options.keepScratchDirectories ?? false;
     this.maxWallClockMs = positiveNumberOrFallback(
       options.maxWallClockMs ??
         Number(process.env['POLLUX_REAL_SAMPLE_TIMEOUT_MS'] ?? 600_000),
